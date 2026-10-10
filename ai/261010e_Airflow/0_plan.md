@@ -122,7 +122,8 @@ Raw rows exactly as a submittal prints them, plus a fitted decay curve per row.
 
 - **Envelope velocities follow the unit system,** not a strict conversion: IP shows the usual **150 / 100 / 50
   fpm**, SI the usual **0.75 / 0.5 / 0.25 m/s** (150 fpm is 0.76 m/s). Because every row has a fitted curve,
-  BimGo computes either set from either catalog. The draft limit default is 50 fpm or 0.25 m/s accordingly.
+  BimGo computes either set from either catalog. Draft checking is temperature-aware (§3 step 4); its simple
+  mode defaults to 50 / 70 fpm or 0.25 / 0.35 m/s (cooling / heating).
 - **Catalog files declare their units** (`"units": "IP"` or `"SI"`), and SI catalogs list their own terminal
   velocities (`"throw": { "0.75": 1.6, "0.5": 2.5, "0.25": 4.1 }`, in m). The fit doesn't care which.
 - **Nominal sizes are not conversions:** an 8 in neck is 203 mm, a metric 200 mm neck is a different product.
@@ -239,18 +240,54 @@ For every supply terminal and every open side:
    - **Terminal:** velocity falls under the still-air threshold (~25 fpm / 0.125 m/s): the jet ends.
 3. **Falling jets** (after a wall, obstruction or collision) continue as a free jet down to the floor, stopping
    on furniture / casework tops (BVH hit).
-4. **Draft check:** wherever a path is inside the **occupied zone** with velocity above the **draft limit**
-   (50 fpm / 0.25 m/s default, a setting) → a finding.
-   - **Zone default: ASHRAE 62.1 *breathing zone*** (decided 2026-10-10): 3 in to 72 in (75 to 1,800 mm) above
-     the floor, more than 2 ft (600 mm) from walls and fixed air-conditioning equipment.
+4. **Draft check: temperature and speed together** (decided 2026-10-10: cooling must allow less speed than
+   heating). A fixed velocity limit can't do that, so the check uses the **effective draft temperature** (EDT),
+   the comfort index behind ADPI (ASHRAE Fundamentals, *Space Air Diffusion*):
+   - IP: `EDT = (t_x − t_room) − 0.07 · (V_x − 30)` (°F, fpm). SI: `EDT = (t_x − t_room) − 8 · (V_x − 0.15)`
+     (K, m/s).
+   - **Comfortable** when −3 °F < EDT < +2 °F (−1.7 K to +1.1 K) **and** V_x < 70 fpm (0.35 m/s); otherwise a
+     finding: *cold draft* (EDT too low) or *warm / too fast* (EDT too high or speed over the cap).
+   - **Jet temperature** `t_x` decays with the velocity: `(t_x − t_room) / (t_supply − t_room) ≈ 0.8 · V_x / V_0`
+     (setting, default 0.8), using the same fitted curve.
+   - **Effect:** a cold jet already carries a negative temperature difference, so it fails at a lower speed than a
+     warm one: in cooling, the limit at the edge of the zone works out near 50 fpm or lower; in heating, speeds
+     up to the 70 fpm cap can pass. That's the behaviour asked for, from one formula.
+   - **Inputs** (airflow panel, saved per model): **Mode** Cooling / Heating; **supply air temperature**;
+     **room setpoint**. Defaults: cooling 55 °F (13 °C) supply, 75 °F (24 °C) room; heating 90 °F (32 °C) supply,
+     70 °F (21 °C) room. Per-terminal supply temperature can come later (e.g. from a parameter).
+   - **Simple mode** (a toggle): a fixed limit per mode instead of EDT, default 50 fpm / 0.25 m/s cooling and
+     70 fpm / 0.35 m/s heating, for users who want a plain velocity check.
+   - **To check before shipping:** the EDT constants, comfort band, 70 fpm cap and the 0.8 temperature-decay
+     ratio are quoted from memory of ASHRAE Fundamentals; confirm them against the current edition.
+   - The same supply / room temperatures drive the cold-jet separation and heating behaviour planned for later
+     (Archimedes number), so those inputs are needed only once.
+
+   **The zone the check applies in:**
+   - **Default: ASHRAE 62.1 *breathing zone*** (decided 2026-10-10): 3 in to 72 in (75 to 1,800 mm) above the
+     floor, more than 2 ft (600 mm) from walls and fixed air-conditioning equipment. One setback for every wall,
+     so it needs no exterior / interior information.
    - 62.1 is the ventilation standard; draft comfort is ASHRAE 55's subject. Older editions of 55 define an
      *occupied zone* of floor to 6 ft (1.8 m), 3.3 ft (1 m) from exterior walls / windows and fixed HVAC
-     equipment, 1 ft (0.3 m) from interior walls. Offer it as a second preset; check the current 55 edition
+     equipment, 1 ft (0.3 m) from interior walls. Offered as a second preset; check the current 55 edition
      before shipping its numbers.
-   - A **Custom** preset with every value editable. Wall setbacks need exterior vs interior walls: read the
-     wall type's *Function* parameter at extraction (stored per element, additive).
+   - A **Custom** preset with every value editable.
    - Presets are named after the standard with its edition, e.g. "ASHRAE 62.1 breathing zone", so the user knows
      where the numbers come from.
+
+   **Exterior or interior wall** (only the 55 preset and Custom need it). The wall type's *Function* parameter
+   can't be trusted: many templates leave every wall at the default. So BimGo decides from the geometry,
+   reusing the daylight study's ray classification (`DaylightRay`: sky / ground / outside surface / own room):
+   1. **Glazing:** curtain walls, and walls hosting windows or doors to the outside, are exterior.
+   2. **Rays:** from a grid of points on the wall's room-facing side, cast rays through to the far side and out
+      across a hemisphere (glass passes). If most escape to sky or ground without re-entering a room or hitting
+      the model again, the wall is exterior. Works without Revit rooms (rooms only refine "far side is
+      inside").
+   3. **Tie-break:** the *Function* parameter, only when the ray test is split.
+   4. **Override:** Scan a wall → *Mark exterior / interior*; saved per model (model folder / `.bimgo`, additive),
+      like texture overrides. The zone overlay shows exterior walls in a different colour so mistakes are easy to
+      spot.
+   Computed once per model when the 55 preset or Custom first needs it, then cached; recomputed after F5 for
+   walls that changed.
 5. **Room figures:** throw ratio T50 / L per terminal (L = distance to the wall or to halfway to the next
    terminal) and an indicative ADPI band. ASHRAE gives about 0.8 as the best T50 / L for ceiling diffusers;
    confirm the acceptable range against the table before showing pass / fail.
@@ -393,9 +430,9 @@ e.g. a connection that breaks without an error.
 | Round | Scope | Done when |
 |---|---|---|
 | **AF1: data + readout** | `Units` (IP / SI), `AirTerminals`, `DiffuserCatalog` (built-in generic, CSV / JSON import, fit, interpolation), `air.json` read / write, `SceneExtractor.Air.cs`, Scan gun readout + throw graph, ceiling envelopes (straight runs, no events) | A real model's diffusers show catalog throw envelopes and correct readouts; Core tests green |
-| **AF2: trace + findings** | `AirflowTrace` (walls, obstructions, collisions, falling jets, occupied zone presets (62.1 breathing zone default, 55, custom) + wall function, draft limit, T50 / L), paths and markers, findings panel → comments / BCF, settings | Draft risks found in a test room match a hand calculation from the catalog table |
+| **AF2: trace + findings** | `AirflowTrace` (walls, obstructions, collisions, falling jets, occupied zone presets (62.1 breathing zone default, 55, custom) + exterior wall detection (rays, glazing, override), EDT draft check with cooling / heating + simple mode, T50 / L), paths and markers, findings panel → comments / BCF, settings | Draft risks found in a test room match a hand calculation from the catalog table |
 | **AF3: edits** | `SetFlow` op (live, journal, undo / redo, push + conflicts), CFM editor with live preview, Air Terminals in the family library, ceiling X-ray + plenum check, unhosted-at-ceiling placement (default) + hosted and free-at-elevation options, Re-seat all + connected / unconnected readout (§5.4), BimGo diffuser families + Diffusers tab in the Place gun + `family.load` (live) / load-on-push (file) + built-in templates + ribbon **Load diffusers…** + family checker (§2.5), orphan / off-ceiling flags + re-seat, grid snap | CFM changed in BimGo appears in Revit's schedule; a diffuser placed in BimGo shows its envelope at once |
-| **AF4: extras** (optional) | Smoke particles, occupied-zone heatmap, cold-jet separation / heating mode, OpenFOAM export | Chosen with the user after AF3 |
+| **AF4: extras** (optional) | Smoke particles, occupied-zone heatmap, cold-jet separation (Archimedes number, same temperatures), OpenFOAM export | Chosen with the user after AF3 |
 
 Fit with the main plan: after Rounds A and B (presentation, review tools) or between them; the user decides.
 AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
@@ -412,7 +449,7 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 | Core | `Scene/AirflowTrace.cs` | Trace + events over an injected geometry query |
 | Core | `Format/…` | `air.json` entry in reader / writer; `setflow` in `EditJournal` |
 | Core | `Edits/EditMessages.cs` | `EditOp.SetFlow`, optional `Value` |
-| Core | `Scene/LaunchSettings.cs` | Airflow settings (draft limit, zone, band factor, units), sanitised |
+| Core | `Scene/LaunchSettings.cs` | Airflow settings (mode, supply / room temperatures, EDT or simple limits, zone preset, band factor, units), sanitised |
 | Revit | `Extraction/SceneExtractor.Air.cs` | Air Terminals: position, normal, sizes, flow, role, pattern, catalog match |
 | Revit | `Extraction/FamilyCheck.cs` | Rates air terminal families against the spec or a profile (§2.5) |
 | Core | `Scene/DiffuserProfiles.cs` + built-in `DiffuserProfiles.json` | Parameter / origin / pattern / catalog mappings for known families (Autodesk defaults, firm families) |
@@ -461,12 +498,12 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 - `Document.LoadFamilySymbol` for single types vs `LoadFamily` (which loads every type); loading during a live
   session through the `ExternalEvent`, then the template pass for just the new types.
 - Parameter names, origins and placement types of the Autodesk default diffusers chosen, for their profiles;
-  the wall type *Function* parameter (`FUNCTION_PARAM`) for exterior / interior setbacks.
+  the wall type *Function* parameter (`FUNCTION_PARAM`), tie-break only; doors / windows' host walls for glazing.
 - `doc.GetUnits().GetFormatOptions(SpecTypeId.AirFlow / SpecTypeId.Length).GetUnitTypeId()` on 2025–2027.
 
 ## 9. Questions to stage (AskUserQuestion, recommendation first)
 
-1. **Draft limit default:** 50 fpm / 0.25 m/s (recommended), or a lower limit for heating?
+1. **Draft check default:** EDT with cooling / heating (recommended) or the simple velocity limits?
 2. **Return / exhaust grilles:** show them (capture zone only, no throw) or ignore in AF1?
 3. **Linear slot diffusers and sidewall grilles:** in scope for the catalog schema now (recommended: schema yes,
    built-in data no), or square ceiling diffusers only?
