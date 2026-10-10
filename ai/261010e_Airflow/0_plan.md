@@ -21,6 +21,9 @@ design-review aid built on the same catalog throw data engineers already select 
 | Catalog data | A generic, built-in **3-cone square, 4-way** family (illustrative values, clearly labelled), plus user-imported catalogs (CSV / JSON). No manufacturer tables shipped without permission |
 | CFM | **Editable in BimGo and written to the Revit model**: a new additive edit op, live (one undo step in Revit) or in the file journal (pushed later) |
 | Placing diffusers | **Uses the existing Place gun / family library**, not a new tool. Air Terminals added to the library. **Unhosted at the aimed ceiling's bottom elevation by default**, hosted to the ceiling face as an option (§5.3). Moving / copying / deleting already work through Gizmo / Clone / Demolish |
+| Units | **IP and SI from the start** (decided 2026-10-10): SI internally, every input / readout / catalog / family set in either (§2.4) |
+| Diffuser families | A **BimGo diffuser family set** known to work, plus a checker that rates any other family against the same spec (§2.5) |
+| Moving connected diffusers | **Keep today's behaviour** (decided 2026-10-10): any Revit error rolls the move back, so Revit never deletes a duct (§5.4) |
 | Changes made in Revit | The existing **model changed → F5 refresh** brings new terminals, flows and sizes in. No new sync path |
 | Dependencies | None. Pure C# maths in Core, drawing via `Overlay3D` / `UiBatch`. No new folders outside `ai/` |
 | Compatibility | `.bimgo` `formatVersion` stays 1 (new optional `air.json` entry); live protocol stays 1 (new optional edit op, same pattern as `Place`) |
@@ -94,6 +97,78 @@ Raw rows exactly as a submittal prints them, plus a fitted decay curve per row.
 - **Pattern split:** flow divides evenly over open sides; a side blanked by a baffle hands its share to the others.
 - **Near field:** for `x` under ~3 neck diameters velocity is capped at the face velocity (no singularity).
 
+### 2.4 Units: IP and SI
+
+- **Internally SI** everywhere in Core: m, m/s, L/s, Pa. Conversion only at the edges (catalog import, readouts,
+  inputs, CSV export). One Core helper, `Scene/Units.cs`, with the factors and formatting:
+  1 CFM = 0.471947 L/s · 1 fpm = 0.00508 m/s · 1 in wg = 249.089 Pa · 1 ft = 0.3048 m · 1 in = 25.4 mm.
+- **One setting:** IP / SI in Options → Airflow, defaulting from the Revit project's units when a live session
+  starts. The main plan's Round B metric / imperial setting adopts the same `Units` helper (whichever round is
+  built first creates it; the other reuses it), so there is one switch in the end.
+- **Readouts and inputs:**
+
+  | Quantity | IP | SI |
+  |---|---|---|
+  | Flow | CFM | L/s (m³/h as an option) |
+  | Velocity | fpm | m/s |
+  | Pressure | in wg | Pa |
+  | Throw, distances | ft (ft-in for elevations) | m (mm for elevations) |
+  | Neck / face | in | mm |
+  | CFM editor step | 10 CFM (Shift ×5) | 5 L/s (Shift ×5) |
+
+- **Envelope velocities follow the unit system,** not a strict conversion: IP shows the usual **150 / 100 / 50
+  fpm**, SI the usual **0.75 / 0.5 / 0.25 m/s** (150 fpm is 0.76 m/s). Because every row has a fitted curve,
+  BimGo computes either set from either catalog. The draft limit default is 50 fpm or 0.25 m/s accordingly.
+- **Catalog files declare their units** (`"units": "IP"` or `"SI"`), and SI catalogs list their own terminal
+  velocities (`"throw": { "0.75": 1.6, "0.5": 2.5, "0.25": 4.1 }`, in m). The fit doesn't care which.
+- **Nominal sizes are not conversions:** an 8 in neck is 203 mm, a metric 200 mm neck is a different product.
+  Necks and faces match on the nearest catalog size within a tolerance (5 %), never by converting the name.
+  The built-in generic catalog has an IP size range (6–16 in necks, 12 / 24 in faces) and an SI range (150–400 mm
+  necks, 300 / 600 mm faces).
+- **Noise:** NC in both. SI catalogs that give NR store it as well; the readout shows whichever the row has.
+- **Tests:** every conversion both ways, an IP and an SI catalog of the same product giving the same curve, and
+  round trips of `air.json` and catalog CSV in both systems.
+
+### 2.5 BimGo diffuser families (known to work)
+
+**Why:** most of the guessing in this plan (where the face is, which parameter is flow, neck size, pattern,
+hosted or not) disappears with families built to one spec. Firms will still use their own, so BimGo also checks
+any family against the same spec.
+
+**The family set** (authored in Revit by Gavin, saved in Revit 2025 so 2026 / 2027 upgrade them on load, MIT-0
+like the rest of BimGo; plain generic geometry, no manufacturer branding or data):
+
+| Family | Types | Placement |
+|---|---|---|
+| `BimGo Square Cone Diffuser` | IP: 12×12 and 24×24 face × 6–16 in necks · SI: 300×300 and 600×600 × 150–400 mm necks | Unhosted (level-based) |
+| `BimGo Square Cone Diffuser (Face Hosted)` | Same types | Face-based, for the hosted mode |
+| Later | 1 / 2 / 3-way louvered face, linear slot, return / exhaust grille, sidewall grille | Both |
+
+**The spec** (what makes a family "BimGo-ready"):
+1. Category **Air Terminals**; unhosted = level-based, hosted = face-based work plane.
+2. **Origin at the centre of the face, face at Z = 0**, X along a side: placement and the flush offset need no
+   guessing.
+3. **One duct connector** on top, system classification Supply Air (Return / Exhaust for grilles), flow
+   configuration Preset, its flow linked to an **instance** parameter **Flow** (so `SetFlow` can write it) and its
+   size linked to **Neck Diameter** (or **Neck Width** / **Neck Height**).
+4. Type parameters **Face Width**, **Face Length**, **Pattern** (text: `4way` …) and **BimGo Catalog Key** (text,
+   matches a catalog family key exactly, so no keyword matching is needed).
+5. Optional instance parameter **Blanked Sides** (text, e.g. `N,E`) for corner and wall-side diffusers.
+6. Type names carry the units: `24x24 - 8in Neck` / `600x600 - 200mm Neck`.
+
+**Getting them into a project:**
+- Revit ribbon → BimGo → **Load diffusers…**: pick IP or SI types, `doc.LoadFamily` in one transaction (the
+  user's own action; existing types are never overwritten). They then appear in the Place gun's library.
+- The `.rfa` files ship with the add-in (a `Families` folder beside it; **a new folder: needs Gavin's yes**) and
+  are listed in `THIRD-PARTY-NOTICES.txt` as BimGo's own.
+
+**The checker** (runs during extraction, Revit side):
+- Rates each loaded air terminal family **Ready** (meets the spec), **Works with guesses** (BimGo can place it
+  and read flow, but estimates face offset, size or pattern) or **Can't place** (ceiling-hosted in unhosted mode,
+  unsupported placement type, no readable flow), with the reasons.
+- Shown as a badge in the Place gun's library and the Scan gun's readout, and as a CSV report from the airflow
+  panel, so a firm can fix its own families to the spec.
+
 ---
 
 ## 3. The airflow trace (Core: `Scene/AirflowTrace.cs`)
@@ -147,7 +222,7 @@ occupied-zone velocity heatmap on the Sun Hours grid, a per-room coarse solver o
 | **Ceiling X-ray** | A toggle (pause menu and a key, picked in the hotkey review; on automatically while the Place gun holds an air terminal): every Ceilings element draws see-through (~20 % opacity, no depth write, outlines kept) or hidden, the user's choice. Ceilings still take aim, so placement lands on them. Builds on the existing hide / isolate code in `GameSession.Visibility`, which only hides whole elements today |
 | **Plenum check** | With X-ray on and a terminal held, a vertical probe from the aimed ceiling point up to the slab: lists what is above (ducts, pipes, beams, light housings, sprinklers, cable tray) with the clear height, and turns the placement marker amber / red when the clear height is below the terminal's needed depth (family height + a plenum allowance, a setting). Only sees categories that were loaded, so the readout says which MEP / structure categories are off |
 | **Smoke mode** (round 4) | Particles riding the paths at a speed proportional to velocity, preallocated buffers, no per-frame allocations |
-| **Units** | Follows the planned metric / imperial setting (Round B of the main plan); until then a local CFM ↔ L/s toggle in the airflow panel |
+| **Units** | IP / SI setting (§2.4); every readout, input, graph axis and envelope set follows it |
 
 ---
 
@@ -175,7 +250,8 @@ except making the airflow overlay rebuild after a refresh.
 
 ### 5.3 Placing diffusers (existing Place gun)
 
-- **Library:** add Air Terminals to the family library categories so diffuser types show in the Place gun.
+- **Library:** add Air Terminals to the family library categories so diffuser types show in the Place gun, with
+  the checker's badge (§2.5). The BimGo families need none of the guessing below; other families fall back to it.
 - **Three placement modes** (Options → Airflow, default **Unhosted at ceiling**; a key while holding a terminal
   cycles them for that placement, picked in the hotkey review; the readout shows the current mode):
 
@@ -234,53 +310,27 @@ except making the airflow overlay rebuild after a refresh.
 - **Flow on a new terminal:** the family's default; it isn't connected to ductwork, so the readout marks it
   *unconnected* and the user sets CFM with `SetFlow`. Connecting ducts stays a Revit job.
 
-### 5.4 Moving connected diffusers safely
+### 5.4 Moving connected diffusers (decided 2026-10-10: keep today's behaviour)
 
-**The problem.** A diffuser connected to ductwork (flex or rigid) drags the connected duct when it moves. Moved
-up, the drop above it shortens; past the fittings' minimum length Revit can't keep the run and wants to
-**delete** the duct, or breaks the connection. This affects Gizmo moves, *Re-seat to ceiling* and pushed
-`transform` entries alike, and today it applies to **every connected MEP element BimGo moves**, not just
-diffusers.
+**The problem.** A diffuser connected to ductwork drags the connected duct when it moves. Moved up, the drop
+above it shortens; past the fittings' minimum length Revit can't keep the run and wants to **delete** the duct or
+break the connection.
 
-**What BimGo does today.** `RevitEditor.RunTransaction` uses `SwallowFailures`: **warnings are deleted
-silently**, errors roll back. Rolling back on errors is right (Revit never gets to run its "delete elements"
-resolution), but a warning that a connection broke would be hidden. This needs fixing regardless of airflow.
+**The decision.** Keep `RevitEditor.RunTransaction` / `SwallowFailures` as they are: **any Revit error rolls the
+whole move back**, so Revit never reaches its "delete elements" resolution and nothing is deleted as a side
+effect. The move is refused with Revit's own message as a toast. This already applies to Gizmo moves, *Re-seat to
+ceiling* and pushed `transform` entries (a refused push entry shows as a conflict, and the push preview lists it
+first).
 
-**The plan: a connection-safe move** for any element with MEP connectors:
+**Small additions that don't change that behaviour:**
+- **Re-seat all** moves each diffuser in its own transaction, so one refusal doesn't stop the rest; the skipped
+  ones are listed with Revit's reason.
+- The Scan readout marks a diffuser **connected** / **unconnected** (from its connector), so the user knows a
+  move may drag ductwork.
 
-1. **Extraction records connections.** For each terminal (and other connected MEP families): the elements its
-   connectors join (`Connector.AllRefs`), what they are (flex duct, duct, fitting, tap) and, for a straight
-   vertical drop, its current length. Stored in `air.json`, refreshed with F5.
-2. **Preview in BimGo, before anything is sent.** While moving a connected diffuser, the connected duct
-   highlights and the readout shows the drop's remaining length. Below the minimum (fitting lengths + a
-   margin, setting, default 50 mm) the marker goes red and the commit is refused with a toast ("the duct
-   above would be 30 mm long; move up at most 120 mm"). Horizontal moves that would drag a rigid duct off
-   vertical show an amber "duct would slope" note. Flex duct lengths have their own minimum.
-3. **Check in Revit, inside the transaction.** In the same transaction:
-   1. note every connected element and connection;
-   2. move;
-   3. `doc.Regenerate()`, then check that each one still exists (`IsValidObject`) and is still connected to the
-      same connector, and that no straight segment fell below the minimum.
-
-   If any check fails → **roll back** and return a clear reason naming the duct and its id. This doesn't depend
-   on knowing Revit's failure message ids, so it holds across Revit 2025–2027.
-4. **Failure handling for these edits:** a `SafeMoveFailures` preprocessor (the existing one stays for other
-   edits) rolls back on errors as today, and also rolls back on warnings that mention connected elements being
-   disconnected or deleted, instead of deleting them. Other warnings are kept in the edit result and shown as a
-   toast, not swallowed.
-5. **The user's choices** when a move is refused:
-   - *Cancel* (default);
-   - *Move anyway, disconnected:* explicit, per move. It disconnects first, then moves, leaving an open duct end
-     Revit will flag; the diffuser is marked *unconnected* in BimGo;
-   - otherwise fix it in Revit (resize the drop), then F5.
-
-   Nothing in BimGo ever lets Revit delete a duct as a side effect.
-6. **File mode and push:** the journal stores the move as today. Push runs the same check per entry; refused
-   entries show as push conflicts with the reason, and the existing push preview (dry run) lists them before
-   anything changes.
-7. **Re-seat all:** runs the check per diffuser; connected ones that can't move are skipped and listed with the
-   reason, the rest move.
-8. **Undo:** one transaction per move (one Ctrl+Z in Revit, one journal entry); a refused move leaves no trace.
+**Left for later (not in this plan):** a BimGo-side length check before sending, an in-transaction connection
+check, and surfacing Revit warnings (today they're deleted silently). Revisit if users hit warning-only cases,
+e.g. a connection that breaks without an error.
 
 ---
 
@@ -288,9 +338,9 @@ resolution), but a warning that a connection broke would be hidden. This needs f
 
 | Round | Scope | Done when |
 |---|---|---|
-| **AF1: data + readout** | `AirTerminals`, `DiffuserCatalog` (built-in generic, CSV / JSON import, fit, interpolation), `air.json` read / write, `SceneExtractor.Air.cs`, Scan gun readout + throw graph, ceiling envelopes (straight runs, no events) | A real model's diffusers show catalog throw envelopes and correct readouts; Core tests green |
+| **AF1: data + readout** | `Units` (IP / SI), `AirTerminals`, `DiffuserCatalog` (built-in generic, CSV / JSON import, fit, interpolation), `air.json` read / write, `SceneExtractor.Air.cs`, Scan gun readout + throw graph, ceiling envelopes (straight runs, no events) | A real model's diffusers show catalog throw envelopes and correct readouts; Core tests green |
 | **AF2: trace + findings** | `AirflowTrace` (walls, obstructions, collisions, falling jets, occupied zone, draft limit, T50 / L), paths and markers, findings panel → comments / BCF, settings | Draft risks found in a test room match a hand calculation from the catalog table |
-| **AF3: edits** | `SetFlow` op (live, journal, undo / redo, push + conflicts), CFM editor with live preview, Air Terminals in the family library, ceiling X-ray + plenum check, unhosted-at-ceiling placement (default) + hosted and free-at-elevation options, connection-safe move (§5.4; also covers Gizmo moves of any MEP element), orphan / off-ceiling flags + re-seat, grid snap | CFM changed in BimGo appears in Revit's schedule; a diffuser placed in BimGo shows its envelope at once |
+| **AF3: edits** | `SetFlow` op (live, journal, undo / redo, push + conflicts), CFM editor with live preview, Air Terminals in the family library, ceiling X-ray + plenum check, unhosted-at-ceiling placement (default) + hosted and free-at-elevation options, Re-seat all + connected / unconnected readout (§5.4), BimGo diffuser families + **Load diffusers…** + family checker (§2.5), orphan / off-ceiling flags + re-seat, grid snap | CFM changed in BimGo appears in Revit's schedule; a diffuser placed in BimGo shows its envelope at once |
 | **AF4: extras** (optional) | Smoke particles, occupied-zone heatmap, cold-jet separation / heating mode, OpenFOAM export | Chosen with the user after AF3 |
 
 Fit with the main plan: after Rounds A and B (presentation, review tools) or between them; the user decides.
@@ -302,6 +352,7 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 
 | Project | File | Notes |
 |---|---|---|
+| Core | `Scene/Units.cs` | IP / SI factors, formatting, standard envelope velocity sets |
 | Core | `Scene/AirTerminals.cs` | Terminal records, roles, patterns |
 | Core | `Scene/DiffuserCatalog.cs` | Schema, built-in generic family, CSV / JSON import, fit, interpolation |
 | Core | `Scene/AirflowTrace.cs` | Trace + events over an injected geometry query |
@@ -309,6 +360,9 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 | Core | `Edits/EditMessages.cs` | `EditOp.SetFlow`, optional `Value` |
 | Core | `Scene/LaunchSettings.cs` | Airflow settings (draft limit, zone, band factor, units), sanitised |
 | Revit | `Extraction/SceneExtractor.Air.cs` | Air Terminals: position, normal, sizes, flow, role, pattern, catalog match |
+| Revit | `Extraction/FamilyCheck.cs` | Rates air terminal families against the spec (§2.5) |
+| Revit | `Commands/Cmds_BimGo.cs` | `Cmd_LoadDiffusers` (ribbon button, tooltip, icon) |
+| Revit | `Families/*.rfa` | BimGo diffuser families (new folder: needs Gavin's yes) |
 | Revit | `Extraction/FamilyPlacer.cs` | Ceiling-face hosting |
 | Revit | `Extraction/SceneExtractor.Library.cs` | Air Terminals in the library categories |
 | Revit | `Bridge/RevitEditor.cs`, `RevitEditor.Push.cs` | `SetFlow` live and pushed |
@@ -339,16 +393,15 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
   (`OneLevelBasedHosted`) families on a same-model ceiling.
 - Units: `UnitTypeId.LitersPerSecond` / `CubicFeetPerMinute` conversion helpers on 2025–2027.
 
-- Moving a connected air terminal with `ElementTransformUtils.MoveElement`: do connected ducts / flex follow the
-  same way as in the UI, and which failures (severity, ids) Revit posts when a drop gets too short or a
-  connection breaks.
-- `Connector.AllRefs` / `IsConnectedTo` after `Regenerate()` inside an open transaction; minimum lengths for duct
-  segments next to fittings (read from the routing preferences or measured from fitting geometry).
-- `Connector.DisconnectFrom` before a move for *Move anyway, disconnected*.
+- Moving a connected air terminal with `ElementTransformUtils.MoveElement`: connected ducts follow as in the UI,
+  and a drop made too short raises an **error** (rolled back), not only a warning.
+- `doc.LoadFamily` of a Revit 2025 `.rfa` in 2026 / 2027 (upgrade on load); keeping existing types
+  (`IFamilyLoadOptions` returning false for overwrite).
+- Reading a connector's associated family parameter (flow, diameter) for the checker.
 
 ## 9. Questions to stage (AskUserQuestion, recommendation first)
 
-1. **Units:** CFM / fpm / in only, or both with a toggle (recommended: both; internal SI)?
+1. **Units default for `.bimgo` files** (no Revit project to read): IP or SI (recommended: the units saved in the file at export)?
 2. **Draft limit and occupied zone defaults:** 50 fpm (0.25 m/s), 1.8 m / 6 ft, 0.3 m / 1 ft wall setback?
 3. **Return / exhaust grilles:** show them (capture zone only, no throw) or ignore in AF1?
 4. **Linear slot diffusers and sidewall grilles:** in scope for the catalog schema now (recommended: schema yes,
@@ -358,5 +411,8 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 7. **`SetType` (change neck / face size from BimGo):** include in AF3, or later?
 8. **Ceiling X-ray:** see-through (recommended) or hidden by default; on automatically with a terminal held?
 9. **Free-jet throw correction** for exposed diffusers: 0.7 by default, or per catalog family only?
-10. **Connection-safe move for all MEP elements** (Gizmo / Clone), not just diffusers: fix it in the airflow
-    round, or in the earlier polish round since it is an existing risk (recommended: polish round)?
+10. **BimGo families:** Gavin authors the `.rfa` files (Claude can't run Revit), or generate them with a Revit API
+    command from a family template (more code, but versionable)? Recommended: Gavin authors the first one, the
+    spec stays the source of truth.
+11. **Load diffusers… location:** Revit ribbon only, or also a button in BimGo's Place gun library during a
+    live session (an additive live message)?
