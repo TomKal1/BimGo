@@ -221,6 +221,11 @@ any family against the same spec.
 Pure maths over an injected geometry callback (`Func<ray…, hit>` / box query), so it is testable in Core with
 simple boxes and run against `Bvh` in the App.
 
+**Return / exhaust grilles** (decided 2026-10-10): no airflow modelling. Their inlet velocities fall off within
+a few inches, so they barely affect room air movement. They are extracted, shown and placeable like any
+terminal; the Scan readout gives type, flow, face / neck size and face velocity, and their flow can be edited
+with `SetFlow`. No envelopes, paths or findings.
+
 For every supply terminal and every open side:
 
 0. **Attached or free.** Catalog throws assume a diffuser flush with a ceiling (the jet clings to it). If no
@@ -513,13 +518,12 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 
 ## 9. Questions to stage (AskUserQuestion, recommendation first)
 
-1. **Return / exhaust grilles:** show them (capture zone only, no throw) or ignore in AF1?
-2. **Linear slot diffusers and sidewall grilles:** in scope for the catalog schema now (recommended: schema yes,
+1. **Linear slot diffusers and sidewall grilles:** in scope for the catalog schema now (recommended: schema yes,
    built-in data no), or square ceiling diffusers only?
-3. **Placement order:** AF1–AF3 after main Round A / B, or before?
-4. **Real catalog data:** one or two submittal tables (kept out of the repo) to check the fit against.
-5. **`SetType` (change neck / face size from BimGo):** include in AF3, or later?
-6. **Ceiling X-ray:** see-through (recommended) or hidden by default; on automatically with a terminal held?
-7. **Free-jet throw correction** for exposed diffusers: 0.7 by default, or per catalog family only?
-8. **Autodesk content terms:** who checks them (user / Gavin), and if redistribution isn't allowed, ship profiles
+2. **Placement order:** AF1–AF3 after main Round A / B, or before?
+3. **Real catalog data:** one or two submittal tables (kept out of the repo) to check the fit against.
+4. **`SetType` (change neck / face size from BimGo):** include in AF3, or later?
+5. **Ceiling X-ray:** see-through (recommended) or hidden by default; on automatically with a terminal held?
+6. **Free-jet throw correction** for exposed diffusers: 0.7 by default, or per catalog family only?
+7. **Autodesk content terms:** who checks them (user / Gavin), and if redistribution isn't allowed, ship profiles
    only (recommended) or also author from-scratch BimGo families?
