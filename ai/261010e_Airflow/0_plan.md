@@ -139,8 +139,26 @@ Raw rows exactly as a submittal prints them, plus a fitted decay curve per row.
 hosted or not) disappears with families built to one spec. Firms will still use their own, so BimGo also checks
 any family against the same spec.
 
-**The family set** (authored in Revit by Gavin, saved in Revit 2025 so 2026 / 2027 upgrade them on load, MIT-0
-like the rest of BimGo; plain generic geometry, no manufacturer branding or data):
+**The family set** (authored in Revit by the user or Gavin, decided 2026-10-10; saved in Revit 2025 so 2026 /
+2027 upgrade them on load; plain generic geometry, no manufacturer branding or data).
+
+**Starting point: Autodesk's default diffusers (Load Autodesk Family, the cloud content catalog).**
+- **Licence first.** That content comes under Autodesk's terms for use with Autodesk software. Using it in
+  projects is fine; **redistributing the `.rfa` files** (or edited copies) inside BimGo's MIT-0 repo and
+  installer may not be. Check Autodesk's content terms before anything derived from them ships.
+- **Two ways, depending on the answer:**
+  - *Redistribution allowed:* adapt the Autodesk families to the spec below, ship them as the BimGo set, and
+    list them in `THIRD-PARTY-NOTICES.txt` under Autodesk's terms (not as MIT-0).
+  - *Not allowed (assume this until checked):* **ship nothing from Autodesk.** Instead BimGo ships a
+    **family profile** for each Autodesk default diffuser: its family name, which parameters hold flow, neck and
+    face size, where its face sits relative to its origin, its pattern and the catalog key to use. The user loads
+    the family from Autodesk's catalog in Revit as usual; the checker recognises it by name and rates it
+    **Ready** through the profile. BimGo's own families (authored from scratch to the spec) can still ship
+    MIT-0 alongside.
+- Profiles are plain JSON in Core (`DiffuserProfiles.json`), so a firm can add profiles for its own families
+  the same way, without editing the family.
+- Note: many Autodesk default diffusers are **face-based**. In unhosted mode BimGo puts face-based families
+  on the level's plane at the ceiling height (§5.3), so they still don't attach to the ceiling.
 
 | Family | Types | Placement |
 |---|---|---|
@@ -183,7 +201,9 @@ like the rest of BimGo; plain generic geometry, no manufacturer branding or data
 - **Revit ribbon** → BimGo → **Load diffusers…** stays as a second way in (same loader), for users who want the
   types in the project before opening BimGo.
 - The `.rfa` files ship with the add-in (a `Families` folder beside it; **a new folder: needs Gavin's yes**) and
-  are listed in `THIRD-PARTY-NOTICES.txt` as BimGo's own. Loading never needs the family library option turned
+  are listed in `THIRD-PARTY-NOTICES.txt` (§2.5 licence note). Loading from the Diffusers tab only offers
+  families BimGo ships; Autodesk families covered by a profile but not shipped show as "load from Autodesk's
+  catalog in Revit", and are placeable once loaded. Loading never needs the family library option turned
   on: picking from the Diffusers tab turns on the Air Terminals category for the session.
 
 **The checker** (runs during extraction, Revit side):
@@ -219,8 +239,18 @@ For every supply terminal and every open side:
    - **Terminal:** velocity falls under the still-air threshold (~25 fpm / 0.125 m/s): the jet ends.
 3. **Falling jets** (after a wall, obstruction or collision) continue as a free jet down to the floor, stopping
    on furniture / casework tops (BVH hit).
-4. **Draft check:** wherever a path is inside the **occupied zone** (floor to 1.8 m, set back 0.3 m from walls;
-   both settings) with velocity above the **draft limit** (50 fpm / 0.25 m/s default, a setting) → a finding.
+4. **Draft check:** wherever a path is inside the **occupied zone** with velocity above the **draft limit**
+   (50 fpm / 0.25 m/s default, a setting) → a finding.
+   - **Zone default: ASHRAE 62.1 *breathing zone*** (decided 2026-10-10): 3 in to 72 in (75 to 1,800 mm) above
+     the floor, more than 2 ft (600 mm) from walls and fixed air-conditioning equipment.
+   - 62.1 is the ventilation standard; draft comfort is ASHRAE 55's subject. Older editions of 55 define an
+     *occupied zone* of floor to 6 ft (1.8 m), 3.3 ft (1 m) from exterior walls / windows and fixed HVAC
+     equipment, 1 ft (0.3 m) from interior walls. Offer it as a second preset; check the current 55 edition
+     before shipping its numbers.
+   - A **Custom** preset with every value editable. Wall setbacks need exterior vs interior walls: read the
+     wall type's *Function* parameter at extraction (stored per element, additive).
+   - Presets are named after the standard with its edition, e.g. "ASHRAE 62.1 breathing zone", so the user knows
+     where the numbers come from.
 5. **Room figures:** throw ratio T50 / L per terminal (L = distance to the wall or to halfway to the next
    terminal) and an indicative ADPI band. ASHRAE gives about 0.8 as the best T50 / L for ceiling diffusers;
    confirm the acceptable range against the table before showing pass / fail.
@@ -363,7 +393,7 @@ e.g. a connection that breaks without an error.
 | Round | Scope | Done when |
 |---|---|---|
 | **AF1: data + readout** | `Units` (IP / SI), `AirTerminals`, `DiffuserCatalog` (built-in generic, CSV / JSON import, fit, interpolation), `air.json` read / write, `SceneExtractor.Air.cs`, Scan gun readout + throw graph, ceiling envelopes (straight runs, no events) | A real model's diffusers show catalog throw envelopes and correct readouts; Core tests green |
-| **AF2: trace + findings** | `AirflowTrace` (walls, obstructions, collisions, falling jets, occupied zone, draft limit, T50 / L), paths and markers, findings panel → comments / BCF, settings | Draft risks found in a test room match a hand calculation from the catalog table |
+| **AF2: trace + findings** | `AirflowTrace` (walls, obstructions, collisions, falling jets, occupied zone presets (62.1 breathing zone default, 55, custom) + wall function, draft limit, T50 / L), paths and markers, findings panel → comments / BCF, settings | Draft risks found in a test room match a hand calculation from the catalog table |
 | **AF3: edits** | `SetFlow` op (live, journal, undo / redo, push + conflicts), CFM editor with live preview, Air Terminals in the family library, ceiling X-ray + plenum check, unhosted-at-ceiling placement (default) + hosted and free-at-elevation options, Re-seat all + connected / unconnected readout (§5.4), BimGo diffuser families + Diffusers tab in the Place gun + `family.load` (live) / load-on-push (file) + built-in templates + ribbon **Load diffusers…** + family checker (§2.5), orphan / off-ceiling flags + re-seat, grid snap | CFM changed in BimGo appears in Revit's schedule; a diffuser placed in BimGo shows its envelope at once |
 | **AF4: extras** (optional) | Smoke particles, occupied-zone heatmap, cold-jet separation / heating mode, OpenFOAM export | Chosen with the user after AF3 |
 
@@ -384,7 +414,8 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 | Core | `Edits/EditMessages.cs` | `EditOp.SetFlow`, optional `Value` |
 | Core | `Scene/LaunchSettings.cs` | Airflow settings (draft limit, zone, band factor, units), sanitised |
 | Revit | `Extraction/SceneExtractor.Air.cs` | Air Terminals: position, normal, sizes, flow, role, pattern, catalog match |
-| Revit | `Extraction/FamilyCheck.cs` | Rates air terminal families against the spec (§2.5) |
+| Revit | `Extraction/FamilyCheck.cs` | Rates air terminal families against the spec or a profile (§2.5) |
+| Core | `Scene/DiffuserProfiles.cs` + built-in `DiffuserProfiles.json` | Parameter / origin / pattern / catalog mappings for known families (Autodesk defaults, firm families) |
 | Revit | `Commands/Cmds_BimGo.cs` | `Cmd_LoadDiffusers` (ribbon button, tooltip, icon) |
 | Revit | `Extraction/FamilyLoader.cs` | Loads BimGo family types (ribbon, `family.load`, push), keeps existing types, then the template pass for the new types |
 | Revit | `Live/LiveDispatcher.cs` | `family.load` → `family.load.result` |
@@ -429,11 +460,13 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 - Reading a connector's associated family parameter (flow, diameter) for the checker.
 - `Document.LoadFamilySymbol` for single types vs `LoadFamily` (which loads every type); loading during a live
   session through the `ExternalEvent`, then the template pass for just the new types.
+- Parameter names, origins and placement types of the Autodesk default diffusers chosen, for their profiles;
+  the wall type *Function* parameter (`FUNCTION_PARAM`) for exterior / interior setbacks.
 - `doc.GetUnits().GetFormatOptions(SpecTypeId.AirFlow / SpecTypeId.Length).GetUnitTypeId()` on 2025–2027.
 
 ## 9. Questions to stage (AskUserQuestion, recommendation first)
 
-1. **Draft limit and occupied zone defaults:** 50 fpm (0.25 m/s), 1.8 m / 6 ft, 0.3 m / 1 ft wall setback?
+1. **Draft limit default:** 50 fpm / 0.25 m/s (recommended), or a lower limit for heating?
 2. **Return / exhaust grilles:** show them (capture zone only, no throw) or ignore in AF1?
 3. **Linear slot diffusers and sidewall grilles:** in scope for the catalog schema now (recommended: schema yes,
    built-in data no), or square ceiling diffusers only?
@@ -442,6 +475,5 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 6. **`SetType` (change neck / face size from BimGo):** include in AF3, or later?
 7. **Ceiling X-ray:** see-through (recommended) or hidden by default; on automatically with a terminal held?
 8. **Free-jet throw correction** for exposed diffusers: 0.7 by default, or per catalog family only?
-9. **BimGo families:** Gavin authors the `.rfa` files (Claude can't run Revit), or generate them with a Revit API
-   command from a family template (more code, but versionable)? Recommended: Gavin authors the first one, the
-   spec stays the source of truth.
+9. **Autodesk content terms:** who checks them (user / Gavin), and if redistribution isn't allowed, ship profiles
+   only (recommended) or also author from-scratch BimGo families?
