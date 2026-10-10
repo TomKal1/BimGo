@@ -103,6 +103,10 @@ simple boxes and run against `Bvh` in the App.
 
 For every supply terminal and every open side:
 
+0. **Attached or free.** Catalog throws assume a diffuser flush with a ceiling (the jet clings to it). If no
+   surface lies within ~50 mm above the face (exposed / open-ceiling diffusers hung off the duct), the jet is
+   **free**: throw scaled by a correction (setting, default 0.7, to check against catalog "exposed mounting"
+   notes), no ceiling run, and a cooling jet starts falling straight away. The readout says *free jet*.
 1. **Ceiling run.** March along the throw direction in steps (~0.1 m). Velocity from the fitted curve at path
    length `s`. Jet band thickness `δ(s) ≈ k·s` (k ≈ 0.1, a setting).
 2. **Events**, first one wins:
@@ -172,8 +176,8 @@ except making the airflow overlay rebuild after a refresh.
 ### 5.3 Placing diffusers (existing Place gun)
 
 - **Library:** add Air Terminals to the family library categories so diffuser types show in the Place gun.
-- **Two placement modes** (Options → Airflow, default **Unhosted at ceiling**; a key while holding a terminal
-  flips it for that placement, picked in the hotkey review; the readout shows the current mode):
+- **Three placement modes** (Options → Airflow, default **Unhosted at ceiling**; a key while holding a terminal
+  cycles them for that placement, picked in the hotkey review; the readout shows the current mode):
 
   **Unhosted at ceiling (default, decided 2026-10-10).** The diffuser is never attached to the ceiling, so an
   architect deleting or replacing a ceiling never deletes it.
@@ -203,6 +207,15 @@ except making the airflow overlay rebuild after a refresh.
   - Families that can't be hosted (level-based) fall back to unhosted, with a toast saying so.
   - A hosted family type picked in **unhosted** mode: face-based ones go on the level's plane (step 4);
     ceiling-hosted ones can't be unhosted, so they ask to switch to hosted mode.
+  **Free at elevation (option, open ceilings).** For diffusers hung off the duct with no ceiling.
+  - Unhosted, like the default, but the height is a **target elevation**: typed in the airflow panel as a height
+    above the level (e.g. Level 1 + 3,200), kept between placements. The aim gives only the plan position.
+  - **Snap under duct:** aiming at a duct puts the diffuser under its centreline at the duct's bottom minus a drop
+    (setting, default 0 = tight to the duct); otherwise the typed elevation is used.
+  - The preview shows a vertical line to the floor and the clear height to anything above (the plenum check),
+    and the trace treats it as a free jet (§3 step 0).
+  - It is placed unconnected; connecting it to the duct stays a Revit job.
+
 - **What happens when a host ceiling is deleted:**
   - *Ceiling in the same model:* Revit deletes hosted instances with their host (like doors in a wall), so the
     diffuser goes too. BimGo's Demolish gun already tells you about hosted inserts; extend that warning to say how
@@ -221,6 +234,54 @@ except making the airflow overlay rebuild after a refresh.
 - **Flow on a new terminal:** the family's default; it isn't connected to ductwork, so the readout marks it
   *unconnected* and the user sets CFM with `SetFlow`. Connecting ducts stays a Revit job.
 
+### 5.4 Moving connected diffusers safely
+
+**The problem.** A diffuser connected to ductwork (flex or rigid) drags the connected duct when it moves. Moved
+up, the drop above it shortens; past the fittings' minimum length Revit can't keep the run and wants to
+**delete** the duct, or breaks the connection. This affects Gizmo moves, *Re-seat to ceiling* and pushed
+`transform` entries alike, and today it applies to **every connected MEP element BimGo moves**, not just
+diffusers.
+
+**What BimGo does today.** `RevitEditor.RunTransaction` uses `SwallowFailures`: **warnings are deleted
+silently**, errors roll back. Rolling back on errors is right (Revit never gets to run its "delete elements"
+resolution), but a warning that a connection broke would be hidden. This needs fixing regardless of airflow.
+
+**The plan: a connection-safe move** for any element with MEP connectors:
+
+1. **Extraction records connections.** For each terminal (and other connected MEP families): the elements its
+   connectors join (`Connector.AllRefs`), what they are (flex duct, duct, fitting, tap) and, for a straight
+   vertical drop, its current length. Stored in `air.json`, refreshed with F5.
+2. **Preview in BimGo, before anything is sent.** While moving a connected diffuser, the connected duct
+   highlights and the readout shows the drop's remaining length. Below the minimum (fitting lengths + a
+   margin, setting, default 50 mm) the marker goes red and the commit is refused with a toast ("the duct
+   above would be 30 mm long; move up at most 120 mm"). Horizontal moves that would drag a rigid duct off
+   vertical show an amber "duct would slope" note. Flex duct lengths have their own minimum.
+3. **Check in Revit, inside the transaction.** In the same transaction:
+   1. note every connected element and connection;
+   2. move;
+   3. `doc.Regenerate()`, then check that each one still exists (`IsValidObject`) and is still connected to the
+      same connector, and that no straight segment fell below the minimum.
+
+   If any check fails → **roll back** and return a clear reason naming the duct and its id. This doesn't depend
+   on knowing Revit's failure message ids, so it holds across Revit 2025–2027.
+4. **Failure handling for these edits:** a `SafeMoveFailures` preprocessor (the existing one stays for other
+   edits) rolls back on errors as today, and also rolls back on warnings that mention connected elements being
+   disconnected or deleted, instead of deleting them. Other warnings are kept in the edit result and shown as a
+   toast, not swallowed.
+5. **The user's choices** when a move is refused:
+   - *Cancel* (default);
+   - *Move anyway, disconnected:* explicit, per move. It disconnects first, then moves, leaving an open duct end
+     Revit will flag; the diffuser is marked *unconnected* in BimGo;
+   - otherwise fix it in Revit (resize the drop), then F5.
+
+   Nothing in BimGo ever lets Revit delete a duct as a side effect.
+6. **File mode and push:** the journal stores the move as today. Push runs the same check per entry; refused
+   entries show as push conflicts with the reason, and the existing push preview (dry run) lists them before
+   anything changes.
+7. **Re-seat all:** runs the check per diffuser; connected ones that can't move are skipped and listed with the
+   reason, the rest move.
+8. **Undo:** one transaction per move (one Ctrl+Z in Revit, one journal entry); a refused move leaves no trace.
+
 ---
 
 ## 6. Build rounds
@@ -229,7 +290,7 @@ except making the airflow overlay rebuild after a refresh.
 |---|---|---|
 | **AF1: data + readout** | `AirTerminals`, `DiffuserCatalog` (built-in generic, CSV / JSON import, fit, interpolation), `air.json` read / write, `SceneExtractor.Air.cs`, Scan gun readout + throw graph, ceiling envelopes (straight runs, no events) | A real model's diffusers show catalog throw envelopes and correct readouts; Core tests green |
 | **AF2: trace + findings** | `AirflowTrace` (walls, obstructions, collisions, falling jets, occupied zone, draft limit, T50 / L), paths and markers, findings panel → comments / BCF, settings | Draft risks found in a test room match a hand calculation from the catalog table |
-| **AF3: edits** | `SetFlow` op (live, journal, undo / redo, push + conflicts), CFM editor with live preview, Air Terminals in the family library, ceiling X-ray + plenum check, unhosted-at-ceiling placement (default) + hosted option, orphan / off-ceiling flags + re-seat, grid snap | CFM changed in BimGo appears in Revit's schedule; a diffuser placed in BimGo shows its envelope at once |
+| **AF3: edits** | `SetFlow` op (live, journal, undo / redo, push + conflicts), CFM editor with live preview, Air Terminals in the family library, ceiling X-ray + plenum check, unhosted-at-ceiling placement (default) + hosted and free-at-elevation options, connection-safe move (§5.4; also covers Gizmo moves of any MEP element), orphan / off-ceiling flags + re-seat, grid snap | CFM changed in BimGo appears in Revit's schedule; a diffuser placed in BimGo shows its envelope at once |
 | **AF4: extras** (optional) | Smoke particles, occupied-zone heatmap, cold-jet separation / heating mode, OpenFOAM export | Chosen with the user after AF3 |
 
 Fit with the main plan: after Rounds A and B (presentation, review tools) or between them; the user decides.
@@ -278,6 +339,13 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
   (`OneLevelBasedHosted`) families on a same-model ceiling.
 - Units: `UnitTypeId.LitersPerSecond` / `CubicFeetPerMinute` conversion helpers on 2025–2027.
 
+- Moving a connected air terminal with `ElementTransformUtils.MoveElement`: do connected ducts / flex follow the
+  same way as in the UI, and which failures (severity, ids) Revit posts when a drop gets too short or a
+  connection breaks.
+- `Connector.AllRefs` / `IsConnectedTo` after `Regenerate()` inside an open transaction; minimum lengths for duct
+  segments next to fittings (read from the routing preferences or measured from fitting geometry).
+- `Connector.DisconnectFrom` before a move for *Move anyway, disconnected*.
+
 ## 9. Questions to stage (AskUserQuestion, recommendation first)
 
 1. **Units:** CFM / fpm / in only, or both with a toggle (recommended: both; internal SI)?
@@ -289,3 +357,6 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 6. **Real catalog data:** one or two submittal tables (kept out of the repo) to check the fit against.
 7. **`SetType` (change neck / face size from BimGo):** include in AF3, or later?
 8. **Ceiling X-ray:** see-through (recommended) or hidden by default; on automatically with a terminal held?
+9. **Free-jet throw correction** for exposed diffusers: 0.7 by default, or per catalog family only?
+10. **Connection-safe move for all MEP elements** (Gizmo / Clone), not just diffusers: fix it in the airflow
+    round, or in the earlier polish round since it is an existing risk (recommended: polish round)?
