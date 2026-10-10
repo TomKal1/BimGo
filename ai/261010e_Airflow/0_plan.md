@@ -140,6 +140,8 @@ occupied-zone velocity heatmap on the Sun Hours grid, a per-room coarse solver o
 | **Scan gun readout** | Aiming at a terminal shows type, catalog match (or *estimated*), flow, neck / face, Pt, NC, T150 / T100 / T50, T50 / L. Plus a small velocity-vs-distance graph per side (log–log) marking 150 / 100 / 50 and where the wall / collision / obstruction falls |
 | **Findings list** | Panel listing every draft risk with *Go to* (teleport) and *Make comment* (a normal comment with a snapshot, so it exports to BCF) |
 | **Edit CFM** | Scan a terminal → **+ / −** steps (10 CFM / 5 L/s, Shift = ×5) or type a value. Envelopes and graph update live as a preview; Enter commits the edit (§5.1), Esc cancels |
+| **Ceiling X-ray** | A toggle (pause menu and a key, picked in the hotkey review; on automatically while the Place gun holds an air terminal): every Ceilings element draws see-through (~20 % opacity, no depth write, outlines kept) or hidden, the user's choice. Ceilings still take aim, so placement lands on them. Builds on the existing hide / isolate code in `GameSession.Visibility`, which only hides whole elements today |
+| **Plenum check** | With X-ray on and a terminal held, a vertical probe from the aimed ceiling point up to the slab: lists what is above (ducts, pipes, beams, light housings, sprinklers, cable tray) with the clear height, and turns the placement marker amber / red when the clear height is below the terminal's needed depth (family height + a plenum allowance, a setting). Only sees categories that were loaded, so the readout says which MEP / structure categories are off |
 | **Smoke mode** (round 4) | Particles riding the paths at a speed proportional to velocity, preallocated buffers, no per-frame allocations |
 | **Units** | Follows the planned metric / imperial setting (Round B of the main plan); until then a local CFM ↔ L/s toggle in the airflow panel |
 
@@ -174,6 +176,19 @@ except making the airflow overlay rebuild after a refresh.
   moves them up. For diffusers, when the aimed surface is a ceiling, host on the ceiling's bottom face instead
   (reference from the aimed element's geometry), falling back to the current behaviour. Non-hosted (level-based)
   diffuser families work today with the instance moved to the ceiling height.
+- **Hosting choice (decided per placement setting, see the note below):** *unhosted* (default recommendation:
+  level-based or work-plane on the level, moved to the ceiling height) or *hosted on the ceiling face*.
+- **What happens when a host ceiling is deleted:**
+  - *Ceiling in the same model:* Revit deletes hosted instances with their host (like doors in a wall), so the
+    diffuser goes too. BimGo's Demolish gun already tells you about hosted inserts; extend that warning to say how
+    many air terminals a ceiling carries before it is demolished / deleted.
+  - *Ceiling in a linked architectural model* (the usual setup: MEP in its own model): the diffuser is **not**
+    deleted. After the link reloads it becomes an *orphan* (Revit warns that it lost its host), keeps its position
+    and stops following the ceiling height. Hosting on a linked face needs `Reference.CreateLinkReference`; BimGo
+    loads links read-only, so it can aim at them.
+  - *Unhosted diffusers* never get deleted by ceiling changes, but don't follow a ceiling that moves up or down.
+  - BimGo flags terminals that are orphaned (hosted family, no host) or more than 25 mm off the nearest ceiling
+    surface below / above them in the findings list, so ceiling changes by the architect show up after F5.
 - **Snap:** an optional 600 mm / 24 in ceiling-grid snap for the Place / Gizmo gun when holding a terminal.
 - **Flow on a new terminal:** the family's default; it isn't connected to ductwork, so the readout marks it
   *unconnected* and the user sets CFM with `SetFlow`. Connecting ducts stays a Revit job.
@@ -186,7 +201,7 @@ except making the airflow overlay rebuild after a refresh.
 |---|---|---|
 | **AF1: data + readout** | `AirTerminals`, `DiffuserCatalog` (built-in generic, CSV / JSON import, fit, interpolation), `air.json` read / write, `SceneExtractor.Air.cs`, Scan gun readout + throw graph, ceiling envelopes (straight runs, no events) | A real model's diffusers show catalog throw envelopes and correct readouts; Core tests green |
 | **AF2: trace + findings** | `AirflowTrace` (walls, obstructions, collisions, falling jets, occupied zone, draft limit, T50 / L), paths and markers, findings panel → comments / BCF, settings | Draft risks found in a test room match a hand calculation from the catalog table |
-| **AF3: edits** | `SetFlow` op (live, journal, undo / redo, push + conflicts), CFM editor with live preview, Air Terminals in the family library, ceiling-face hosting, grid snap | CFM changed in BimGo appears in Revit's schedule; a diffuser placed in BimGo shows its envelope at once |
+| **AF3: edits** | `SetFlow` op (live, journal, undo / redo, push + conflicts), CFM editor with live preview, Air Terminals in the family library, ceiling X-ray + plenum check, hosting choice + orphan / off-ceiling flags, grid snap | CFM changed in BimGo appears in Revit's schedule; a diffuser placed in BimGo shows its envelope at once |
 | **AF4: extras** (optional) | Smoke particles, occupied-zone heatmap, cold-jet separation / heating mode, OpenFOAM export | Chosen with the user after AF3 |
 
 Fit with the main plan: after Rounds A and B (presentation, review tools) or between them; the user decides.
@@ -223,7 +238,11 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 - Neck size: from the connector (`Connector.Radius` / `Width` / `Height`) vs type parameters; face size from type
   parameters vs bounding box.
 - System classification (supply / return / exhaust) from the connector when the terminal isn't connected.
-- `NewFamilyInstance(Reference face, …)` with a ceiling's bottom face reference for face-based diffusers.
+- `NewFamilyInstance(Reference face, …)` with a ceiling's bottom face reference for face-based diffusers, for a
+  host ceiling and for a linked ceiling (`Reference.CreateLinkReference`).
+- Host deletion: confirm hosted air terminals are deleted with a same-model ceiling and orphaned (kept) when a
+  linked ceiling goes; how to read the orphan state (`FamilyInstance.Host == null` on a face-based family,
+  `HostFace`).
 - Units: `UnitTypeId.LitersPerSecond` / `CubicFeetPerMinute` conversion helpers on 2025–2027.
 
 ## 9. Questions to stage (AskUserQuestion, recommendation first)
@@ -236,3 +255,6 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 5. **Placement order:** AF1–AF3 after main Round A / B, or before?
 6. **Real catalog data:** one or two submittal tables (kept out of the repo) to check the fit against.
 7. **`SetType` (change neck / face size from BimGo):** include in AF3, or later?
+8. **Ceiling X-ray:** see-through (recommended) or hidden by default; on automatically with a terminal held?
+9. **Hosting default for diffusers placed in BimGo:** unhosted (recommended: survives ceiling deletion in
+   either model) or hosted on the ceiling face?
