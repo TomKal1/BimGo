@@ -252,14 +252,27 @@ For every supply terminal and every open side:
    - **Effect:** a cold jet already carries a negative temperature difference, so it fails at a lower speed than a
      warm one: in cooling, the limit at the edge of the zone works out near 50 fpm or lower; in heating, speeds
      up to the 70 fpm cap can pass. That's the behaviour asked for, from one formula.
-   - **Inputs** (airflow panel, saved per model): **Mode** Cooling / Heating; **supply air temperature**;
-     **room setpoint**. Defaults: cooling 55 °F (13 °C) supply, 75 °F (24 °C) room; heating 90 °F (32 °C) supply,
-     70 °F (21 °C) room. Per-terminal supply temperature can come later (e.g. from a parameter).
+   - **What the user enters: one toggle** (decided 2026-10-10: temperatures and heating flows aren't in the
+     model, and per-box entry is too much work). The airflow panel has **Cooling | Heating**, nothing else
+     by default:
+     - **Cooling:** each diffuser at its Revit **Flow** (taken as the design maximum), with typical design
+       temperatures: 55 °F (13 °C) supply, 75 °F (24 °C) room.
+     - **Heating:** every diffuser at **one global share of its cooling flow** (default 50 %, the usual VAV reheat
+       box heating minimum range), with 90 °F (32 °C) supply, 70 °F (21 °C) room. No per-box entry.
+     - **Advanced** (collapsed, saved per model): the four temperatures and the heating share. Most users never
+       open it.
+     - Later, only if asked for: a per-terminal heating flow read from a parameter when the model has one.
+   - **Heating also gets the ASHRAE 62.1 check** that matters most for ceiling heat (the zone air distribution
+     effectiveness table): warm air from the ceiling counts as well mixed (Ez = 1.0) only when supply is less
+     than 15 °F (8 K) above the room **and** the 150 fpm (0.75 m/s) jet reaches within 4.5 ft (1.4 m) of the
+     floor; otherwise Ez = 0.8, i.e. more outdoor air is needed. BimGo already traces the 150 fpm jet, so this is
+     a readout per diffuser and per room ("150 fpm jet stops 6.2 ft above the floor: Ez 0.8"). Confirm the
+     table wording against the current 62.1 edition.
    - **Simple mode** (a toggle): a fixed limit per mode instead of EDT, default 50 fpm / 0.25 m/s cooling and
      70 fpm / 0.35 m/s heating, for users who want a plain velocity check.
    - **To check before shipping:** the EDT constants, comfort band, 70 fpm cap and the 0.8 temperature-decay
      ratio are quoted from memory of ASHRAE Fundamentals; confirm them against the current edition.
-   - The same supply / room temperatures drive the cold-jet separation and heating behaviour planned for later
+   - The same (default) supply / room temperatures drive the cold-jet separation and heating behaviour planned for later
      (Archimedes number), so those inputs are needed only once.
 
    **The zone the check applies in:**
@@ -430,7 +443,7 @@ e.g. a connection that breaks without an error.
 | Round | Scope | Done when |
 |---|---|---|
 | **AF1: data + readout** | `Units` (IP / SI), `AirTerminals`, `DiffuserCatalog` (built-in generic, CSV / JSON import, fit, interpolation), `air.json` read / write, `SceneExtractor.Air.cs`, Scan gun readout + throw graph, ceiling envelopes (straight runs, no events) | A real model's diffusers show catalog throw envelopes and correct readouts; Core tests green |
-| **AF2: trace + findings** | `AirflowTrace` (walls, obstructions, collisions, falling jets, occupied zone presets (62.1 breathing zone default, 55, custom) + exterior wall detection (rays, glazing, override), EDT draft check with cooling / heating + simple mode, T50 / L), paths and markers, findings panel → comments / BCF, settings | Draft risks found in a test room match a hand calculation from the catalog table |
+| **AF2: trace + findings** | `AirflowTrace` (walls, obstructions, collisions, falling jets, occupied zone presets (62.1 breathing zone default, 55, custom) + exterior wall detection (rays, glazing, override), EDT draft check with a Cooling | Heating toggle (global heating share, defaults; advanced temperatures) + simple mode, 62.1 Ez heating readout, T50 / L), paths and markers, findings panel → comments / BCF, settings | Draft risks found in a test room match a hand calculation from the catalog table |
 | **AF3: edits** | `SetFlow` op (live, journal, undo / redo, push + conflicts), CFM editor with live preview, Air Terminals in the family library, ceiling X-ray + plenum check, unhosted-at-ceiling placement (default) + hosted and free-at-elevation options, Re-seat all + connected / unconnected readout (§5.4), BimGo diffuser families + Diffusers tab in the Place gun + `family.load` (live) / load-on-push (file) + built-in templates + ribbon **Load diffusers…** + family checker (§2.5), orphan / off-ceiling flags + re-seat, grid snap | CFM changed in BimGo appears in Revit's schedule; a diffuser placed in BimGo shows its envelope at once |
 | **AF4: extras** (optional) | Smoke particles, occupied-zone heatmap, cold-jet separation (Archimedes number, same temperatures), OpenFOAM export | Chosen with the user after AF3 |
 
@@ -503,7 +516,8 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 
 ## 9. Questions to stage (AskUserQuestion, recommendation first)
 
-1. **Draft check default:** EDT with cooling / heating (recommended) or the simple velocity limits?
+1. **Heating flow share default:** 50 % of cooling (recommended), or another figure the user's firm uses for VAV
+   reheat minimums?
 2. **Return / exhaust grilles:** show them (capture zone only, no throw) or ignore in AF1?
 3. **Linear slot diffusers and sidewall grilles:** in scope for the catalog schema now (recommended: schema yes,
    built-in data no), or square ceiling diffusers only?
