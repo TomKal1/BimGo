@@ -20,7 +20,7 @@ design-review aid built on the same catalog throw data engineers already select 
 | Velocity model | Empirical jet decay fitted to catalog throw data (T150 / T100 / T50), traced along surfaces against the BVH. No CFD in the first rounds |
 | Catalog data | A generic, built-in **3-cone square, 4-way** family (illustrative values, clearly labelled), plus user-imported catalogs (CSV / JSON). No manufacturer tables shipped without permission |
 | CFM | **Editable in BimGo and written to the Revit model**: a new additive edit op, live (one undo step in Revit) or in the file journal (pushed later) |
-| Placing diffusers | **Uses the existing Place gun / family library**, not a new tool. Air Terminals added to the library; ceiling hosting improved (§5.3). Moving / copying / deleting already work through Gizmo / Clone / Demolish |
+| Placing diffusers | **Uses the existing Place gun / family library**, not a new tool. Air Terminals added to the library. **Unhosted at the aimed ceiling's bottom elevation by default**, hosted to the ceiling face as an option (§5.3). Moving / copying / deleting already work through Gizmo / Clone / Demolish |
 | Changes made in Revit | The existing **model changed → F5 refresh** brings new terminals, flows and sizes in. No new sync path |
 | Dependencies | None. Pure C# maths in Core, drawing via `Overlay3D` / `UiBatch`. No new folders outside `ai/` |
 | Compatibility | `.bimgo` `formatVersion` stays 1 (new optional `air.json` entry); live protocol stays 1 (new optional edit op, same pattern as `Place`) |
@@ -172,12 +172,37 @@ except making the airflow overlay rebuild after a refresh.
 ### 5.3 Placing diffusers (existing Place gun)
 
 - **Library:** add Air Terminals to the family library categories so diffuser types show in the Place gun.
-- **Ceiling hosting:** today `FamilyPlacer` hosts work-plane / face-based types on the **level's** plane and
-  moves them up. For diffusers, when the aimed surface is a ceiling, host on the ceiling's bottom face instead
-  (reference from the aimed element's geometry), falling back to the current behaviour. Non-hosted (level-based)
-  diffuser families work today with the instance moved to the ceiling height.
-- **Hosting choice (decided per placement setting, see the note below):** *unhosted* (default recommendation:
-  level-based or work-plane on the level, moved to the ceiling height) or *hosted on the ceiling face*.
+- **Two placement modes** (Options → Airflow, default **Unhosted at ceiling**; a key while holding a terminal
+  flips it for that placement, picked in the hotkey review; the readout shows the current mode):
+
+  **Unhosted at ceiling (default, decided 2026-10-10).** The diffuser is never attached to the ceiling, so an
+  architect deleting or replacing a ceiling never deletes it.
+  1. *Elevation:* when the aim hits a **Ceilings** element, BimGo takes that ceiling's **bottom elevation at the
+     aimed point**: a short upward ray against that element only, from just below the hit, so aiming at the top
+     face from above (X-ray / section) still finds the underside. Linked ceilings count (they are in the BVH).
+  2. *Preview:* the held diffuser snaps flush under that surface and follows it as you aim; the readout shows
+     "Ceiling bottom 2,700 mm (Level 1 + 2,700)". Gizmo vertical moves still work and drop the snap until the
+     next re-aim; **F** re-seats it to the ceiling above (instead of "drop to surface").
+  3. *Face flush:* the family's insertion point isn't always its face. The library template's bounds give the
+     offset between origin and lowest point; BimGo places so the **face** sits on the ceiling bottom.
+  4. *In Revit:* level-based families → **Level** = the level the ceiling is on (else the nearest level at or
+     below), **Offset from Level** = ceiling bottom − level elevation (written as the offset parameter, not just a
+     move, so schedules read it). Work-plane / face-based families → the level's plane with the same offset
+     (today's `FamilyPlacer` path), so they stay off the ceiling too.
+  5. *No ceiling aimed* (open to structure, bulkhead, soffit): the underside of whatever surface is aimed at
+     (slab, deck, bulkhead), else a default mounting height (setting, 2,700 mm).
+  6. *Sloped ceilings:* an unhosted diffuser stays level at the aimed point's height; slopes over 2° show a note
+     suggesting hosted mode, which follows the face.
+
+  **Hosted to ceiling face (option).**
+  - Face-based families: `NewFamilyInstance` on the ceiling's bottom face reference, or a linked ceiling's
+    (`Reference.CreateLinkReference`). Follows the ceiling up / down and on slopes.
+  - Ceiling-hosted families (`OneLevelBasedHosted`, the "Ceiling hosted" template): on the ceiling element, same
+    model only (Revit can't host these on a link: refused with a toast). Today `CanPlace` refuses them;
+    this mode adds them.
+  - Families that can't be hosted (level-based) fall back to unhosted, with a toast saying so.
+  - A hosted family type picked in **unhosted** mode: face-based ones go on the level's plane (step 4);
+    ceiling-hosted ones can't be unhosted, so they ask to switch to hosted mode.
 - **What happens when a host ceiling is deleted:**
   - *Ceiling in the same model:* Revit deletes hosted instances with their host (like doors in a wall), so the
     diffuser goes too. BimGo's Demolish gun already tells you about hosted inserts; extend that warning to say how
@@ -189,6 +214,9 @@ except making the airflow overlay rebuild after a refresh.
   - *Unhosted diffusers* never get deleted by ceiling changes, but don't follow a ceiling that moves up or down.
   - BimGo flags terminals that are orphaned (hosted family, no host) or more than 25 mm off the nearest ceiling
     surface below / above them in the findings list, so ceiling changes by the architect show up after F5.
+  - **Re-seat:** a flagged unhosted diffuser has a *Re-seat to ceiling* fix (one, or all in the list): it sets the
+    offset to the new ceiling bottom through the existing `Transform` edit (vertical move only), so it works live,
+    in the journal and on push with no new edit op.
 - **Snap:** an optional 600 mm / 24 in ceiling-grid snap for the Place / Gizmo gun when holding a terminal.
 - **Flow on a new terminal:** the family's default; it isn't connected to ductwork, so the readout marks it
   *unconnected* and the user sets CFM with `SetFlow`. Connecting ducts stays a Revit job.
@@ -201,7 +229,7 @@ except making the airflow overlay rebuild after a refresh.
 |---|---|---|
 | **AF1: data + readout** | `AirTerminals`, `DiffuserCatalog` (built-in generic, CSV / JSON import, fit, interpolation), `air.json` read / write, `SceneExtractor.Air.cs`, Scan gun readout + throw graph, ceiling envelopes (straight runs, no events) | A real model's diffusers show catalog throw envelopes and correct readouts; Core tests green |
 | **AF2: trace + findings** | `AirflowTrace` (walls, obstructions, collisions, falling jets, occupied zone, draft limit, T50 / L), paths and markers, findings panel → comments / BCF, settings | Draft risks found in a test room match a hand calculation from the catalog table |
-| **AF3: edits** | `SetFlow` op (live, journal, undo / redo, push + conflicts), CFM editor with live preview, Air Terminals in the family library, ceiling X-ray + plenum check, hosting choice + orphan / off-ceiling flags, grid snap | CFM changed in BimGo appears in Revit's schedule; a diffuser placed in BimGo shows its envelope at once |
+| **AF3: edits** | `SetFlow` op (live, journal, undo / redo, push + conflicts), CFM editor with live preview, Air Terminals in the family library, ceiling X-ray + plenum check, unhosted-at-ceiling placement (default) + hosted option, orphan / off-ceiling flags + re-seat, grid snap | CFM changed in BimGo appears in Revit's schedule; a diffuser placed in BimGo shows its envelope at once |
 | **AF4: extras** (optional) | Smoke particles, occupied-zone heatmap, cold-jet separation / heating mode, OpenFOAM export | Chosen with the user after AF3 |
 
 Fit with the main plan: after Rounds A and B (presentation, review tools) or between them; the user decides.
@@ -243,6 +271,11 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 - Host deletion: confirm hosted air terminals are deleted with a same-model ceiling and orphaned (kept) when a
   linked ceiling goes; how to read the orphan state (`FamilyInstance.Host == null` on a face-based family,
   `HostFace`).
+- Unhosted placement: the right "Offset from Level" parameter on level-based air terminals
+  (`INSTANCE_FREE_HOST_OFFSET_PARAM` vs `INSTANCE_ELEVATION_PARAM` across 2025–2027), and that setting it moves
+  the instance as expected; the offset parameter for work-plane-based instances on a level plane.
+- `NewFamilyInstance(XYZ, FamilySymbol, Element host, Level, StructuralType)` for ceiling-hosted
+  (`OneLevelBasedHosted`) families on a same-model ceiling.
 - Units: `UnitTypeId.LitersPerSecond` / `CubicFeetPerMinute` conversion helpers on 2025–2027.
 
 ## 9. Questions to stage (AskUserQuestion, recommendation first)
@@ -256,5 +289,3 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 6. **Real catalog data:** one or two submittal tables (kept out of the repo) to check the fit against.
 7. **`SetType` (change neck / face size from BimGo):** include in AF3, or later?
 8. **Ceiling X-ray:** see-through (recommended) or hidden by default; on automatically with a terminal held?
-9. **Hosting default for diffusers placed in BimGo:** unhosted (recommended: survives ceiling deletion in
-   either model) or hosted on the ceiling face?
