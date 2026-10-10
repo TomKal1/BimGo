@@ -21,12 +21,12 @@ design-review aid built on the same catalog throw data engineers already select 
 | Catalog data | A generic, built-in **3-cone square, 4-way** family (illustrative values, clearly labelled), plus user-imported catalogs (CSV / JSON). No manufacturer tables shipped without permission |
 | CFM | **Editable in BimGo and written to the Revit model**: a new additive edit op, live (one undo step in Revit) or in the file journal (pushed later) |
 | Placing diffusers | **Uses the existing Place gun / family library**, not a new tool. Air Terminals added to the library. **Unhosted at the aimed ceiling's bottom elevation by default**, hosted to the ceiling face as an option (§5.3). Moving / copying / deleting already work through Gizmo / Clone / Demolish |
-| Units | **IP and SI from the start** (decided 2026-10-10): SI internally, every input / readout / catalog / family set in either (§2.4) |
-| Diffuser families | A **BimGo diffuser family set** known to work, plus a checker that rates any other family against the same spec (§2.5) |
+| Units | **IP and SI from the start**, **read from the Revit project's units** and saved in the file (decided 2026-10-10): SI internally, every input / readout / catalog / family set in either (§2.4) |
+| Diffuser families | A **BimGo diffuser family set** known to work, **loaded from BimGo's Place gun** when picked (live: Revit loads it; file: loaded on push), plus a checker that rates any other family against the same spec (§2.5) |
 | Moving connected diffusers | **Keep today's behaviour** (decided 2026-10-10): any Revit error rolls the move back, so Revit never deletes a duct (§5.4) |
 | Changes made in Revit | The existing **model changed → F5 refresh** brings new terminals, flows and sizes in. No new sync path |
 | Dependencies | None. Pure C# maths in Core, drawing via `Overlay3D` / `UiBatch`. No new folders outside `ai/` |
-| Compatibility | `.bimgo` `formatVersion` stays 1 (new optional `air.json` entry); live protocol stays 1 (new optional edit op, same pattern as `Place`) |
+| Compatibility | `.bimgo` `formatVersion` stays 1 (new optional `air.json` entry); live protocol stays 1 (new optional edit op and `family.load` message, same pattern as `Place`) |
 
 ---
 
@@ -102,8 +102,12 @@ Raw rows exactly as a submittal prints them, plus a fitted decay curve per row.
 - **Internally SI** everywhere in Core: m, m/s, L/s, Pa. Conversion only at the edges (catalog import, readouts,
   inputs, CSV export). One Core helper, `Scene/Units.cs`, with the factors and formatting:
   1 CFM = 0.471947 L/s · 1 fpm = 0.00508 m/s · 1 in wg = 249.089 Pa · 1 ft = 0.3048 m · 1 in = 25.4 mm.
-- **One setting:** IP / SI in Options → Airflow, defaulting from the Revit project's units when a live session
-  starts. The main plan's Round B metric / imperial setting adopts the same `Units` helper (whichever round is
+- **One setting, read from the project (decided 2026-10-10):** extraction reads the Revit project's units
+  (`doc.GetUnits()`: the length format of `SpecTypeId.Length`, and the duct flow format of `SpecTypeId.AirFlow`)
+  and stores the result as `units` in `air.json`, so `.bimgo` files open in the units they were exported in. IP /
+  SI in Options → Airflow is an override, saved per model (model folder / `.bimgo`), never changing the Revit
+  project. A project mixing systems (e.g. mm lengths with CFM flows) follows its **flow** units for airflow
+  readouts and its **length** units for sizes and elevations. The main plan's Round B metric / imperial setting adopts the same `Units` helper (whichever round is
   built first creates it; the other reuses it), so there is one switch in the end.
 - **Readouts and inputs:**
 
@@ -156,11 +160,31 @@ like the rest of BimGo; plain generic geometry, no manufacturer branding or data
 5. Optional instance parameter **Blanked Sides** (text, e.g. `N,E`) for corner and wall-side diffusers.
 6. Type names carry the units: `24x24 - 8in Neck` / `600x600 - 200mm Neck`.
 
-**Getting them into a project:**
-- Revit ribbon → BimGo → **Load diffusers…**: pick IP or SI types, `doc.LoadFamily` in one transaction (the
-  user's own action; existing types are never overwritten). They then appear in the Place gun's library.
+**Getting them into a project: from BimGo, at the point of placing (decided 2026-10-10).**
+- **Diffusers tab in the Place gun's library.** Lists every BimGo diffuser type in the project's units (IP or SI
+  set, §2.4), each marked **loaded** or **not loaded**, grouped by family → face → neck, with the catalog
+  numbers (flow range, T50 at mid flow, NC) beside each. Firm families already in the project sit in the same
+  tab with their checker badge.
+- **Picking a type that isn't loaded, live session:** BimGo asks Revit to load it. A new additive live message
+  `family.load` (`{ family: "BimGo Square Cone Diffuser", types: ["24x24 - 8in Neck"] }`) → the add-in runs
+  `doc.LoadFamily` from the add-in's `Families` folder in one transaction ("BimGo: Load diffuser family", one
+  undo step), keeps every existing type (never overwrites), and loads only the types asked for
+  (`LoadFamilySymbol`) so the project doesn't fill with unused sizes. The answer `family.load.result` carries
+  the new type ids and the library template for them (the existing rolled-back template pass, run for those
+  types only), so the type appears ready to place **without an F5**. An older add-in doesn't know the message:
+  the app times out and says to update the add-in, like `Place`.
+- **Picking a type that isn't loaded, `.bimgo` file:** there is no Revit to load into, so BimGo uses a
+  **built-in template** for each BimGo type: its geometry is simple enough to generate in the app from face
+  and neck sizes (a square cone stack and a round neck), so no Revit is needed to preview or place. The journal
+  records the `place` with the family and type **name** (no type id yet). On **push**, the add-in loads any
+  missing BimGo family types first, inside the push's transaction group (so one Ctrl+Z undoes it all), then
+  places; the push preview lists "will load: BimGo Square Cone Diffuser, 2 types" before anything changes. A
+  firm family that isn't in the project can't be placed in file mode.
+- **Revit ribbon** → BimGo → **Load diffusers…** stays as a second way in (same loader), for users who want the
+  types in the project before opening BimGo.
 - The `.rfa` files ship with the add-in (a `Families` folder beside it; **a new folder: needs Gavin's yes**) and
-  are listed in `THIRD-PARTY-NOTICES.txt` as BimGo's own.
+  are listed in `THIRD-PARTY-NOTICES.txt` as BimGo's own. Loading never needs the family library option turned
+  on: picking from the Diffusers tab turns on the Air Terminals category for the session.
 
 **The checker** (runs during extraction, Revit side):
 - Rates each loaded air terminal family **Ready** (meets the spec), **Works with guesses** (BimGo can place it
@@ -340,7 +364,7 @@ e.g. a connection that breaks without an error.
 |---|---|---|
 | **AF1: data + readout** | `Units` (IP / SI), `AirTerminals`, `DiffuserCatalog` (built-in generic, CSV / JSON import, fit, interpolation), `air.json` read / write, `SceneExtractor.Air.cs`, Scan gun readout + throw graph, ceiling envelopes (straight runs, no events) | A real model's diffusers show catalog throw envelopes and correct readouts; Core tests green |
 | **AF2: trace + findings** | `AirflowTrace` (walls, obstructions, collisions, falling jets, occupied zone, draft limit, T50 / L), paths and markers, findings panel → comments / BCF, settings | Draft risks found in a test room match a hand calculation from the catalog table |
-| **AF3: edits** | `SetFlow` op (live, journal, undo / redo, push + conflicts), CFM editor with live preview, Air Terminals in the family library, ceiling X-ray + plenum check, unhosted-at-ceiling placement (default) + hosted and free-at-elevation options, Re-seat all + connected / unconnected readout (§5.4), BimGo diffuser families + **Load diffusers…** + family checker (§2.5), orphan / off-ceiling flags + re-seat, grid snap | CFM changed in BimGo appears in Revit's schedule; a diffuser placed in BimGo shows its envelope at once |
+| **AF3: edits** | `SetFlow` op (live, journal, undo / redo, push + conflicts), CFM editor with live preview, Air Terminals in the family library, ceiling X-ray + plenum check, unhosted-at-ceiling placement (default) + hosted and free-at-elevation options, Re-seat all + connected / unconnected readout (§5.4), BimGo diffuser families + Diffusers tab in the Place gun + `family.load` (live) / load-on-push (file) + built-in templates + ribbon **Load diffusers…** + family checker (§2.5), orphan / off-ceiling flags + re-seat, grid snap | CFM changed in BimGo appears in Revit's schedule; a diffuser placed in BimGo shows its envelope at once |
 | **AF4: extras** (optional) | Smoke particles, occupied-zone heatmap, cold-jet separation / heating mode, OpenFOAM export | Chosen with the user after AF3 |
 
 Fit with the main plan: after Rounds A and B (presentation, review tools) or between them; the user decides.
@@ -362,6 +386,11 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 | Revit | `Extraction/SceneExtractor.Air.cs` | Air Terminals: position, normal, sizes, flow, role, pattern, catalog match |
 | Revit | `Extraction/FamilyCheck.cs` | Rates air terminal families against the spec (§2.5) |
 | Revit | `Commands/Cmds_BimGo.cs` | `Cmd_LoadDiffusers` (ribbon button, tooltip, icon) |
+| Revit | `Extraction/FamilyLoader.cs` | Loads BimGo family types (ribbon, `family.load`, push), keeps existing types, then the template pass for the new types |
+| Revit | `Live/LiveDispatcher.cs` | `family.load` → `family.load.result` |
+| Core | `Live/LiveProtocol.cs` | `MessageTypes.FAMILY_LOAD` / `FAMILY_LOAD_RESULT` (additive) |
+| App | `Rendering/DiffuserMeshes.cs` | Built-in template geometry for BimGo types (file mode) |
+| App | `Game/GameSession.Library.cs` | Diffusers tab, loaded / not loaded, load requests |
 | Revit | `Families/*.rfa` | BimGo diffuser families (new folder: needs Gavin's yes) |
 | Revit | `Extraction/FamilyPlacer.cs` | Ceiling-face hosting |
 | Revit | `Extraction/SceneExtractor.Library.cs` | Air Terminals in the library categories |
@@ -398,21 +427,21 @@ AF1 depends on nothing; AF3's CFM display benefits from Round B's unit setting.
 - `doc.LoadFamily` of a Revit 2025 `.rfa` in 2026 / 2027 (upgrade on load); keeping existing types
   (`IFamilyLoadOptions` returning false for overwrite).
 - Reading a connector's associated family parameter (flow, diameter) for the checker.
+- `Document.LoadFamilySymbol` for single types vs `LoadFamily` (which loads every type); loading during a live
+  session through the `ExternalEvent`, then the template pass for just the new types.
+- `doc.GetUnits().GetFormatOptions(SpecTypeId.AirFlow / SpecTypeId.Length).GetUnitTypeId()` on 2025–2027.
 
 ## 9. Questions to stage (AskUserQuestion, recommendation first)
 
-1. **Units default for `.bimgo` files** (no Revit project to read): IP or SI (recommended: the units saved in the file at export)?
-2. **Draft limit and occupied zone defaults:** 50 fpm (0.25 m/s), 1.8 m / 6 ft, 0.3 m / 1 ft wall setback?
-3. **Return / exhaust grilles:** show them (capture zone only, no throw) or ignore in AF1?
-4. **Linear slot diffusers and sidewall grilles:** in scope for the catalog schema now (recommended: schema yes,
+1. **Draft limit and occupied zone defaults:** 50 fpm (0.25 m/s), 1.8 m / 6 ft, 0.3 m / 1 ft wall setback?
+2. **Return / exhaust grilles:** show them (capture zone only, no throw) or ignore in AF1?
+3. **Linear slot diffusers and sidewall grilles:** in scope for the catalog schema now (recommended: schema yes,
    built-in data no), or square ceiling diffusers only?
-5. **Placement order:** AF1–AF3 after main Round A / B, or before?
-6. **Real catalog data:** one or two submittal tables (kept out of the repo) to check the fit against.
-7. **`SetType` (change neck / face size from BimGo):** include in AF3, or later?
-8. **Ceiling X-ray:** see-through (recommended) or hidden by default; on automatically with a terminal held?
-9. **Free-jet throw correction** for exposed diffusers: 0.7 by default, or per catalog family only?
-10. **BimGo families:** Gavin authors the `.rfa` files (Claude can't run Revit), or generate them with a Revit API
-    command from a family template (more code, but versionable)? Recommended: Gavin authors the first one, the
-    spec stays the source of truth.
-11. **Load diffusers… location:** Revit ribbon only, or also a button in BimGo's Place gun library during a
-    live session (an additive live message)?
+4. **Placement order:** AF1–AF3 after main Round A / B, or before?
+5. **Real catalog data:** one or two submittal tables (kept out of the repo) to check the fit against.
+6. **`SetType` (change neck / face size from BimGo):** include in AF3, or later?
+7. **Ceiling X-ray:** see-through (recommended) or hidden by default; on automatically with a terminal held?
+8. **Free-jet throw correction** for exposed diffusers: 0.7 by default, or per catalog family only?
+9. **BimGo families:** Gavin authors the `.rfa` files (Claude can't run Revit), or generate them with a Revit API
+   command from a family template (more code, but versionable)? Recommended: Gavin authors the first one, the
+   spec stays the source of truth.
