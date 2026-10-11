@@ -337,6 +337,103 @@ namespace BimGo.Format
 
     #endregion
 
+    #region air.json
+
+    /// <summary>
+    /// air.json: the model's air terminals and the catalog families they use (optional; older readers ignore it).
+    /// Rewritten by every extraction. Positions scene-local metres, flows L/s, catalog rows SI.
+    /// </summary>
+    public sealed class AirDto
+    {
+        /// <summary>Entry layout version.</summary>
+        public int Version { get; set; } = 1;
+
+        /// <summary>The Revit project's units at extraction: "IP" or "SI".</summary>
+        public string Units { get; set; } = "SI";
+
+        /// <summary>The terminals.</summary>
+        public List<AirTerminalDto> Terminals { get; set; } = new();
+
+        /// <summary>The catalog families the terminals use (always written in SI).</summary>
+        public List<CatalogFamilyDto> Catalog { get; set; } = new();
+    }
+
+    /// <summary>
+    /// One air terminal in air.json (see <see cref="AirTerminal"/>).
+    /// </summary>
+    public sealed class AirTerminalDto
+    {
+        public int Element { get; set; }
+        public Vector3 Position { get; set; }
+        public Vector3 Normal { get; set; } = -Vector3.UnitZ;
+        public Vector3 Forward { get; set; } = Vector3.UnitX;
+        public float FaceSize { get; set; }
+        public float NeckDiameter { get; set; }
+        public float Flow { get; set; }
+        public bool FlowEditable { get; set; }
+        public string FlowParameter { get; set; }
+        public int BlankedSides { get; set; }
+        public AirTerminalHosting Hosting { get; set; }
+        public bool Connected { get; set; }
+        public bool Supply { get; set; } = true;
+        public string CatalogKey { get; set; }
+        public FamilyRating Rating { get; set; }
+        public string RatingReason { get; set; }
+        public float FaceOffset { get; set; }
+    }
+
+    /// <summary>
+    /// A catalog file (<c>%AppData%\BimGo\Catalogs\*.json</c>): one or more families.
+    /// </summary>
+    public sealed class CatalogFileDto
+    {
+        /// <summary>The families.</summary>
+        public List<CatalogFamilyDto> Families { get; set; } = new();
+    }
+
+    /// <summary>
+    /// One catalog family as written in a catalog file or air.json, in its own units.
+    /// </summary>
+    public sealed class CatalogFamilyDto
+    {
+        /// <summary>Unique key, e.g. "acme-scd".</summary>
+        public string Key { get; set; }
+
+        /// <summary>Display name.</summary>
+        public string Label { get; set; }
+
+        /// <summary>"IP" (in, CFM, in wg, fpm, ft) or "SI" (mm, L/s, Pa, m/s, m).</summary>
+        public string Units { get; set; }
+
+        /// <summary>True for generic, typical-but-not-real data.</summary>
+        public bool Illustrative { get; set; }
+
+        /// <summary>Throw multiplier for exposed mounting (default 0.7).</summary>
+        public float? FreeJetFactor { get; set; }
+
+        /// <summary>Family / type name keywords for the fallback matcher.</summary>
+        public List<string> Match { get; set; }
+
+        /// <summary>The rows.</summary>
+        public List<CatalogRowDto> Rows { get; set; } = new();
+    }
+
+    /// <summary>
+    /// One catalog row in its family's units. <see cref="Throw"/> maps a terminal speed (as text, e.g. "150" or
+    /// "0.75") to the throw at that speed.
+    /// </summary>
+    public sealed class CatalogRowDto
+    {
+        public float Neck { get; set; }
+        public float Face { get; set; }
+        public float Flow { get; set; }
+        public float Pt { get; set; }
+        public float Nc { get; set; }
+        public Dictionary<string, float> Throw { get; set; } = new();
+    }
+
+    #endregion
+
     #region materials.json
 
     /// <summary>

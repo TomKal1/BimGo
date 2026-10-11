@@ -85,6 +85,14 @@ namespace BimGo.Format
                     {
                         WriteLibrary(zip, scene);
                     }
+                    if (scene.Air != null && !scene.Air.IsEmpty)
+                    {
+                        WriteJson(zip, BimGoFormat.ENTRY_AIR, BuildAir(scene.Air), BimGoFormat.JSON_COMPACT);
+                    }
+                    if (document.Airflow != null && !document.Airflow.IsDefault())
+                    {
+                        WriteJson(zip, BimGoFormat.ENTRY_AIRFLOW, document.Airflow, BimGoFormat.JSON_INDENTED);
+                    }
                     MaterialData materials = document.Materials ?? scene.Materials;
                     if (materials != null && !materials.IsEmpty && materials.VertexMaterial.Length == scene.Vertices.Length)
                     {
@@ -207,6 +215,40 @@ namespace BimGo.Format
                 });
             }
             return model;
+        }
+
+        private static AirDto BuildAir(AirData air)
+        {
+            var dto = new AirDto
+            {
+                Units = UnitConvert.Name(air.ProjectUnits),
+                Catalog = air.Catalog.Where(f => f != null).Select(CatalogFiles.ToDto).ToList()
+            };
+            foreach (AirTerminal t in air.Terminals)
+            {
+                if (t == null) { continue; }
+                dto.Terminals.Add(new AirTerminalDto
+                {
+                    Element = t.Element,
+                    Position = t.Position,
+                    Normal = t.Normal,
+                    Forward = t.Forward,
+                    FaceSize = t.FaceSize,
+                    NeckDiameter = t.NeckDiameter,
+                    Flow = t.FlowLps,
+                    FlowEditable = t.FlowEditable,
+                    FlowParameter = t.FlowParameter,
+                    BlankedSides = t.BlankedSides,
+                    Hosting = t.Hosting,
+                    Connected = t.Connected,
+                    Supply = t.Supply,
+                    CatalogKey = t.CatalogKey,
+                    Rating = t.Rating,
+                    RatingReason = t.RatingReason,
+                    FaceOffset = t.FaceOffset
+                });
+            }
+            return dto;
         }
 
         private static LightingDto BuildLighting(LightingData lighting)

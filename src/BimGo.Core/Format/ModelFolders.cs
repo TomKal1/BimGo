@@ -59,6 +59,9 @@ namespace BimGo.Format
         /// <summary>Sun state in a model folder.</summary>
         public const string SUN_FILE = "sun.json";
 
+        /// <summary>Airflow study state in a model folder.</summary>
+        public const string AIRFLOW_FILE = "airflow.json";
+
         /// <summary>Walkthrough-only hiding in a model folder.</summary>
         public const string VISIBILITY_FILE = "visibility.json";
 
@@ -77,7 +80,8 @@ namespace BimGo.Format
             (COMMENTS_FILE, BimGoFormat.SIDECAR_SUFFIX),
             (BOOKMARKS_FILE, BimGoFormat.BOOKMARK_SIDECAR_SUFFIX),
             (SUN_FILE, BimGoFormat.SUN_SIDECAR_SUFFIX),
-            (VISIBILITY_FILE, BimGoFormat.VISIBILITY_SIDECAR_SUFFIX)
+            (VISIBILITY_FILE, BimGoFormat.VISIBILITY_SIDECAR_SUFFIX),
+            (AIRFLOW_FILE, BimGoFormat.AIRFLOW_SIDECAR_SUFFIX)
         };
 
         #endregion

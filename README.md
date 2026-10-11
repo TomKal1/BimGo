@@ -189,9 +189,12 @@ A ZIP (extension masked); JSON camelCase; writes are atomic (`.tmp` then replace
 | `bookmarks.json` · `sun.json` · `visibility.json` | optional: bookmarks + home (thumbnails base64 JPEG; `section` per bookmark) · sun state · hidden categories / links / elements, `groundOffset` (m from the default ground) and `section` (box min / max, plane point / normal, internal metres) |
 | `lighting.json` | optional: glowing vertex runs and fixture lights |
 | `materials.json` · `material.bin` · `textures/*` | optional (Realistic): material table (colour, texture, placement, tint, invert, reflection fields…), per-vertex material index + surface coordinate, embedded images |
+| `air.json` · `airflow.json` | optional (airflow round, step 1: data only, nothing reads them in the app yet): air terminals (element, face centre / normal / forward, face and neck size, flow L/s, flow parameter, blanked sides, hosting, connected, catalog key, rating, face offset), project units (`IP` / `SI`) and the catalog families they use (SI rows) · the user's airflow state (mode, units override, heating share, temperatures, zone preset, placement mode, X-ray, target elevation, grid snap, per-type catalog overrides; also `airflow.json` in the live model folder) |
 | `library.json` · `library/*.png` | optional (live sessions): family library entries (`typeId`, `typeUniqueId`, family, type, category key, `placement`, `placeable`, `reason`, `element` = template index or -1, `preview`, `placed`) and `vertexStart` (first template vertex); previews |
 
-Settings (`settings.json`) carry the Options and in-app display choices; notable keys: categories, phases, `ActiveViewOnly`, `SkipHelperGeometry`, `LinkedModels`, `ExtractTextures`, `TextureMaxSize`, `RevitTint`, `ProxyMissingTextures`, `TextureSearchFolders`, `ShadowQuality`, `ArtificialLights`, `BloomIntensity`, `ReflectionThreshold`, `ReflectionProbes`, `ProbeResolution`, `QualityProfile`, `SidecarsBesideModel`, `LastOptionsTab`, `FamilyLibrary`, `FamilyLibraryMax`, `BcfCoordinates`, `SectionCapColour`.
+Settings (`settings.json`) carry the Options and in-app display choices; notable keys: categories, phases, `ActiveViewOnly`, `SkipHelperGeometry`, `LinkedModels`, `ExtractTextures`, `TextureMaxSize`, `RevitTint`, `ProxyMissingTextures`, `TextureSearchFolders`, `ShadowQuality`, `ArtificialLights`, `BloomIntensity`, `ReflectionThreshold`, `ReflectionProbes`, `ProbeResolution`, `QualityProfile`, `SidecarsBesideModel`, `LastOptionsTab`, `FamilyLibrary`, `FamilyLibraryMax`, `BcfCoordinates`, `SectionCapColour`, `AirflowFreeJetFactor`, `AirflowBandFactor`, `AirflowPlenumAllowance`, `AirflowDefaultMount`, `AirflowOffCeilingTolerance`.
+
+User diffuser catalogs: `%AppData%\BimGo\Catalogs\*.json` / `*.csv` (format in `CatalogFiles`); the built-in generic 3-cone square family is generated, illustrative data.
 
 Model folders (`%LocalAppData%\BimGo\Models\<title>_<hash>\`) also hold `comments\<id>.jpg` (comment pictures) and `sun-studies\<name>.json` (saved sun hours studies).
 
@@ -290,6 +293,7 @@ Every round's handoff and build notes live in `ai/<yymmdd>_<round>/`. Same-day f
 | 2026-10-10 | Section box (`261010b_SectionBox`) | Section box + quick plane (P / Shift+P / Ctrl+P), stencil caps in a flat, user-chosen colour, cuts saved with the model, in bookmarks and comment views, and as BCF clipping planes; tools skip cut geometry |
 | 2026-10-10 | Photo mode (`261010c_PhotoMode`) | M: clean-frame photo mode, hi-res stills (1–4×, PNG / JPEG), 360° equirectangular panoramas (4K / 8K, Photo Sphere metadata), exposure, field of view |
 | 2026-10-10 | Licence | BimGo relicensed MIT → **MIT-0** (no attribution required, same disclaimer); notices gained trademarks, acknowledgements and a licence-review / contact statement |
+| 2026-10-11 | Airflow, step 1 (`261010e_Airflow`) | Plan (3-cone square supply diffusers) and Core foundations: IP / SI units, diffuser catalog (generated generic family, JSON / CSV import, fit and interpolation), air terminal data, `air.json` / `airflow.json`; no app or Revit change yet |
 
 ## 10. Dependencies
 

@@ -470,11 +470,35 @@ namespace BimGo.Scene
             }
         }
 
+        #region Airflow
+
+        /// <summary>Throw multiplier for exposed diffusers (no ceiling for the jet to cling to), 0.3–1 (default 0.7).</summary>
+        public float AirflowFreeJetFactor { get; set; } = 0.7f;
+
+        /// <summary>Ceiling jet thickness as a share of the distance travelled (obstruction band), 0.05–0.3 (default 0.1).</summary>
+        public float AirflowBandFactor { get; set; } = 0.1f;
+
+        /// <summary>Plenum check: room needed above a diffuser beyond its own height (m), 0–0.6 (default 0.15).</summary>
+        public float AirflowPlenumAllowance { get; set; } = 0.15f;
+
+        /// <summary>Placement height above the level when no ceiling or underside is aimed at (m), 2–10 (default 2.7).</summary>
+        public float AirflowDefaultMount { get; set; } = 2.7f;
+
+        /// <summary>An unhosted diffuser further than this from the ceiling bottom is flagged (m), 0.005–0.2 (default 0.025).</summary>
+        public float AirflowOffCeilingTolerance { get; set; } = 0.025f;
+
+        #endregion
+
         /// <summary>
         /// Clamps values into valid ranges (guards against hand-edited files).
         /// </summary>
         public void Sanitise()
         {
+            AirflowFreeJetFactor = ClampOr(AirflowFreeJetFactor, 0.3f, 1f, 0.7f);
+            AirflowBandFactor = ClampOr(AirflowBandFactor, 0.05f, 0.3f, 0.1f);
+            AirflowPlenumAllowance = ClampOr(AirflowPlenumAllowance, 0f, 0.6f, 0.15f);
+            AirflowDefaultMount = ClampOr(AirflowDefaultMount, 2f, 10f, 2.7f);
+            AirflowOffCeilingTolerance = ClampOr(AirflowOffCeilingTolerance, 0.005f, 0.2f, 0.025f);
             EnabledCategories ??= Scene.CategoryCatalog.DefaultEnabledKeys();
             ExtraParameters = (ExtraParameters ?? new List<string>())
                 .Where(n => !string.IsNullOrWhiteSpace(n))
@@ -537,6 +561,10 @@ namespace BimGo.Scene
             // Last: the profile is whatever the (clamped) values match, so a hand-edited or older file reads true
             QualityProfile = QualityProfiles.Detect(this);
         }
+
+        /// <summary>A finite value clamped to a range (else the default).</summary>
+        private static float ClampOr(float value, float min, float max, float fallback) =>
+            float.IsFinite(value) ? Math.Clamp(value, min, max) : fallback;
 
         #endregion
 

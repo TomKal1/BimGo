@@ -78,6 +78,8 @@ namespace BimGo.Format
                 LightingDto lighting = ReadJson<LightingDto>(zip, BimGoFormat.ENTRY_LIGHTING, required: false);
                 MaterialsDto materials = ReadOptionalJson<MaterialsDto>(zip, BimGoFormat.ENTRY_MATERIALS);
                 LibraryDto library = ReadOptionalJson<LibraryDto>(zip, BimGoFormat.ENTRY_LIBRARY);
+                AirDto air = ReadOptionalJson<AirDto>(zip, BimGoFormat.ENTRY_AIR);
+                AirflowState airflow = ReadOptionalJson<AirflowState>(zip, BimGoFormat.ENTRY_AIRFLOW)?.Clean();
                 progress?.Step(0.1);
                 progress?.ThrowIfCancelled();
                 ReadGeometry(zip, out SceneVertex[] vertices, out uint[] indices, progress);
@@ -85,7 +87,7 @@ namespace BimGo.Format
 
                 MaterialData materialData = ReadMaterials(zip, materials, vertices.Length);
                 SceneData scene = BuildScene(path, manifest, model, elements, parameters, vertices, indices, settings ?? new LaunchSettings(), lighting, materialData,
-                    records => BuildLibrary(zip, library, records, vertices.Length));
+                    records => BuildLibrary(zip, library, records, vertices.Length), air);
                 comments.Comments ??= new List<CommentRecord>();
                 comments.Comments.RemoveAll(c => c == null || string.IsNullOrWhiteSpace(c.Text));
                 foreach (CommentRecord comment in comments.Comments)
@@ -107,6 +109,7 @@ namespace BimGo.Format
                     Bookmarks = bookmarks,
                     Sun = sun,
                     Visibility = visibility,
+                    Airflow = airflow,
                     CreatedUtc = manifest.CreatedUtc,
                     Kind = manifest.Kind,
                     Path = path,
@@ -125,7 +128,7 @@ namespace BimGo.Format
 
         private static SceneData BuildScene(string path, ManifestDto manifest, ModelDto model, ElementsDto elementsDto, ParametersDto parametersDto,
             SceneVertex[] vertices, uint[] indices, LaunchSettings settings, LightingDto lightingDto, MaterialData materials,
-            Func<ElementRecord[], LibraryData> buildLibrary = null)
+            Func<ElementRecord[], LibraryData> buildLibrary = null, AirDto airDto = null)
         {
             IReadOnlyList<CategoryDef> catalog = CategoryCatalog.All;
             int genericIndex = CategoryCatalog.Find(CategoryCatalog.KEY_GENERIC)?.Index ?? 0;
@@ -275,6 +278,7 @@ namespace BimGo.Format
                 Site = model.Site ?? new SiteInfo(),
                 Parameters = BuildParameters(parametersDto, records.Length),
                 Lighting = BuildLighting(lightingDto, vertices.Length, records.Length),
+                Air = BuildAir(airDto, records.Length),
                 Materials = materials ?? MaterialData.Empty,
                 Library = buildLibrary?.Invoke(records) ?? LibraryData.Empty,
                 CategoryLoaded = loaded,
@@ -359,6 +363,84 @@ namespace BimGo.Format
             int start = range[0], count = range[1];
             if (start < 0 || count <= 0 || start > indexCount || (long)start + count > indexCount) { return (0, 0); }
             return (start, count - count % 3);
+        }
+
+        /// <summary>
+        /// The optional air entry, validated: terminals on real elements (one per element) with finite positions, unit
+        /// directions, flows of 0–10 000 L/s and sizes of 25 mm–1.5 m; catalog families cleaned (bad rows dropped). Anything
+        /// damaged is dropped with a log line, never failing the load.
+        /// </summary>
+        private static AirData BuildAir(AirDto dto, int elementCount)
+        {
+            if (dto == null) { return AirData.Empty; }
+            try
+            {
+                var problems = new List<string>();
+                CatalogFamily[] catalog = (dto.Catalog ?? new List<CatalogFamilyDto>())
+                    .Select(f => CatalogFiles.FromDto(f, BimGoFormat.ENTRY_AIR, problems)?.Clean(problems))
+                    .Where(f => f != null)
+                    .GroupBy(f => f.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.Last())
+                    .ToArray();
+
+                var terminals = new List<AirTerminal>();
+                var seen = new HashSet<int>();
+                int dropped = 0;
+                foreach (AirTerminalDto t in dto.Terminals ?? new List<AirTerminalDto>())
+                {
+                    // Validate first, then claim the element: a damaged entry must not block a good one for it
+                    if (t == null || t.Element < 0 || t.Element >= elementCount
+                        || !Finite(t.Position) || !float.IsFinite(t.Flow) || t.Flow < 0f || t.Flow > 10000f
+                        || !ValidSize(t.FaceSize) || !(t.NeckDiameter == 0f || ValidSize(t.NeckDiameter))
+                        || !seen.Add(t.Element))
+                    {
+                        dropped++;
+                        continue;
+                    }
+                    terminals.Add(new AirTerminal
+                    {
+                        Element = t.Element,
+                        Position = t.Position,
+                        Normal = UnitOr(t.Normal, -Vector3.UnitZ),
+                        Forward = UnitOr(new Vector3(t.Forward.X, t.Forward.Y, 0f), Vector3.UnitX),
+                        FaceSize = t.FaceSize,
+                        NeckDiameter = t.NeckDiameter,
+                        FlowLps = t.Flow,
+                        FlowEditable = t.FlowEditable,
+                        FlowParameter = t.FlowParameter,
+                        BlankedSides = (byte)(t.BlankedSides & AirTerminal.ALL_SIDES),
+                        Hosting = Enum.IsDefined(t.Hosting) ? t.Hosting : AirTerminalHosting.Unhosted,
+                        Connected = t.Connected,
+                        Supply = t.Supply,
+                        CatalogKey = string.IsNullOrWhiteSpace(t.CatalogKey) ? DiffuserCatalog.GENERIC_KEY : t.CatalogKey.Trim(),
+                        Rating = Enum.IsDefined(t.Rating) ? t.Rating : FamilyRating.NotModelled,
+                        RatingReason = t.RatingReason,
+                        FaceOffset = float.IsFinite(t.FaceOffset) ? Math.Clamp(t.FaceOffset, -1f, 1f) : 0f
+                    });
+                }
+                if (dropped > 0 || problems.Count > 0)
+                {
+                    Utilities.Log_Utils.Write($"{BimGoFormat.ENTRY_AIR}: {dropped} terminal(s) dropped; {string.Join("; ", problems)}");
+                }
+
+                return terminals.Count == 0
+                    ? AirData.Empty
+                    : new AirData
+                    {
+                        ProjectUnits = UnitConvert.Parse(dto.Units) ?? MeasurementSystem.SI,
+                        Terminals = terminals.ToArray(),
+                        Catalog = catalog
+                    };
+            }
+            catch (Exception ex)
+            {
+                Utilities.Log_Utils.Write($"{BimGoFormat.ENTRY_AIR} ignored: {ex.Message}");
+                return AirData.Empty;
+            }
+
+            static bool Finite(Vector3 v) => float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z);
+            static bool ValidSize(float m) => float.IsFinite(m) && m >= 0.025f && m <= 1.5f;
+            static Vector3 UnitOr(Vector3 v, Vector3 fallback) => Finite(v) && v.LengthSquared() > 1e-6f ? Vector3.Normalize(v) : fallback;
         }
 
         /// <summary>

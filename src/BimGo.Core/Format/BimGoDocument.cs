@@ -28,6 +28,9 @@ namespace BimGo.Format
         /// <summary>What the walkthrough hides (categories, links, elements), or null if nothing.</summary>
         public VisibilitySettings Visibility { get; init; }
 
+        /// <summary>The airflow study state (optional; null = defaults).</summary>
+        public AirflowState Airflow { get; init; }
+
         /// <summary>
         /// The materials as changed in the walkthrough (Textures panel: picked images, scan hits, proxies), or null to
         /// write the scene's own (<see cref="SceneData.Materials"/>). The scene snapshot itself stays immutable.

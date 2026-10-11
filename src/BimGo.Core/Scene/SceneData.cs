@@ -376,6 +376,9 @@ namespace BimGo.Scene
         /// <summary>Glowing surfaces and lighting-fixture lights (optional; never null).</summary>
         public LightingData Lighting { get; init; } = LightingData.Empty;
 
+        /// <summary>Air terminals and the catalog families they use (optional; never null).</summary>
+        public AirData Air { get; init; } = AirData.Empty;
+
         /// <summary>Materials, textures and surface coordinates for Realistic mode (optional; never null).</summary>
         public MaterialData Materials { get; init; } = MaterialData.Empty;
 

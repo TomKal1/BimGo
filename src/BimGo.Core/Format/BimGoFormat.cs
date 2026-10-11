@@ -28,6 +28,8 @@ namespace BimGo.Format
     /// textures/…        embedded texture images (JPEG / PNG), referenced from materials.json (optional)
     /// library.json      family library: offered family types and the first template vertex (optional; live sessions)
     /// library/…         family library preview images (PNG), referenced from library.json (optional)
+    /// air.json          air terminals and the catalog families they use (optional; rewritten by every extraction)
+    /// airflow.json      the user's airflow study state: mode, units, zone, placement (optional)
     /// </code>
     /// </summary>
     public static class BimGoFormat
@@ -56,6 +58,9 @@ namespace BimGo.Format
         /// <summary>The visibility sidecar suffix used beside a Revit model (next to the comments sidecar).</summary>
         public const string VISIBILITY_SIDECAR_SUFFIX = ".bimgo-visibility.json";
 
+        /// <summary>The airflow-state sidecar suffix used beside a Revit model (next to the comments sidecar).</summary>
+        public const string AIRFLOW_SIDECAR_SUFFIX = ".bimgo-airflow.json";
+
         /// <summary>The pre-BimGo sidecar suffix (migrated on first use).</summary>
         public const string LEGACY_SIDECAR_SUFFIX = ".rvtgo.json";
 
@@ -78,6 +83,8 @@ namespace BimGo.Format
         internal const string ENTRY_MATERIALS = "materials.json";
         internal const string ENTRY_MATERIAL_STREAMS = "material.bin";
         internal const string ENTRY_LIBRARY = "library.json";
+        internal const string ENTRY_AIR = "air.json";
+        internal const string ENTRY_AIRFLOW = "airflow.json";
 
         /// <summary>The folder (entry name prefix) family library previews live under.</summary>
         public const string LIBRARY_FOLDER = "library/";

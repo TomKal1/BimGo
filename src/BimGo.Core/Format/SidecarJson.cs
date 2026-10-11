@@ -1,4 +1,5 @@
 using System.Text.Json;
+using BimGo.Scene;
 
 // The class belongs to the Format namespace
 namespace BimGo.Format
@@ -89,5 +90,21 @@ namespace BimGo.Format
 
         /// <summary>Writes the sidecar.</summary>
         public static bool Write(string path, SunSettings settings, out string error) => SidecarJson.Write(path, settings, "Sun settings", out error);
+    }
+
+    /// <summary>
+    /// The airflow-state sidecar beside a Revit model (&lt;model&gt;.bimgo-airflow.json, next to the comments sidecar).
+    /// Never throws.
+    /// </summary>
+    public static class AirflowFiles
+    {
+        /// <summary>The airflow sidecar for a comments sidecar path, or null.</summary>
+        public static string SidecarFor(string commentsSidecarPath) => SidecarJson.BesideComments(commentsSidecarPath, BimGoFormat.AIRFLOW_SIDECAR_SUFFIX);
+
+        /// <summary>Reads the sidecar (null if missing or unreadable).</summary>
+        public static AirflowState Read(string path, out string error) => SidecarJson.Read<AirflowState>(path, "Airflow settings", out error)?.Clean();
+
+        /// <summary>Writes the sidecar.</summary>
+        public static bool Write(string path, AirflowState state, out string error) => SidecarJson.Write(path, state, "Airflow settings", out error);
     }
 }
