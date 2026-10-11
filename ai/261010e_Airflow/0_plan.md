@@ -1,6 +1,7 @@
 # BimGo: Airflow (air terminals, throw, drafts): plan
 
-**Status:** plan only, nothing built. Written 2026-10-10 from a brainstorm with the user. To be staged with
+**Status:** design notes. **The build follows `1_implementation_plan.md`** (narrow scope: 3-cone square supply
+diffusers, decided 2026-10-11). Nothing built yet. Written 2026-10-10 from a brainstorm with the user. To be staged with
 AskUserQuestion (recommendation first) round by round, like the other rounds.
 
 **Goal:** let mechanical engineers walk the model and *see* supply air: how far each diffuser throws, where jets
