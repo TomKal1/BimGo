@@ -95,6 +95,16 @@ namespace BimGo.Format
                     {
                         WriteJson(zip, BimGoFormat.ENTRY_MEASUREMENTS, document.Measurements, BimGoFormat.JSON_INDENTED);
                     }
+                    if (document.LightingCalcs != null) // fork build LC-B: lighting calc results, written as held
+                    {
+                        foreach (KeyValuePair<string, byte[]> entry in document.LightingCalcs)
+                        {
+                            if (!LightingCalcFiles.IsEntryName(entry.Key) || entry.Value == null) { continue; }
+                            ZipArchiveEntry calc = zip.CreateEntry(entry.Key, CompressionLevel.Fastest);
+                            using Stream calcStream = calc.Open();
+                            calcStream.Write(entry.Value);
+                        }
+                    }
                     if (document.LightProfiles != null && !document.LightProfiles.IsEmpty) // Round X-D1
                     {
                         WriteJson(zip, BimGoFormat.ENTRY_LIGHT_PROFILES, document.LightProfiles, BimGoFormat.JSON_INDENTED);

@@ -327,6 +327,7 @@ namespace BimGo.Game
             InitialisePaths(); // Round K-A: camera paths
             InitialiseEntourage(); // Round X-B: billboards
             InitialiseLightProfiles(); // Round X-D1: IES / built-in light profiles per fixture type
+            InitialiseLightingCalcs(); // fork build LC-B: WW Tools' lighting calc results
             InitialiseSun();
             InitialiseVisibility();
 
@@ -876,6 +877,7 @@ namespace BimGo.Game
                 return;
             }
             if (input.Pressed(InputAction.Lights)) { CycleLightMode(); }
+            if (input.Pressed(InputAction.LightingCalcMode)) { CycleCalcMode(); } // fork build LC-B
             if (input.Pressed(InputAction.Shadows))
             {
                 ToggleShadows();
@@ -1360,6 +1362,7 @@ namespace BimGo.Game
             _renderer?.Dispose();
             _overlay.Dispose();
             _gridOverlay.Dispose();
+            _calcOverlay.Dispose(); // fork build LC-B
             _gridNodeOverlay.Dispose();
             _sunOverlay?.Dispose();
             _sectionOverlay?.Dispose();

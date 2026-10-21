@@ -83,6 +83,7 @@ namespace BimGo.Scene
         MediaPanel, // Round K-A
         PathEditMode, // Round K-B
         FixtureProfile, // Round Y-C2: the aimed fixture's own light profile
+        LightingCalcMode, // fork build LC-B: the lighting calc view (off / illuminance / luminance / points)
 
         // Gun keys
         ScanSelectInRevit, ScanHide, ScanIsolate, MeasureNormal, CommentEdit, DemolishMode, GizmoSnap, GizmoDrop,
@@ -365,6 +366,7 @@ namespace BimGo.Scene
             Add(InputAction.MediaPanel, c, "Media panel: photo, tour, camera paths, video", P, "Shift+M"); // Round K-A
             Add(InputAction.PathEditMode, c, "Camera path editor in 3D on / off", P, "Shift+K"); // Round K-B
             Add(InputAction.FixtureProfile, c, "Light profile of the aimed fixture (dock)", P, "Ctrl+K"); // Round Y-C2
+            Add(InputAction.LightingCalcMode, c, "Lighting calc results: off / illuminance / luminance / points", P, "Shift+J"); // fork build LC-B
 
             // Gun keys (while that gun is selected)
             Add(InputAction.ScanSelectInRevit, InputContext.ScanGun, "Select in Revit (live)", P, "R");
@@ -906,10 +908,10 @@ namespace BimGo.Scene
         /// The controls defaults version (polish round P-B). 0: the defaults up to P-A2; 1: P-B's hotkey review; 2: Round
         /// K-A's media panel; 3: Round K-B's path editor; 4: Round X-B3's billboard resize (HoldScale); 5: Round X-E's
         /// Revit views from here (RevitViewNew, RevitViewUpdate); 6: Round Y-A's saved measurements (MeasureShowAll, MeasureExport); 7: Round Y-C2's
-        /// fixture light profile dock (FixtureProfile). Raise it when a default changes and add the changes to
+        /// fixture light profile dock (FixtureProfile); 8: fork build LC-B's lighting calc view (LightingCalcMode). Raise it when a default changes and add the changes to
         /// <see cref="DefaultsChanges"/> (ControlsTests checks the table against the defaults).
         /// </summary>
-        public const int DEFAULTS_VERSION = 7;
+        public const int DEFAULTS_VERSION = 8;
 
         /// <summary>Every default that changed, by version (oldest first). <c>Was</c>: the old binding ("none" for none).</summary>
         public static readonly DefaultsChange[] DefaultsChanges =
@@ -960,7 +962,10 @@ namespace BimGo.Scene
             new(6, InputAction.MeasureExport, true, null),
 
             // Version 7 (Round Y-C2): Ctrl+K opens the aimed fixture's light profile dock
-            new(7, InputAction.FixtureProfile, true, null)
+            new(7, InputAction.FixtureProfile, true, null),
+
+            // Version 8 (fork build LC-B): Shift+J cycles the lighting calc view
+            new(8, InputAction.LightingCalcMode, true, null)
         };
 
         /// <summary>The changes made after a version the user saw (empty when it is current or newer).</summary>

@@ -858,7 +858,7 @@ namespace BimGo.Game
             {
                 case 1: BuildReflectionsTab(f, input, ix, y, iw); break;
                 case 2: BuildAppearanceTab(f, input, ix, y, iw); break;
-                case 3: bottom = MathF.Max(bottom, BuildLightsTab(f, input, ix, y, iw) + S(12)); break; // X-D1: a list, so it can run long
+                case 3: bottom = MathF.Max(bottom, BuildLightsTab(f, input, ix, BuildLightingCalcsSection(f, input, ix, y, iw), iw) + S(12)); break; // X-D1: a list, so it can run long; LC-B: CALCS first
                 default: bottom = MathF.Max(bottom, BuildDisplayTab(f, input, ix, y, iw) + S(12)); break; // Y-D1: it can run long
             }
             EndScroll(_settingsScroll, input, bottom);

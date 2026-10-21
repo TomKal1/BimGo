@@ -102,6 +102,12 @@ namespace BimGo.Game
                     QueueProfileLegendForShot(width, height);
                     _ui.Flush(width, height);
                 }
+                if (CalcShowing) // fork build LC-B: the calc legend in the screenshot
+                {
+                    Gl.Viewport(0, 0, width, height);
+                    QueueCalcLegendForShot(height);
+                    _ui.Flush(width, height);
+                }
                 CaptureScreenshot(width, height);
             }
             if (_sunShotRequested)
@@ -395,6 +401,7 @@ namespace BimGo.Game
 
             // Sun hours grid (study results are content, so they show with the UI hidden too)
             DrawSunHoursCells();
+            DrawLightingCalcs(photo); // fork build LC-B: lighting calc results (content too)
 
             // Section box frame and handles (editor only)
             if (!photo) { DrawSectionGizmo(); }
@@ -590,6 +597,7 @@ namespace BimGo.Game
 
             // World-anchored labels (grids round A: grid bubbles and level tags first, under the rest)
             DrawGridLabels(f);
+            DrawCalcLabels(f); // fork build LC-B: the calc points' values near the eye
             for (int i = 0; i < _guns.Length; i++) { _guns[i].DrawLabels(_ui, i == _activeGun && !_unarmed); }
             DrawGridHoverLabel(f); // grids round B: the hovered node, over the other labels
 
@@ -758,6 +766,7 @@ namespace BimGo.Game
             if (help) { bottom = BuildHelp(f, height, top) - gap; }
             bool collapse = help && _showHelp;
 
+            if (sunLegend) { bottom = BuildCalcLegend(f, x, top, bottom, collapse); } // fork build LC-B
             if (sunLegend && _sunStudy.Hours != null && _sunLegendTitle != null)
             {
                 float full = S(78), small = S(UiTheme.LEGEND_COLLAPSED_HEIGHT);

@@ -427,6 +427,7 @@ namespace BimGo.Game
                 EntourageImages = Entourage?.ImagesForSave(),
                 LightProfiles = LightProfilesForSave(), // Round X-D1
                 Measurements = MeasurementsForSave(), // Round Y-A
+                LightingCalcs = LightingCalcsForSave(), // fork build LC-B
                 Sun = _sun?.Copy(),
                 Visibility = ToVisibilitySettings(),
                 Materials = MaterialsChanged ? CurrentMaterials : null, // Textures panel: picked images are embedded

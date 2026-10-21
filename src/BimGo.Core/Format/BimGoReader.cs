@@ -162,7 +162,8 @@ namespace BimGo.Format
                     Path = path,
                     ReadFormatVersion = manifest.FormatVersion,
                     Thumbnail = ReadThumbnail(zip),
-                    Clashes = ReadBytes(zip, BimGoFormat.ENTRY_CLASHES)
+                    Clashes = ReadBytes(zip, BimGoFormat.ENTRY_CLASHES),
+                    LightingCalcs = ReadLightingCalcs(zip) // fork build LC-B
                 };
             }
             catch (Exception ex)
@@ -574,6 +575,34 @@ namespace BimGo.Format
         }
 
         /// <summary>An entry's bytes (capped at 64 MB), or null if absent or unreadable.</summary>
+        /// <summary>
+        /// Fork build LC-B: the lighting calc results entries (<c>lighting-calcs/*.json</c> + <c>.bin</c>) as raw bytes, up to
+        /// <see cref="LightingCalcFiles.MAX_EMBED_BYTES"/> together; null when there are none. Parsed when the CALCS view needs them.
+        /// </summary>
+        private static Dictionary<string, byte[]> ReadLightingCalcs(ZipArchive zip)
+        {
+            Dictionary<string, byte[]> entries = null;
+            long total = 0;
+            try
+            {
+                foreach (ZipArchiveEntry entry in zip.Entries)
+                {
+                    if (!LightingCalcFiles.IsEntryName(entry.FullName) || entry.Length <= 0) { continue; }
+                    if (total + entry.Length > LightingCalcFiles.MAX_EMBED_BYTES) { break; }
+                    byte[] bytes = new byte[entry.Length];
+                    using (Stream stream = entry.Open()) { stream.ReadExactly(bytes); }
+                    entries ??= new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+                    entries[entry.FullName] = bytes;
+                    total += entry.Length;
+                }
+            }
+            catch (Exception ex)
+            {
+                Utilities.Log_Utils.Write($"Lighting calc results in the file unreadable: {ex.Message}");
+            }
+            return entries;
+        }
+
         private static byte[] ReadBytes(ZipArchive zip, string name)
         {
             try
