@@ -200,7 +200,8 @@ namespace BimGo.Live
                         DocTitle = host.Info.DocTitle,
                         RevitVersion = host.Info.RevitVersion,
                         PhaseName = host.Info.PhaseName,
-                        ExistingPhaseName = host.Info.ExistingPhaseName
+                        ExistingPhaseName = host.Info.ExistingPhaseName,
+                        RevitViews = true // Round X-E: makes / updates views from BimGo's camera
                     }, envelope.Id);
                     MarkStatusDirty();
                     break;
@@ -224,6 +225,18 @@ namespace BimGo.Live
                             ? SelectLinked(app, host, linked, select.Hosts) ?? Select(app, host, select.ElementIds ?? Array.Empty<long>())
                             : Select(app, host, select?.ElementIds ?? Array.Empty<long>());
                     host.Send(MessageTypes.SELECT_RESULT, selected, envelope.Id);
+                    break;
+
+                case MessageTypes.VIEW_MAKE:
+                    RevitViewPayload view = envelope.Read<RevitViewPayload>();
+                    if (view == null) { break; }
+                    MessagePayload made = MakeView(app, host, view);
+                    host.Send(MessageTypes.VIEW_RESULT, made, envelope.Id);
+                    if (!made.Success && view.AskedInRevit)
+                    {
+                        // Asked from the ribbon: say it here too (the app shows it as well)
+                        new UI.TaskDialog("BimGo") { MainInstruction = "No view from BimGo", MainContent = made.Message, CommonButtons = UI.TaskDialogCommonButtons.Close }.Show();
+                    }
                     break;
 
                 case MessageTypes.JOURNAL_APPLY:
@@ -520,6 +533,162 @@ namespace BimGo.Live
                     : $"Clash view ready in Revit: “{view.Name}”, {box} (the pair couldn't be selected)"
             };
         }
+
+        #endregion
+
+        #region Views from BimGo (Round X-E)
+
+        /// <summary>
+        /// The ribbon's NEW VIEW / UPDATE VIEW: asks the attached app for its camera; the answer (view.make) does the work.
+        /// </summary>
+        /// <returns>False if no app is attached.</returns>
+        public static bool RequestView(SessionHost host, RevitViewAction action)
+        {
+            if (host == null || host.IsClosed || !host.AppAttached) { return false; }
+            host.Send(MessageTypes.VIEW_REQUEST, new RevitViewRequestPayload { Action = action });
+            Utilities.Log_Utils.Write($"Session {host.SessionId[..8]}: asked BimGo for its camera ({action}).");
+            return true;
+        }
+
+        /// <summary>
+        /// Makes a new perspective 3D view ("BimGo NN", made active) from BimGo's camera, or puts that camera on Revit's
+        /// active perspective 3D view. One BimGo transaction ("BimGo: new view" / "BimGo: update view"), so one undo entry
+        /// and not a change made outside BimGo. The crop gets BimGo's field of view and aspect.
+        /// </summary>
+        private static MessagePayload MakeView(UIApplication app, SessionHost host, RevitViewPayload request)
+        {
+            Document doc = host.Document;
+            UIDocument uiDoc = app.ActiveUIDocument;
+            if (doc == null || !doc.IsValidObject) { return Fail("The model is no longer open in Revit"); }
+            if (!request.IsValid()) { return Fail("BimGo's camera couldn't be read"); }
+            if (doc.IsReadOnly) { return Fail("The model is read-only in Revit"); }
+            bool update = request.Action == RevitViewAction.Update;
+            bool isActiveDoc = uiDoc != null && SameDocument(uiDoc.Document, doc);
+            if (update && !isActiveDoc) { return Fail($"Switch to {host.Info.DocTitle} in Revit to update its view"); }
+
+            // The camera in feet, with an up at right angles to the view
+            XYZ forward = new XYZ(request.ForwardX, request.ForwardY, request.ForwardZ).Normalize();
+            XYZ up = new XYZ(request.UpX, request.UpY, request.UpZ);
+            XYZ right = up.GetLength() > 1e-9 ? forward.CrossProduct(up) : forward.CrossProduct(XYZ.BasisZ);
+            if (right.GetLength() < 1e-6) { right = forward.CrossProduct(XYZ.BasisY); } // looking straight up or down
+            up = right.Normalize().CrossProduct(forward).Normalize();
+            XYZ eye = new XYZ(request.EyeX / SceneExtractor.FT, request.EyeY / SceneExtractor.FT, request.EyeZ / SceneExtractor.FT);
+
+            View3D view;
+            if (update)
+            {
+                view = uiDoc.ActiveView as View3D;
+                if (view == null || view.IsTemplate || !view.IsPerspective)
+                {
+                    return Fail("Open the perspective 3D view to update in Revit first (or make a new one)");
+                }
+                if (view.IsLocked) { return Fail($"“{view.Name}” is locked in Revit: unlock it to update it"); }
+            }
+            else
+            {
+                view = null;
+            }
+
+            try
+            {
+                using var transaction = new Transaction(doc, update ? "BimGo: update view" : "BimGo: new view");
+                transaction.Start();
+                if (!update)
+                {
+                    ViewFamilyType type = new FilteredElementCollector(doc).OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>()
+                        .FirstOrDefault(t => t.ViewFamily == ViewFamily.ThreeDimensional);
+                    if (type == null)
+                    {
+                        transaction.RollBack();
+                        return Fail("This model has no 3D view type");
+                    }
+                    view = View3D.CreatePerspective(doc, type.Id);
+                    if (view.ViewTemplateId != ElementId.InvalidElementId) { view.ViewTemplateId = ElementId.InvalidElementId; }
+
+                    IEnumerable<string> names = new FilteredElementCollector(doc).OfClass(typeof(DB.View)).Cast<DB.View>().Select(v => v.Name);
+                    string name = RevitViews.NextViewName(names);
+                    try { view.Name = name; }
+                    catch (Exception ex)
+                    {
+                        Utilities.Log_Utils.Write($"View name \"{name}\" not available: {ex.Message}");
+                    }
+                }
+                view.SetOrientation(new ViewOrientation3D(eye, up, forward));
+                if (request.HorizontalFov > 1.0 && request.HorizontalFov < 170.0)
+                {
+                    SetPerspectiveFov(view, eye, request.HorizontalFov, request.Aspect);
+                }
+                transaction.Commit();
+            }
+            catch (Exception ex)
+            {
+                Utilities.Log_Utils.Write($"View from BimGo failed: {ex}");
+                return Fail("Revit couldn't " + (update ? "update the view: " : "make the view: ") + ex.Message);
+            }
+
+            // A new view opens (without taking the focus from BimGo); an updated one redraws
+            if (isActiveDoc)
+            {
+                try
+                {
+                    if (!update) { uiDoc.ActiveView = view; }
+                    else { uiDoc.RefreshActiveView(); }
+                }
+                catch (Exception ex)
+                {
+                    Utilities.Log_Utils.Write($"View from BimGo could not be shown: {ex.Message}");
+                }
+            }
+
+            Utilities.Log_Utils.Write($"View from BimGo: {(update ? "updated" : "made")} “{view.Name}” (eye {FormatPoint(eye)} ft).");
+            return new MessagePayload
+            {
+                Success = true,
+                Message = update ? $"Updated “{view.Name}” in Revit to this view" : $"New Revit view “{view.Name}” from here"
+            };
+
+            static MessagePayload Fail(string message) => new() { Success = false, Message = message };
+        }
+
+        /// <summary>
+        /// Sizes a perspective view's crop region to a horizontal field of view and an aspect (inside the caller's
+        /// transaction). The crop box is in view coordinates; its front face (Max.Z, negative: in front of the eye)
+        /// carries the crop rectangle, so the half width over the distance to that face is tan(fov / 2) (Revit's docs:
+        /// the perspective crop box is a slice of a pyramid with its apex at the eye). Logged every time (crop before
+        /// and after, the distance, whether the crop box's origin is the eye) so the convention can be checked.
+        /// </summary>
+        private static void SetPerspectiveFov(View3D view, XYZ eye, double horizontalFov, double aspect)
+        {
+            BoundingBoxXYZ box = view.CropBox;
+            if (box == null) { return; }
+            double distance = -box.Max.Z;
+            double halfWidth = (box.Max.X - box.Min.X) * 0.5, halfHeight = (box.Max.Y - box.Min.Y) * 0.5;
+            if (!(distance > 1e-6) || !(halfWidth > 1e-9) || !(halfHeight > 1e-9) || !double.IsFinite(distance))
+            {
+                Utilities.Log_Utils.Write($"View from BimGo: crop box not as expected (min {FormatPoint(box.Min)}, max {FormatPoint(box.Max)}); field of view left alone.");
+                return;
+            }
+
+            double before = 2.0 * Math.Atan(halfWidth / distance) * 180.0 / Math.PI;
+            double newHalfWidth = distance * Math.Tan(horizontalFov * Math.PI / 360.0);
+            double newHalfHeight = aspect > 0.1 && aspect < 10.0 ? newHalfWidth / aspect : halfHeight * newHalfWidth / halfWidth;
+
+            // Centred on the eye's axis when the crop box's origin is the eye (BimGo's frustum is symmetric)
+            bool originAtEye = box.Transform != null && box.Transform.Origin.DistanceTo(eye) < 0.01;
+            double cx = originAtEye ? 0.0 : (box.Max.X + box.Min.X) * 0.5;
+            double cy = originAtEye ? 0.0 : (box.Max.Y + box.Min.Y) * 0.5;
+            XYZ oldMin = box.Min, oldMax = box.Max;
+            box.Min = new XYZ(cx - newHalfWidth, cy - newHalfHeight, box.Min.Z);
+            box.Max = new XYZ(cx + newHalfWidth, cy + newHalfHeight, box.Max.Z);
+            view.CropBox = box;
+
+            BoundingBoxXYZ after = view.CropBox;
+            double check = after != null && -after.Max.Z > 1e-6 ? 2.0 * Math.Atan((after.Max.X - after.Min.X) * 0.5 / -after.Max.Z) * 180.0 / Math.PI : 0.0;
+            Utilities.Log_Utils.Write($"View from BimGo FOV: BimGo {horizontalFov:0.0}° aspect {aspect:0.000}; crop was {before:0.0}° (min {FormatPoint(oldMin)}, max {FormatPoint(oldMax)}), " +
+                $"distance {distance:0.000} ft, origin at eye {originAtEye}; now min {FormatPoint(after?.Min)}, max {FormatPoint(after?.Max)} → {check:0.0}°.");
+        }
+
+        private static string FormatPoint(XYZ p) => p == null ? "null" : $"({p.X:0.###}, {p.Y:0.###}, {p.Z:0.###})";
 
         #endregion
 

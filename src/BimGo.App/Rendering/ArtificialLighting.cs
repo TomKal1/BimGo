@@ -1,4 +1,5 @@
 using System.Numerics;
+using BimGo.Scene;
 
 // The class belongs to the Rendering namespace
 namespace BimGo.Rendering
@@ -27,10 +28,44 @@ namespace BimGo.Rendering
         public readonly long[] Key = new long[MAX_LIGHTS];
 
         /// <summary>
-        /// Removes light k, keeping the order of the rest.
+        /// Round X-C1: most lights beyond the shadowed ones ("all fixtures": photos, videos, stills, and live when asked;
+        /// the std140 block in <see cref="Shaders.LIGHTS_GLSL"/> is this size: 15 KB, within GL's 16 KB minimum).
+        /// </summary>
+        public const int MAX_FAR = 480;
+
+        /// <summary>Round X-C1: the unshadowed lights (as <see cref="Position"/> / <see cref="Colour"/>, fade folded in).</summary>
+        public readonly Vector4[] FarPosition = new Vector4[MAX_FAR], FarColour = new Vector4[MAX_FAR];
+
+        /// <summary>Round X-C1: unshadowed lights in use.</summary>
+        public int FarCount;
+
+        /// <summary>Round X-C1: all fixtures this frame: a shadowed light that loses its map is lit unshadowed instead of dropped.</summary>
+        public bool KeepUnshadowed;
+
+        /// <summary>Round X-C1: the far lights changed since the renderer last uploaded them.</summary>
+        public bool FarDirty = true;
+
+        /// <summary>Round X-C1: adds an unshadowed light (ignored when full).</summary>
+        public void AddFar(Vector4 position, Vector4 colour)
+        {
+            if (FarCount >= MAX_FAR) { return; }
+            FarPosition[FarCount] = position;
+            FarColour[FarCount] = colour;
+            FarCount++;
+            FarDirty = true;
+        }
+
+        /// <summary>
+        /// Removes light k, keeping the order of the rest (with <see cref="KeepUnshadowed"/>, it moves to the unshadowed lights).
         /// </summary>
         public void RemoveAt(int k)
         {
+            if (KeepUnshadowed)
+            {
+                Vector4 c = Colour[k];
+                float fade = Shadow[k].Y;
+                AddFar(Position[k], new Vector4(c.X * fade, c.Y * fade, c.Z * fade, c.W));
+            }
             for (int i = k; i < Count - 1; i++)
             {
                 Position[i] = Position[i + 1];
@@ -39,6 +74,30 @@ namespace BimGo.Rendering
                 Key[i] = Key[i + 1];
             }
             Count--;
+        }
+
+        /// <summary>Round X-D1: bytes per profile table in the shader block (32 uvec4).</summary>
+        public const int PROFILE_BYTES = LightProfile.TABLE_SIZE;
+
+        /// <summary>
+        /// Round X-D1: the light profile tables (slot s at s × <see cref="PROFILE_BYTES"/>; the shader block reads them as
+        /// little-endian uints) and each slot's scale (x). Set when the per-type choices change, not per frame.
+        /// </summary>
+        public readonly byte[] ProfileBytes = new byte[LightProfiles.MAX_GPU_PROFILES * PROFILE_BYTES];
+
+        /// <summary>Round X-D1: per slot, x = <see cref="LightProfile.Scale"/>.</summary>
+        public readonly Vector4[] ProfileInfo = new Vector4[LightProfiles.MAX_GPU_PROFILES];
+
+        /// <summary>Round X-D1: the tables changed since the renderer last uploaded them.</summary>
+        public bool ProfilesDirty = true;
+
+        /// <summary>Round X-D1: puts a profile in a slot (ignored when out of range).</summary>
+        public void SetProfile(int slot, LightProfile profile)
+        {
+            if (slot < 0 || slot >= LightProfiles.MAX_GPU_PROFILES || profile == null) { return; }
+            Buffer.BlockCopy(profile.Table, 0, ProfileBytes, slot * PROFILE_BYTES, PROFILE_BYTES);
+            ProfileInfo[slot] = new Vector4(profile.Scale, profile.BeamAngle, 0f, 0f);
+            ProfilesDirty = true;
         }
 
         /// <summary>Lights in use this frame (0 = none).</summary>
@@ -56,6 +115,9 @@ namespace BimGo.Rendering
         public void Clear()
         {
             Count = 0;
+            FarCount = 0; // X-C1
+            KeepUnshadowed = false;
+            FarDirty = true;
             Emissive = 0f;
             Bloom = 0f;
         }

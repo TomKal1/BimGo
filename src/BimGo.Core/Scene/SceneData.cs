@@ -325,6 +325,12 @@ namespace BimGo.Scene
         /// <summary>Grids round A: the host's grids and the extracted links' grids (may be empty; never null).</summary>
         public GridLine[] Grids { get; init; } = Array.Empty<GridLine>();
 
+        /// <summary>
+        /// Round X-B2: every Revit Planting / Entourage instance in the extraction's scope (recorded even when its
+        /// category's geometry isn't extracted), for swapping with billboards. May be empty; never null.
+        /// </summary>
+        public EntourageSlot[] EntourageSlots { get; init; } = Array.Empty<EntourageSlot>();
+
         /// <summary>Placed, bounded rooms of the current phase (may be empty).</summary>
         public RoomInfo[] Rooms { get; init; } = Array.Empty<RoomInfo>();
 

@@ -15,8 +15,25 @@ namespace BimGo.Scene
         /// <summary>Contiguous vertex ranges that glow, in vertex order (non-overlapping).</summary>
         public EmissiveRun[] Emissive { get; init; } = Array.Empty<EmissiveRun>();
 
-        /// <summary>One light per lighting fixture element (at most).</summary>
+        /// <summary>
+        /// The fixture lights: usually one per Lighting Fixtures element; X-D1 r3: one per nested light source when a
+        /// fixture holds several (consecutive, same <see cref="LightSource.Element"/>).
+        /// </summary>
         public LightSource[] Lights { get; init; } = Array.Empty<LightSource>();
+
+        /// <summary>
+        /// Round X-D1: the photometric (.ies) files the fixtures' families name, by content (one entry per distinct file;
+        /// <see cref="LightSource.Ies"/> refers to them by hash).
+        /// </summary>
+        public LightIesFile[] IesFiles { get; init; } = Array.Empty<LightIesFile>();
+
+        /// <summary>Round X-D1: the file with a hash, or null.</summary>
+        public LightIesFile FindIes(string hash)
+        {
+            if (hash == null) { return null; }
+            foreach (LightIesFile file in IesFiles) { if (file.Hash == hash) { return file; } }
+            return null;
+        }
 
         /// <summary>True if there is nothing to draw.</summary>
         public bool IsEmpty => Emissive.Length == 0 && Lights.Length == 0;
@@ -106,5 +123,32 @@ namespace BimGo.Scene
 
         /// <summary>True when the position / output were guessed (no emissive material, no readable parameters).</summary>
         public bool Estimated { get; init; }
+
+        /// <summary>
+        /// Round X-D1: the hash of the photometric file the fixture's type names (<see cref="LightingData.IesFiles"/>),
+        /// or null (none, or not found when extracted).
+        /// </summary>
+        public string Ies { get; init; }
+
+        /// <summary>Round X-D1: which way the fixture points (IES gamma 0; scene axes, unit length). Straight down by default.</summary>
+        public Vector3 Aim { get; init; } = -Vector3.UnitZ;
+
+        /// <summary>Round X-D1: the fixture's IES C 0° axis (across the aim; scene axes). World X by default.</summary>
+        public Vector3 Across { get; init; } = Vector3.UnitX;
+
+        /// <summary>
+        /// Round Y-C1: a Revit spot or hemispherical light's own distribution as a generated profile key
+        /// (<see cref="LightProfiles.SpotKey"/>, <see cref="LightProfiles.HEMISPHERICAL"/>), or null (a photometric web
+        /// (<see cref="Ies"/>), a spherical light, or unknown: BimGo's lobe).
+        /// </summary>
+        public string Distribution { get; init; }
     }
+
+    /// <summary>
+    /// Round X-D1: a photometric file carried in a snapshot (<c>ies/&lt;hash&gt;.ies</c>).
+    /// </summary>
+    /// <param name="Hash">16 hex characters (<see cref="LightProfiles.KeyOf"/> without its prefix).</param>
+    /// <param name="Name">The file name it had in Revit.</param>
+    /// <param name="Text">Its text.</param>
+    public sealed record LightIesFile(string Hash, string Name, string Text);
 }

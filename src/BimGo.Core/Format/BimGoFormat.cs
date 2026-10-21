@@ -20,9 +20,15 @@ namespace BimGo.Format
     /// comments/…        comment pictures for BCF snapshots (JPEG), referenced from comments.json (optional)
     /// journal.json      ordered edits (replayed on load; never baked into the geometry)
     /// bookmarks.json    saved viewpoints and the home viewpoint (optional; only written when there are some)
+    /// paths.json        keyframed camera paths (optional, Round K; only written when there are some)
+    /// entourage.json    billboards: placed trees / people…, imported picture types, their look (optional, Round X-B)
+    /// entourage/…       the imported billboard pictures (PNG), referenced from entourage.json (optional, Round X-B)
+    /// entourage-slots.json  the snapshot's Revit Planting / Entourage instances (optional, Round X-B2)
     /// sun.json          sun / shadow state: on/off, date, time, intensities (optional)
     /// visibility.json   hidden categories, links and elements (optional; only written when something is hidden)
     /// lighting.json     glowing vertex ranges and lighting-fixture lights (optional; only written when there are some)
+    /// ies/…             the fixtures' photometric files (.ies text), referenced from lighting.json (optional, Round X-D1)
+    /// light-profiles.json  per fixture type profile choices and imported .ies files (optional, Round X-D1)
     /// materials.json    material table for Realistic mode (optional; only when textures were extracted)
     /// material.bin      header + ushort material index per vertex + float2 surface coordinate (m) per vertex (optional)
     /// textures/…        embedded texture images (JPEG / PNG), referenced from materials.json (optional)
@@ -55,6 +61,12 @@ namespace BimGo.Format
 
         /// <summary>The visibility sidecar suffix used beside a Revit model (next to the comments sidecar).</summary>
         public const string VISIBILITY_SIDECAR_SUFFIX = ".bimgo-visibility.json";
+
+        /// <summary>Round K: the camera path sidecar suffix beside an older snapshot (<c>paths.json</c> in the model folder).</summary>
+        public const string PATHS_SIDECAR_SUFFIX = ".bimgo-paths.json";
+
+        /// <summary>Round X-B: the entourage sidecar suffix beside an older snapshot (<c>entourage.json</c> in the model folder).</summary>
+        public const string ENTOURAGE_SIDECAR_SUFFIX = ".bimgo-entourage.json";
 
         /// <summary>Suffix of the clash sidecar beside a Revit model when sharing is on (Round C; <c>clashes.json</c> in the model folder).</summary>
         public const string CLASH_SIDECAR_SUFFIX = ".bimgo-clashes.json";
@@ -90,6 +102,42 @@ namespace BimGo.Format
 
         /// <summary>Optional (Round C): clash sets, tests, results and history (<c>Clashes.ClashDocument</c>).</summary>
         internal const string ENTRY_CLASHES = "clashes.json";
+
+        /// <summary>Optional (Round K): keyframed camera paths (<see cref="CameraPathDocument"/>).</summary>
+        internal const string ENTRY_PATHS = "paths.json";
+
+        /// <summary>Optional (Round X-B): billboards and their imported picture types (<see cref="EntourageDocument"/>).</summary>
+        internal const string ENTRY_ENTOURAGE = "entourage.json";
+
+        /// <summary>Optional (Round X-B2): the snapshot's Revit Planting / Entourage instances (<see cref="EntourageSlotsDto"/>).</summary>
+        internal const string ENTRY_ENTOURAGE_SLOTS = "entourage-slots.json";
+
+        /// <summary>Optional (Round X-D1): per fixture type light profile choices and imported .ies files (<see cref="LightProfileDocument"/>).</summary>
+        internal const string ENTRY_LIGHT_PROFILES = "light-profiles.json";
+
+        /// <summary>The folder (entry name prefix) the fixtures' photometric files live under (Round X-D1).</summary>
+        public const string IES_FOLDER = "ies/";
+
+        /// <summary>Round X-D1: the light profiles sidecar suffix beside an older snapshot (<c>light-profiles.json</c> in the model folder).</summary>
+        public const string LIGHT_PROFILES_SIDECAR_SUFFIX = ".bimgo-light-profiles.json";
+
+        /// <summary>Optional (Round Y-A): the Measure gun's saved measurements (<see cref="MeasurementDocument"/>).</summary>
+        internal const string ENTRY_MEASUREMENTS = "measurements.json";
+
+        /// <summary>Round Y-A: the measurements sidecar suffix beside an older snapshot (<c>measurements.json</c> in the model folder).</summary>
+        public const string MEASUREMENTS_SIDECAR_SUFFIX = ".bimgo-measurements.json";
+
+        /// <summary>
+        /// Round Y-A: the folder beside a Revit model that shared comment pictures go in when sharing is on
+        /// (&lt;model&gt;.bimgo-comment-pictures, next to &lt;model&gt;.bimgo-comments.json).
+        /// </summary>
+        public const string COMMENT_PICTURES_SIDECAR_SUFFIX = ".bimgo-comment-pictures";
+
+        /// <summary>The folder (entry name prefix) imported billboard pictures live under (Round X-B).</summary>
+        public const string ENTOURAGE_FOLDER = "entourage/";
+
+        /// <summary>Largest billboard picture kept (bytes).</summary>
+        public const long MAX_ENTOURAGE_IMAGE_BYTES = 8L * 1024 * 1024;
 
         /// <summary>Largest thumbnail read back (bytes).</summary>
         internal const long MAX_THUMBNAIL_BYTES = 2L * 1024 * 1024;

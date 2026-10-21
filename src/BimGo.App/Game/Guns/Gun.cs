@@ -127,6 +127,13 @@ namespace BimGo.Game.Guns
         /// <returns>False when the gun has no modes (nothing happens).</returns>
         public virtual bool CycleMode(int direction) => false;
 
+        /// <summary>
+        /// Round X-B3: the wheel turned, before it switches guns or modes: a gun may take it (the Place gun resizes the
+        /// aimed billboard while its modifier is held).
+        /// </summary>
+        /// <returns>True when the gun used it (nothing else sees the wheel this frame).</returns>
+        public virtual bool OnWheel(Platform.InputState input) => false;
+
         /// <summary>Called when deselected.</summary>
         public virtual void OnDeselect() { }
 

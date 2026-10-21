@@ -312,6 +312,28 @@ namespace BimGo.Format
 
         /// <summary>The lights.</summary>
         public List<LightDto> Lights { get; set; } = new();
+
+        /// <summary>
+        /// Round X-D1: the photometric files the fixtures name (hash + original name; the text is the entry
+        /// <c>ies/&lt;hash&gt;.ies</c>). Null when there are none.
+        /// </summary>
+        public List<LightIesDto> Ies { get; set; }
+
+        /// <summary>Round X-D1: the files' text by hash, read from / written to the <c>ies/</c> entries (not in the JSON).</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public Dictionary<string, string> IesTexts { get; set; }
+    }
+
+    /// <summary>
+    /// Round X-D1: one photometric file in lighting.json.
+    /// </summary>
+    public sealed class LightIesDto
+    {
+        /// <summary>16 hex characters: the content hash (its entry is <c>ies/&lt;hash&gt;.ies</c>).</summary>
+        public string Hash { get; set; }
+
+        /// <summary>The file name in Revit.</summary>
+        public string Name { get; set; }
     }
 
     /// <summary>
@@ -336,6 +358,18 @@ namespace BimGo.Format
 
         /// <summary>True when guessed.</summary>
         public bool Estimated { get; set; }
+
+        /// <summary>Round X-D1: the hash of the fixture type's photometric file, or null.</summary>
+        public string Ies { get; set; }
+
+        /// <summary>Round X-D1: which way the fixture points (gamma 0), or null = straight down.</summary>
+        public Vector3? Aim { get; set; }
+
+        /// <summary>Round X-D1: the fixture's C 0° axis, or null = world X.</summary>
+        public Vector3? Across { get; set; }
+
+        /// <summary>Round Y-C1: a Revit spot / hemispherical light's generated profile key, or null.</summary>
+        public string Distribution { get; set; }
     }
 
     #endregion

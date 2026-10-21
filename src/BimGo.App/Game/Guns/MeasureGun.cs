@@ -1,5 +1,6 @@
 using System.Numerics;
 using BimGo.Audio;
+using BimGo.Format;
 using BimGo.Physics;
 using BimGo.Platform;
 using BimGo.Rendering;
@@ -10,15 +11,17 @@ namespace BimGo.Game.Guns
 {
     /// <summary>
     /// Gun 2: measuring, in four modes (review tools round). Pressing 2 again (while it is the selected gun) cycles
-    /// Distance → Area → Angle → Clearance. RMB removes the last measurement (or cancels the one being made); X clears
-    /// them all. Measurements are temporary markers: they are never saved.
+    /// Distance → Area → Angle → Clearance. RMB removes the last measurement (or cancels the one being made); X twice
+    /// clears them all. Round Y-A: measurements are saved (<c>measurements.json</c> in the model folder, or inside the
+    /// .bimgo on save; <see cref="ToDocument"/> / <see cref="LoadFrom"/>); I shows / hides them, E exports a CSV.
     /// <list type="bullet">
     /// <item><b>Distance:</b> LMB start, LMB end, a rubber band in between. N snaps the end along the start face's normal.</item>
     /// <item><b>Area:</b> LMB adds corners on the plane of the first point (the aim ray meets that plane); clicking the
     /// first corner again, or RMB with three or more corners, closes the outline. Shows the area and perimeter.</item>
     /// <item><b>Angle:</b> three clicks: first arm, vertex, second arm (0–180°).</item>
-    /// <item><b>Clearance:</b> from the aimed point straight down to the surface below (the floor) and up to the next
-    /// surface above (the ceiling), both labelled, with the total. A live preview follows the crosshair.</item>
+    /// <item><b>Clearance:</b> along the aimed surface's normal (Round Y-A). A floor or ceiling: from the aimed point
+    /// straight down to the surface below and up to the next surface above, both labelled, with the total. A wall (or a
+    /// steep surface): straight out from it, level, to the next surface across. A live preview follows the crosshair.</item>
     /// </list>
     /// Values follow the display units (metric / imperial) chosen in the pause menu.
     /// </summary>
@@ -43,16 +46,19 @@ namespace BimGo.Game.Guns
             /// <summary>Distance: A, B. Area: the corners. Angle: arm, vertex, arm. Clearance: top, point, bottom.</summary>
             public Vector3[] Points;
 
-            /// <summary>Area: the plane normal.</summary>
+            /// <summary>Area: the plane normal. Clearance (Round Y-A): the axis, zero for vertical (up / down).</summary>
             public Vector3 Normal;
+
+            /// <summary>When it was made (Round Y-A: saved).</summary>
+            public DateTime CreatedUtc;
 
             /// <summary>Area: fill triangles (indices into <see cref="Points"/>).</summary>
             public int[] Fill;
 
-            /// <summary>Distance: length. Area: area (m²). Angle: degrees. Clearance: distance down.</summary>
+            /// <summary>Distance: length. Area: area (m²). Angle: degrees. Clearance: distance down (0 across).</summary>
             public double Value;
 
-            /// <summary>Area: perimeter. Clearance: distance up.</summary>
+            /// <summary>Area: perimeter. Clearance: distance up, or across.</summary>
             public double Value2;
 
             /// <summary>Clearance: a surface was found below / above.</summary>
@@ -81,6 +87,12 @@ namespace BimGo.Game.Guns
         /// <summary>Offset off the aimed surface before casting the clearance rays (m).</summary>
         private const float CLEARANCE_LIFT = 0.01f;
 
+        /// <summary>A surface whose normal's Z is at least this (up or down) measures vertically; steeper ones across.</summary>
+        private const float CLEARANCE_VERTICAL = 0.7f;
+
+        /// <summary>Seconds within which a second X clears every measurement (Round Y-A: they are saved now).</summary>
+        private const double CLEAR_CONFIRM_SECONDS = 3.0;
+
         #endregion
 
         #region Fields
@@ -100,8 +112,12 @@ namespace BimGo.Game.Guns
 
         // Clearance preview (follows the crosshair)
         private bool _previewValid;
-        private Vector3 _previewPoint, _previewTop, _previewBottom;
+        private Vector3 _previewPoint, _previewTop, _previewBottom, _previewAxis;
         private bool _previewAbove, _previewBelow;
+
+        // Round Y-A: saved measurements shown or hidden; X armed for clear-all until this time (Environment.TickCount64)
+        private bool _hidden;
+        private long _clearArmedUntil;
 
         #endregion
 
@@ -128,10 +144,10 @@ namespace BimGo.Game.Guns
 
         public override float PanelHeight => _mode switch
         {
-            MeasureMode.Distance => 176f,
-            MeasureMode.Clearance => 176f,
-            _ => 158f
-        };
+            MeasureMode.Distance => 195f,
+            MeasureMode.Clearance => 195f,
+            _ => 177f
+        }; // Round Y-A: + the saved line
 
         /// <summary>The mode in use (for the help line).</summary>
         public MeasureMode Mode => _mode;
@@ -182,7 +198,7 @@ namespace BimGo.Game.Guns
                 case MeasureMode.Clearance:
                     if (aim.HasHit)
                     {
-                        _previewValid = Clearance(aim.Hit, out _previewPoint, out _previewTop, out _previewBottom, out _previewAbove, out _previewBelow);
+                        _previewValid = Clearance(aim.Hit, out _previewPoint, out _previewTop, out _previewBottom, out _previewAbove, out _previewBelow, out _previewAxis);
                     }
                     break;
             }
@@ -197,6 +213,7 @@ namespace BimGo.Game.Guns
         // Panel hints naming keys (rebuilt when a binding changes)
         private static readonly KeyHint HINT_NORMAL = new(() => $"Normal projection ({Hotkeys.Label(InputAction.MeasureNormal)})");
         private static readonly KeyHint HINT_AGAIN = new(() => $"Press {Hotkeys.Label(InputAction.Gun2)} again: area · angle · clearance");
+        private static readonly KeyHint HINT_SAVED = new(() => $"{Hotkeys.Label(InputAction.MeasureShowAll)} hide · {Hotkeys.Label(InputAction.MeasureExport)} CSV · {Hotkeys.Label(InputAction.ClearMarkers)}×2 clear");
 
         public override void OnKeys(InputState input)
         {
@@ -205,6 +222,8 @@ namespace BimGo.Game.Guns
                 _normalSnap = !_normalSnap;
                 Session.Toast(_normalSnap ? "Normal projection ON" : "Normal projection OFF");
             }
+            if (input.Pressed(InputAction.MeasureShowAll)) { SetHidden(!_hidden, announce: true); }
+            if (input.Pressed(InputAction.MeasureExport)) { Session.ExportMeasurements(); }
         }
 
         public override void OnPrimary(in AimInfo aim)
@@ -232,15 +251,43 @@ namespace BimGo.Game.Guns
             }
             if (_measurements.Count > 0)
             {
+                if (_hidden)
+                {
+                    Session.Toast($"Measurements are hidden: {Hotkeys.Label(InputAction.MeasureShowAll)} shows them before removing one");
+                    return;
+                }
                 _measurements.RemoveAt(_measurements.Count - 1);
                 Session.Sound.Play(SoundId.Remove);
+                Changed();
             }
         }
 
+        /// <summary>
+        /// X: cancels the one being made; else (Round Y-A: they are saved) the first X asks and a second within 3 s
+        /// clears every measurement.
+        /// </summary>
         public override void ClearMarkers()
         {
+            if (_pending.Count > 0)
+            {
+                CancelPending();
+                return;
+            }
+            if (_measurements.Count == 0) { return; }
+            long now = Environment.TickCount64;
+            if (now > _clearArmedUntil)
+            {
+                _clearArmedUntil = now + (long)(CLEAR_CONFIRM_SECONDS * 1000);
+                Session.Toast($"{Hotkeys.Label(InputAction.ClearMarkers)} again to delete all {_measurements.Count} saved measurement{(_measurements.Count == 1 ? string.Empty : "s")}", 3f);
+                return;
+            }
+            _clearArmedUntil = 0;
+            int count = _measurements.Count;
             _measurements.Clear();
             CancelPending();
+            Session.Sound.Play(SoundId.Remove);
+            Session.Toast($"Deleted {count} measurement{(count == 1 ? string.Empty : "s")}");
+            Changed();
         }
 
         #endregion
@@ -258,7 +305,7 @@ namespace BimGo.Game.Guns
             else
             {
                 Vector3 a = _pending[0], b = SnapNormal(aim.Hit.Point);
-                _measurements.Add(new Measurement
+                Add(new Measurement
                 {
                     Mode = MeasureMode.Distance,
                     Points = new[] { a, b },
@@ -307,22 +354,7 @@ namespace BimGo.Game.Guns
                 CancelPending();
                 return;
             }
-            Vector3[] points = _pending.ToArray();
-            var fill = new List<int>(points.Length * 3);
-            MeasureMath.Triangulate(points, _planeNormal, fill);
-            double area = MeasureMath.PolygonArea(points, _planeNormal);
-            Vector3 centre = Vector3.Zero;
-            foreach (Vector3 p in points) { centre += p; }
-            _measurements.Add(new Measurement
-            {
-                Mode = MeasureMode.Area,
-                Points = points,
-                Normal = _planeNormal,
-                Fill = fill.ToArray(),
-                Value = area,
-                Value2 = MeasureMath.Perimeter(points),
-                Anchor = centre / points.Length
-            });
+            Add(AreaOf(_pending.ToArray(), _planeNormal));
             CancelPending();
             Session.Sound.Play(SoundId.Commit);
         }
@@ -343,7 +375,7 @@ namespace BimGo.Game.Guns
                 Session.Toast("Pick points away from the vertex to measure an angle");
                 return;
             }
-            _measurements.Add(new Measurement
+            Add(new Measurement
             {
                 Mode = MeasureMode.Angle,
                 Points = new[] { a, vertex, b },
@@ -357,17 +389,18 @@ namespace BimGo.Game.Guns
         private void PrimaryClearance(in AimInfo aim)
         {
             if (!aim.HasHit) { return; }
-            if (!Clearance(aim.Hit, out Vector3 point, out Vector3 top, out Vector3 bottom, out bool above, out bool below))
+            if (!Clearance(aim.Hit, out Vector3 point, out Vector3 top, out Vector3 bottom, out bool above, out bool below, out Vector3 axis))
             {
-                Session.Toast("Nothing above or below this point to measure to");
+                Session.Toast(axis == Vector3.Zero ? "Nothing above or below this point to measure to" : "Nothing across from this surface to measure to");
                 return;
             }
-            _measurements.Add(new Measurement
+            Add(new Measurement
             {
                 Mode = MeasureMode.Clearance,
                 Points = new[] { top, point, bottom },
-                Value = point.Z - bottom.Z,
-                Value2 = top.Z - point.Z,
+                Normal = axis,
+                Value = Vector3.Distance(point, bottom),
+                Value2 = Vector3.Distance(top, point),
                 Above = above,
                 Below = below,
                 Anchor = point
@@ -376,16 +409,31 @@ namespace BimGo.Game.Guns
         }
 
         /// <summary>
-        /// Clearance rays from an aimed point: straight down to the first surface (or the ground plane) and straight up
-        /// to the next one. The point is lifted 1 cm off its surface first; a surface found within 2 cm counts as the
-        /// point itself (aiming at a floor measures 0 down, at a ceiling 0 up).
+        /// Clearance from an aimed point along the surface's normal (Round Y-A). A floor or ceiling (|normal.Z| ≥ 0.7):
+        /// straight down to the first surface (or the ground plane) and straight up to the next one (axis zero). A wall or
+        /// steep surface: level, straight out from it to the next surface across (<paramref name="top"/>; the axis is
+        /// that direction, <paramref name="bottom"/> is the point). The point is lifted 1 cm off its surface first; a
+        /// surface found within 2 cm counts as the point itself (aiming at a floor measures 0 down, at a ceiling 0 up).
         /// </summary>
-        /// <returns>False when there is nothing above and nothing below.</returns>
-        private bool Clearance(in RayHit hit, out Vector3 point, out Vector3 top, out Vector3 bottom, out bool above, out bool below)
+        /// <returns>False when there is nothing to measure to.</returns>
+        private bool Clearance(in RayHit hit, out Vector3 point, out Vector3 top, out Vector3 bottom, out bool above, out bool below, out Vector3 axis)
         {
             point = hit.Point;
             Vector3 normal = hit.Normal.LengthSquared() > 1e-8f ? Vector3.Normalize(hit.Normal) : Vector3.UnitZ;
             Vector3 start = point + normal * CLEARANCE_LIFT;
+
+            // A wall: across the room, level
+            var level = new Vector3(normal.X, normal.Y, 0f);
+            if (MathF.Abs(normal.Z) < CLEARANCE_VERTICAL && level.LengthSquared() > 1e-6f)
+            {
+                axis = Vector3.Normalize(level);
+                below = false;
+                bottom = point;
+                above = Session.Pick(start, axis, CLEARANCE_REACH, out RayHit across);
+                top = above ? across.Point : point;
+                return above;
+            }
+            axis = Vector3.Zero;
 
             below = Session.Pick(start, -Vector3.UnitZ, CLEARANCE_REACH, out RayHit down);
             bottom = below ? down.Point : point;
@@ -414,6 +462,56 @@ namespace BimGo.Game.Guns
             _pending.Clear();
             _hasLive = false;
         }
+
+        /// <summary>Commits a new measurement (shown again if hidden) and saves.</summary>
+        private void Add(Measurement measurement)
+        {
+            measurement.CreatedUtc = DateTime.UtcNow;
+            _measurements.Add(measurement);
+            if (_measurements.Count > MeasurementDocument.MAX_MEASUREMENTS) { _measurements.RemoveAt(0); }
+            if (_hidden) { SetHidden(false, announce: false); }
+            Changed();
+        }
+
+        /// <summary>An area measurement from its corners (fill, area, perimeter, label anchor).</summary>
+        private static Measurement AreaOf(Vector3[] points, Vector3 normal)
+        {
+            var fill = new List<int>(points.Length * 3);
+            MeasureMath.Triangulate(points, normal, fill);
+            Vector3 centre = Vector3.Zero;
+            foreach (Vector3 p in points) { centre += p; }
+            return new Measurement
+            {
+                Mode = MeasureMode.Area,
+                Points = points,
+                Normal = normal,
+                Fill = fill.ToArray(),
+                Value = MeasureMath.PolygonArea(points, normal),
+                Value2 = MeasureMath.Perimeter(points),
+                Anchor = centre / points.Length
+            };
+        }
+
+        /// <summary>Shows or hides the saved measurements (saved with them).</summary>
+        private void SetHidden(bool hidden, bool announce)
+        {
+            if (_hidden == hidden) { return; }
+            _hidden = hidden;
+            if (announce)
+            {
+                Session.Sound.Play(SoundId.UiClick);
+                Session.Toast(hidden
+                    ? $"Measurements hidden ({_measurements.Count}; {Hotkeys.Label(InputAction.MeasureShowAll)} shows them)"
+                    : $"Measurements shown ({_measurements.Count})");
+                Changed();
+            }
+        }
+
+        /// <summary>Tells the session the measurements changed (it saves them).</summary>
+        private void Changed() => Session.MeasurementsChanged();
+
+        /// <summary>True for a clearance measured across (level), false for up / down.</summary>
+        private static bool IsAcross(Vector3 axis) => axis.LengthSquared() > 1e-6f && MathF.Abs(axis.Z) < CLEARANCE_VERTICAL;
 
         /// <summary>Distance mode: snaps a candidate end along the start face's normal when N is on.</summary>
         private Vector3 SnapNormal(Vector3 point)
@@ -481,6 +579,7 @@ namespace BimGo.Game.Guns
 
             foreach (Measurement m in _measurements)
             {
+                if (_hidden) { break; }
                 Vector3[] p = m.Points;
                 switch (m.Mode)
                 {
@@ -596,15 +695,15 @@ namespace BimGo.Game.Guns
             }
         }
 
-        /// <summary>The clearance marker: a vertical line with ticks at the ends and the aimed point.</summary>
+        /// <summary>The clearance marker: a line with dots at the ends and the aimed point (vertical, or level across).</summary>
         private static void DrawClearance(Overlay3D overlay, Vector3 top, Vector3 point, Vector3 bottom, bool above, bool below, uint colour)
         {
-            if (below && point.Z - bottom.Z > 1e-3f)
+            if (below && Vector3.Distance(point, bottom) > 1e-3f)
             {
                 overlay.Line(point, bottom, 3f, colour);
                 overlay.Dot(bottom, 4.5f, colour);
             }
-            if (above && top.Z - point.Z > 1e-3f)
+            if (above && Vector3.Distance(top, point) > 1e-3f)
             {
                 overlay.Line(point, top, 3f, colour);
                 overlay.Dot(top, 4.5f, colour);
@@ -620,6 +719,7 @@ namespace BimGo.Game.Guns
 
             foreach (Measurement m in _measurements)
             {
+                if (_hidden) { break; }
                 Vector3[] p = m.Points;
                 switch (m.Mode)
                 {
@@ -636,7 +736,7 @@ namespace BimGo.Game.Guns
                         break;
 
                     case MeasureMode.Clearance:
-                        ClearanceLabels(ui, f.Mono, p[0], p[1], p[2], m.Above, m.Below, committed, false);
+                        ClearanceLabels(ui, f.Mono, p[0], p[1], p[2], m.Above, m.Below, IsAcross(m.Normal), committed, false);
                         break;
                 }
             }
@@ -664,15 +764,20 @@ namespace BimGo.Game.Guns
                     break;
 
                 case MeasureMode.Clearance when _previewValid:
-                    ClearanceLabels(ui, f.Bold, _previewTop, _previewPoint, _previewBottom, _previewAbove, _previewBelow, UiTheme.MEASURE_TEXT, true);
+                    ClearanceLabels(ui, f.Bold, _previewTop, _previewPoint, _previewBottom, _previewAbove, _previewBelow, IsAcross(_previewAxis), UiTheme.MEASURE_TEXT, true);
                     break;
             }
         }
 
-        /// <summary>"↓ 0.750 m" beside the lower segment and "↑ 1.950 m" beside the upper one.</summary>
-        private void ClearanceLabels(UiBatch ui, UiFont font, Vector3 top, Vector3 point, Vector3 bottom, bool above, bool below, uint colour, bool live)
+        /// <summary>"↓ 0.750 m" beside the lower segment and "↑ 1.950 m" beside the upper one; "↔ 2.400 m" across.</summary>
+        private void ClearanceLabels(UiBatch ui, UiFont font, Vector3 top, Vector3 point, Vector3 bottom, bool above, bool below, bool across, uint colour, bool live)
         {
             TextBuffer text = Session.Text;
+            if (across)
+            {
+                if (above) { Label(ui, font, (point + top) * 0.5f, text.Clear().Append("↔ ").AppendLength(Vector3.Distance(point, top)), colour, live); }
+                return;
+            }
             float down = point.Z - bottom.Z, up = top.Z - point.Z;
             if (below && down > 1e-3f) { Label(ui, font, (point + bottom) * 0.5f, text.Clear().Append("↓ ").AppendLength(down), colour, live); }
             if (above && up > 1e-3f) { Label(ui, font, (point + top) * 0.5f, text.Clear().Append("↑ ").AppendLength(up), colour, live); }
@@ -714,13 +819,19 @@ namespace BimGo.Game.Guns
             }
             y += chipH + S(10);
 
-            switch (_mode)
+            float bottom = _mode switch
             {
-                case MeasureMode.Area: PanelArea(ui, f, x, y, width); break;
-                case MeasureMode.Angle: PanelAngle(ui, f, x, y, width); break;
-                case MeasureMode.Clearance: PanelClearance(ui, f, x, y, width); break;
-                default: PanelDistance(ui, f, x, y, width); break;
-            }
+                MeasureMode.Area => PanelArea(ui, f, x, y, width),
+                MeasureMode.Angle => PanelAngle(ui, f, x, y, width),
+                MeasureMode.Clearance => PanelClearance(ui, f, x, y, width),
+                _ => PanelDistance(ui, f, x, y, width)
+            };
+
+            // Round Y-A: the saved measurements and their keys
+            bottom += S(19);
+            text.Clear().Append("Saved ").Append(_measurements.Count).Append(_hidden ? " · hidden" : string.Empty);
+            ui.Text(f.Small, x, bottom, text.Span, _hidden ? UiTheme.MEASURE_LABEL : UiTheme.TEXT_MUTED);
+            ui.TextRight(f.Small, x + width, bottom, HINT_SAVED.Text, UiTheme.TEXT_FAINT);
         }
 
         private Measurement LastOf(MeasureMode mode)
@@ -739,7 +850,7 @@ namespace BimGo.Game.Guns
             return count;
         }
 
-        private void PanelDistance(UiBatch ui, FontAtlas f, float x, float y, float width)
+        private float PanelDistance(UiBatch ui, FontAtlas f, float x, float y, float width)
         {
             TextBuffer text = Session.Text;
             Measurement last = LastOf(MeasureMode.Distance);
@@ -766,9 +877,10 @@ namespace BimGo.Game.Guns
             ui.TextRight(f.Body, x + width, y, _normalSnap ? "ON" : "OFF", UiTheme.MEASURE_LABEL);
             y += S(19);
             ui.Text(f.Small, x, y, HINT_AGAIN.Text, UiTheme.TEXT_FAINT);
+            return y;
         }
 
-        private void PanelArea(UiBatch ui, FontAtlas f, float x, float y, float width)
+        private float PanelArea(UiBatch ui, FontAtlas f, float x, float y, float width)
         {
             TextBuffer text = Session.Text;
             Measurement last = LastOf(MeasureMode.Area);
@@ -798,9 +910,10 @@ namespace BimGo.Game.Guns
             Row(ui, f, x, y, width, _pending.Count > 0 ? "Corners so far" : "Corners", text.Clear().Append(corners));
             y += S(19);
             ui.Text(f.Small, x, y, _pending.Count >= 3 ? "Click the first corner or RMB to close" : "Corners lie on the first point's plane", UiTheme.TEXT_FAINT);
+            return y;
         }
 
-        private void PanelAngle(UiBatch ui, FontAtlas f, float x, float y, float width)
+        private float PanelAngle(UiBatch ui, FontAtlas f, float x, float y, float width)
         {
             TextBuffer text = Session.Text;
             double degrees = double.NaN;
@@ -822,31 +935,46 @@ namespace BimGo.Game.Guns
             ui.Text(f.Body, x, y, step, UiTheme.TEXT_MUTED);
             y += S(19);
             ui.Text(f.Small, x, y, "The vertex is the middle click", UiTheme.TEXT_FAINT);
+            return y;
         }
 
-        private void PanelClearance(UiBatch ui, FontAtlas f, float x, float y, float width)
+        private float PanelClearance(UiBatch ui, FontAtlas f, float x, float y, float width)
         {
             TextBuffer text = Session.Text;
             bool show;
-            Vector3 top, point, bottom;
+            Vector3 top, point, bottom, axis;
             bool above, below;
             if (_previewValid)
             {
                 show = true;
-                top = _previewTop; point = _previewPoint; bottom = _previewBottom;
+                top = _previewTop; point = _previewPoint; bottom = _previewBottom; axis = _previewAxis;
                 above = _previewAbove; below = _previewBelow;
             }
             else if (LastOf(MeasureMode.Clearance) is Measurement last)
             {
                 show = true;
-                top = last.Points[0]; point = last.Points[1]; bottom = last.Points[2];
+                top = last.Points[0]; point = last.Points[1]; bottom = last.Points[2]; axis = last.Normal;
                 above = last.Above; below = last.Below;
             }
             else
             {
                 show = false;
-                top = point = bottom = Vector3.Zero;
+                top = point = bottom = axis = Vector3.Zero;
                 above = below = false;
+            }
+
+            // Round Y-A: across from a wall
+            if (show && IsAcross(axis))
+            {
+                if (above) { text.Clear().AppendLength(Vector3.Distance(point, top)); } else { text.Clear().Append("—"); }
+                ui.Text(f.MonoLarge, x, y, text.Span, UiTheme.TEXT);
+                y += S(36);
+                Row(ui, f, x, y, width, "↔ Across, level", above ? text.Clear().AppendLength(Vector3.Distance(point, top)) : text.Clear().Append("none"));
+                y += S(19);
+                Row(ui, f, x, y, width, "Clearances", text.Clear().Append(CountOf(MeasureMode.Clearance)));
+                y += S(19);
+                ui.Text(f.Small, x, y, "Wall: straight out from it · floor: floor to ceiling", UiTheme.TEXT_FAINT);
+                return y;
             }
 
             float down = point.Z - bottom.Z, up = top.Z - point.Z;
@@ -860,7 +988,8 @@ namespace BimGo.Game.Guns
             y += S(19);
             Row(ui, f, x, y, width, "Clearances", text.Clear().Append(CountOf(MeasureMode.Clearance)));
             y += S(19);
-            ui.Text(f.Small, x, y, "Aim at a floor for floor to ceiling", UiTheme.TEXT_FAINT);
+            ui.Text(f.Small, x, y, "Floor: floor to ceiling · wall: across the room", UiTheme.TEXT_FAINT);
+            return y;
         }
 
         private void Row(UiBatch ui, FontAtlas f, float x, float y, float width, string label, TextBuffer value)
@@ -878,6 +1007,87 @@ namespace BimGo.Game.Guns
             else { Session.Text.Clear().Append(MathF.Abs(value), 3); }
             ui.Text(font, x + w, y, Session.Text.Span, UiTheme.TEXT);
         }
+
+        #endregion
+
+        #region Saving (Round Y-A)
+
+        /// <summary>
+        /// The measurements as a document (Revit internal metres: scene-local + origin), or null when there is nothing to
+        /// keep.
+        /// </summary>
+        public MeasurementDocument ToDocument(Vector3 origin, string model)
+        {
+            if (_measurements.Count == 0 && !_hidden) { return null; }
+            var document = new MeasurementDocument { Model = model, Hidden = _hidden };
+            foreach (Measurement m in _measurements)
+            {
+                var record = new MeasurementRecord
+                {
+                    Type = m.Mode switch
+                    {
+                        MeasureMode.Area => MeasurementRecord.AREA,
+                        MeasureMode.Angle => MeasurementRecord.ANGLE,
+                        MeasureMode.Clearance => MeasurementRecord.CLEARANCE,
+                        _ => MeasurementRecord.DISTANCE
+                    },
+                    NormalX = m.Normal.X,
+                    NormalY = m.Normal.Y,
+                    NormalZ = m.Normal.Z,
+                    Value = m.Value,
+                    Value2 = m.Value2,
+                    Above = m.Above,
+                    Below = m.Below,
+                    CreatedUtc = m.CreatedUtc,
+                    Points = new List<double>(m.Points.Length * 3)
+                };
+                foreach (Vector3 p in m.Points)
+                {
+                    record.Points.Add((double)p.X + origin.X);
+                    record.Points.Add((double)p.Y + origin.Y);
+                    record.Points.Add((double)p.Z + origin.Z);
+                }
+                document.Measurements.Add(record);
+            }
+            return document;
+        }
+
+        /// <summary>
+        /// Replaces the measurements with a document's (internal metres → scene-local). Does not count as a change.
+        /// </summary>
+        public void LoadFrom(MeasurementDocument document, Vector3 origin)
+        {
+            _measurements.Clear();
+            CancelPending();
+            _hidden = document?.Hidden ?? false;
+            if (document?.Measurements == null) { return; }
+            foreach (MeasurementRecord record in document.Measurements)
+            {
+                if (record == null || !record.IsValid()) { continue; }
+                var points = new Vector3[record.Points.Count / 3];
+                for (int i = 0; i < points.Length; i++)
+                {
+                    points[i] = new Vector3((float)(record.Points[i * 3] - origin.X), (float)(record.Points[i * 3 + 1] - origin.Y), (float)(record.Points[i * 3 + 2] - origin.Z));
+                }
+                var normal = new Vector3((float)record.NormalX, (float)record.NormalY, (float)record.NormalZ);
+                Measurement m = record.Type switch
+                {
+                    MeasurementRecord.AREA => AreaOf(points, normal.LengthSquared() > 1e-8f ? Vector3.Normalize(normal) : Vector3.UnitZ),
+                    MeasurementRecord.ANGLE => new Measurement { Mode = MeasureMode.Angle, Points = points, Value = record.Value, Anchor = points[1] },
+                    MeasurementRecord.CLEARANCE => new Measurement
+                    {
+                        Mode = MeasureMode.Clearance, Points = points, Normal = normal, Value = record.Value, Value2 = record.Value2,
+                        Above = record.Above, Below = record.Below, Anchor = points[1]
+                    },
+                    _ => new Measurement { Mode = MeasureMode.Distance, Points = points, Value = Vector3.Distance(points[0], points[1]), Anchor = (points[0] + points[1]) * 0.5f }
+                };
+                m.CreatedUtc = record.CreatedUtc;
+                _measurements.Add(m);
+            }
+        }
+
+        /// <summary>How many measurements there are.</summary>
+        public int Count => _measurements.Count;
 
         #endregion
     }

@@ -30,7 +30,7 @@ namespace BimGo.Game
         private static readonly string[] GRID_COLOUR_OPTIONS = { "CYAN", "RED", "AMBER", "WHITE", "DARK" };
         private static readonly uint[] GRID_COLOURS = { 0x4FC3F7, 0xEF5350, 0xFFB300, 0xFFFFFF, 0x37474F };
 
-        private static readonly KeyHint HINT_GRIDS_CLOSE = new(() => $"ESC · {KeyUpper(InputAction.GridsPanel)} CLOSE");
+        private static readonly KeyHint HINT_GRIDS_FOOT = new(() => $"{Key(InputAction.GridsPanel)} / Esc closes"); // P-A2: the dock's footer
         private static readonly KeyHint HINT_GRIDS_CYCLE = new(() => $"{KeyUpper(InputAction.GridsCycle)}: OFF / UNDERFOOT / ALL");
 
         private readonly GridOverlay _gridOverlay = new();
@@ -132,6 +132,7 @@ namespace BimGo.Game
                 CloseSunHours();
                 CloseSectionEditor();
                 ClosePhotoMode();
+                CloseFixtureDock(); // Round Y-C2
                 _window.SetCaptured(false);
                 _window.Input.ReleaseAll();
             }
@@ -214,13 +215,26 @@ namespace BimGo.Game
                 Rgba.Hex(rgb), Rgba.Hex(rgb, 0.4f));
         }
 
-        /// <summary>The grid lines (main view, with the markers: not in photo mode or with the UI hidden).</summary>
-        private void DrawGrids()
+        /// <summary>
+        /// The grid lines (main view, with the markers: not with the UI hidden; P-C: in photo mode and photos when "Grid
+        /// lines in the photo" is ticked, <paramref name="widthScale"/> keeping their width on 2–4× stills).
+        /// </summary>
+        private void DrawGrids(float widthScale = 1f)
         {
             UpdateGridLevels();
             if (_gridLevels.Count == 0) { return; }
-            _gridOverlay.Draw(Camera, _grids.DepthIndex, _grids.Opacity, _grids.Width, _grids.DashDot);
+            _gridOverlay.Draw(Camera, _grids.DepthIndex, _grids.Opacity, _grids.Width * widthScale, _grids.DashDot);
             DrawGridNodes(); // grids round B
+        }
+
+        /// <summary>Polish round P-C: true while the grids show (any level).</summary>
+        private bool GridsShowing
+        {
+            get
+            {
+                UpdateGridLevels();
+                return _gridLevels.Count > 0;
+            }
         }
 
         /// <summary>
@@ -282,8 +296,8 @@ namespace BimGo.Game
         }
 
         /// <summary>
-        /// The GRIDS panel: levels, what to draw, see-through, colour, opacity, width, label distance. Walking: top right
-        /// (over the minimap); clash mode: left of the dock.
+        /// The GRIDS panel: levels, what to draw, see-through, colour, opacity, width, label distance. Walking: the right-hand
+        /// dock column (under the minimap); clash mode: left of the clash dock.
         /// </summary>
         private void BuildGridsPanel(FontAtlas f, InputState input)
         {
@@ -291,18 +305,12 @@ namespace BimGo.Game
             if (!input.LeftDown && _activeSlider >= SLIDER_GRID_OPACITY && _activeSlider <= SLIDER_GRID_LABELS) { _activeSlider = -1; }
             CountGrids();
 
-            float w = S(340), h = S(632);
-            float x = _clashModeOn && _clashDockW > 0f ? _clashDockX - S(12) - w : _window.Width - S(20) - w;
-            float y = _clashModeOn ? S(16) : S(20);
-            x = MathF.Max(S(10), x);
-            _gridsPanelRect = new Vector4(x, y, w, h);
-            _ui.Panel(x, y, w, h, UiTheme.PANEL_STRONG, Rgba.WithAlpha(UiTheme.ACCENT, 0.5f));
-
-            float ix = x + S(16), iw = w - S(32);
-            float cy = y + S(14);
-            _ui.Text(f.Small, ix, cy, "GRIDS & LEVELS", UiTheme.SCAN_LABEL, S(2f));
-            _ui.TextRight(f.Small, ix + iw, cy, HINT_GRIDS_CLOSE.Text, UiTheme.TEXT_FAINT, S(0.6f));
-            cy += S(22);
+            // Polish round P-A2: the right-hand dock column (clash mode: left of the clash dock), the shared header,
+            // scrolling body and footer
+            DockFrame d = BeginDock("GRIDS & LEVELS", UiTheme.SCAN_LABEL, Rgba.WithAlpha(UiTheme.ACCENT, 0.5f), S(UiTheme.DOCK_WIDTH), _gridsDockScroll, notice: false);
+            _gridsPanelRect = d.Rect;
+            float ix = d.Ix, iw = d.Iw;
+            float cy = BeginDockBody(d, _gridsDockScroll, input);
             _ui.Text(f.Small, ix, cy, GridInfo(), _gridHostCount + _gridLinkCount == 0 ? UiTheme.MEASURE_LABEL : UiTheme.TEXT_MUTED);
             cy += S(24);
 
@@ -409,6 +417,9 @@ namespace BimGo.Game
                 GridsChanged();
             }
             _ui.TextRight(f.Small, ix + iw, cy + S(8), "Saved with the model", UiTheme.TEXT_FAINT);
+            cy += S(28);
+            EndDockBody(_gridsDockScroll, input, cy);
+            if (EndDock(d, null, HINT_GRIDS_FOOT.Text) == DOCK_CLOSE) { CloseGridsPanel(); }
         }
 
         /// <summary>A checkbox that records a change.</summary>

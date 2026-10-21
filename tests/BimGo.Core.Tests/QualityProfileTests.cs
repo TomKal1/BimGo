@@ -69,6 +69,11 @@ namespace BimGo.Tests
             Assert.AreEqual(25, settings.ReflectionThreshold);
             Assert.IsTrue(settings.ReflectionProbes);
             Assert.AreEqual(QualityProfiles.PROBE_RESOLUTION, settings.ProbeResolution);
+            Assert.AreEqual(QualityProfiles.SCREEN_REFLECTIONS, settings.ScreenReflections); // X-C1: medium
+
+            // X-C1: another screen-space quality is a manual change
+            settings.ScreenReflections = 3;
+            Assert.AreEqual(QualityProfile.Custom, QualityProfiles.Detect(settings));
         }
 
         [TestMethod]

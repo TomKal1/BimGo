@@ -80,7 +80,7 @@ namespace BimGo.Tests
         /// Optional family library: a third, template element (one triangle, vertices 9..11, flagged
         /// <see cref="ElementRecord.IsLibraryTemplate"/>) is added for it (its entries should point at element 2).
         /// </param>
-        public static SceneData BuildScene(LightingData lighting = null, MaterialData materials = null, LibraryData library = null, GridLine[] grids = null)
+        public static SceneData BuildScene(LightingData lighting = null, MaterialData materials = null, LibraryData library = null, GridLine[] grids = null, EntourageSlot[] entourageSlots = null)
         {
             // Three triangles: wall (0..2), door opaque (3..5), door glass (6..8); with a library a template (9..11)
             bool template = library != null;
@@ -139,6 +139,7 @@ namespace BimGo.Tests
                 Library = library ?? LibraryData.Empty,
                 Levels = new[] { new LevelInfo("Level 1", 0f), new LevelInfo("Level 2", 3.5f) },
                 Grids = grids ?? Array.Empty<GridLine>(),
+                EntourageSlots = entourageSlots ?? Array.Empty<EntourageSlot>(), // Round X-B2
                 Rooms = new[]
                 {
                     new RoomInfo
@@ -185,7 +186,8 @@ namespace BimGo.Tests
         /// A document holding <see cref="BuildScene"/> plus every optional part: comments, a three-entry journal,
         /// bookmarks with a home viewpoint and thumbnail, sun settings and visibility.
         /// </summary>
-        public static BimGoDocument BuildDocument(LightingData lighting = null, MaterialData materials = null, LibraryData library = null, GridLine[] grids = null)
+        public static BimGoDocument BuildDocument(LightingData lighting = null, MaterialData materials = null, LibraryData library = null, GridLine[] grids = null,
+            EntourageSlot[] entourageSlots = null)
         {
             var journal = new EditJournal();
             journal.Add(new JournalEntry
@@ -206,7 +208,7 @@ namespace BimGo.Tests
 
             return new BimGoDocument
             {
-                Scene = BuildScene(lighting, materials, library, grids),
+                Scene = BuildScene(lighting, materials, library, grids, entourageSlots),
                 Comments = new CommentDocument
                 {
                     Model = "Test Model",

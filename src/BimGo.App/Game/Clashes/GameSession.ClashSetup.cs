@@ -21,7 +21,7 @@ namespace BimGo.Game
         // The card's file name, choices for each missing value (values here, labels) and scroll
         private string _clashImportName;
         private List<string> _clashImportLinkValues, _clashImportLinkLabels, _clashImportLevelValues;
-        private int _clashImportScroll;
+        private readonly ScrollRegion _clashImportScroll = new();
 
         /// <summary>The taken-name choice (ClashNameClash order).</summary>
         private static readonly string[] CLASH_NAME_OPTIONS = { "REPLACE", "KEEP BOTH", "SKIP" };
@@ -109,7 +109,7 @@ namespace BimGo.Game
             // Something to decide: the card (choices: leave, remove, then what this model has)
             _clashImport = plan;
             _clashImportName = Path.GetFileName(path);
-            _clashImportScroll = 0;
+            _clashImportScroll.Reset();
             List<RuleValue> links = SearchSets.ValuesOf(Scene, RuleField.LINK);
             _clashImportLinkValues = links.Select(l => l.Value).ToList();
             _clashImportLinkLabels = links.Select(l => l.Label).ToList();
@@ -192,15 +192,13 @@ namespace BimGo.Game
 
             _ui.Text(f.Small, x, cy, "NOT IN THIS MODEL: PICK WHAT EACH BECOMES", UiTheme.TEXT_MUTED, S(1.6f));
             cy += S(24);
-            float rowH = S(38), labelW = w * 0.45f;
-            int fit = Math.Max(1, (int)((bottom - cy) / rowH));
-            int maxScroll = Math.Max(0, plan.Missing.Count - fit);
-            if (input.Wheel != 0 && Hover(input, x, cy, w, bottom - cy)) { _clashImportScroll -= input.Wheel; }
-            _clashImportScroll = Math.Clamp(_clashImportScroll, 0, maxScroll);
-
-            for (int row = 0; row < fit && row + _clashImportScroll < plan.Missing.Count; row++)
+            float rowH = S(38);
+            float top = BeginScroll(_clashImportScroll, input, x, cy, w, bottom - cy, out w);
+            float labelW = w * 0.45f;
+            VisibleRows(_clashImportScroll, rowH, plan.Missing.Count, out int first, out int last);
+            for (int index = first; index < last; index++)
             {
-                int index = row + _clashImportScroll;
+                cy = top + index * rowH;
                 ClashSetupMissing m = plan.Missing[index];
                 bool link = m.Field == RuleField.LINK;
                 Text.Clear().Append(link ? "Link  " : "Level  ").Append(m.Label);
@@ -225,13 +223,8 @@ namespace BimGo.Game
                         target.Replacement = i == 0 ? null : i == 1 ? ClashSetupFiles.DROP : values[i - 2];
                     });
                 }
-                cy += rowH;
             }
-            if (maxScroll > 0)
-            {
-                Text.Clear().Append(_clashImportScroll + 1).Append('–').Append(Math.Min(plan.Missing.Count, _clashImportScroll + fit)).Append(" of ").Append(plan.Missing.Count).Append(" · wheel scrolls");
-                _ui.TextRight(f.Small, x + w, bottom - S(2), Text.Span, UiTheme.TEXT_FAINT);
-            }
+            EndScroll(_clashImportScroll, input, top + plan.Missing.Count * rowH);
 
             static string LabelOf(List<string> values, List<string> labels, string value)
             {

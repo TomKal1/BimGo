@@ -193,6 +193,12 @@ namespace BimGo.Scene
         public int ProbeResolution { get; set; } = 128;
 
         /// <summary>
+        /// Round X-C1: screen-space reflections in the Realistic mode (glass, water, shiny floors and metals reflect
+        /// what is on screen; the probes or sky elsewhere): 0 off, 1 low, 2 medium (default), 3 high.
+        /// </summary>
+        public int ScreenReflections { get; set; } = 2;
+
+        /// <summary>
         /// Revit's tint (appearance and bitmap "Tint") in the Realistic colour mode: <see cref="TintMode.Multiply"/>
         /// (Revit's blend, the default) or <see cref="TintMode.Off"/>.
         /// </summary>
@@ -249,6 +255,12 @@ namespace BimGo.Scene
 
         /// <summary>Artificial light brightness multiplier (0–2, 1 = default).</summary>
         public float ArtificialLightIntensity { get; set; } = 1f;
+
+        /// <summary>
+        /// Round X-C1: light every fixture in view in the live view too (the nearest 32 keep their shadows, the rest are
+        /// unshadowed; slower with many fixtures). Photos, videos and batch stills always light every fixture. Off by default.
+        /// </summary>
+        public bool AllLightsLive { get; set; }
 
         /// <summary>Bloom (the halo around glowing surfaces) multiplier (0–2, 1 = default; 0 = no bloom).</summary>
         public float BloomIntensity { get; set; } = 1f;
@@ -354,11 +366,52 @@ namespace BimGo.Scene
         /// <summary>Synchronise presentation to the display refresh rate.</summary>
         public bool VSync { get; set; } = true;
 
+        /// <summary>Round X-D0: the frame rate limit choices (0 = off).</summary>
+        public static readonly int[] FRAME_RATE_LIMITS = { 0, 30, 45, 60 };
+
+        /// <summary>Round X-D0: the default frame rate limit (quieter laptop fans).</summary>
+        public const int DEFAULT_FRAME_RATE_LIMIT = 30;
+
+        /// <summary>Round X-D0: frames per second the walkthrough waits for (0 = no limit; not while recording a video or batch stills).</summary>
+        public int FrameRateLimit { get; set; } = DEFAULT_FRAME_RATE_LIMIT;
+
+        /// <summary>
+        /// The nearest of <see cref="FRAME_RATE_LIMITS"/> (a hand-edited settings file); 0 or less is off.
+        /// </summary>
+        public static int NearestFrameRateLimit(int value)
+        {
+            if (value <= 0) { return 0; }
+            int best = FRAME_RATE_LIMITS[1];
+            for (int i = 1; i < FRAME_RATE_LIMITS.Length; i++)
+            {
+                if (Math.Abs(FRAME_RATE_LIMITS[i] - value) < Math.Abs(best - value)) { best = FRAME_RATE_LIMITS[i]; }
+            }
+            return best;
+        }
+
         /// <summary>Load comments from the JSON sidecar.</summary>
         public bool LoadComments { get; set; } = true;
 
         /// <summary>Show the FPS readout.</summary>
         public bool ShowFps { get; set; } = true;
+
+        /// <summary>Round Y-D1: the performance details under the status panel (GPU time per stage, chunks, triangles).</summary>
+        public bool ShowPerformance { get; set; }
+
+        /// <summary>
+        /// Round Y-D1 (r2): occlusion culling of the main view: 0 off, 1 auto (culls while the view holds enough triangles;
+        /// the default), 2 on.
+        /// </summary>
+        public int OcclusionMode { get; set; } = 1;
+
+        /// <summary>
+        /// Round Y-D2: artificial light quality in the live view: 0 low (8 shadowed lights, 1 shadow tap), 1 medium (16, the
+        /// strongest 8 soft; the default), 2 high (32, all soft: as before). Photos and videos always use high.
+        /// </summary>
+        public int LightQuality { get; set; } = 1;
+
+        /// <summary>Round Y-D2: draw the opaque scene's depth first so each pixel is lit once (on by default).</summary>
+        public bool DepthPrepass { get; set; } = true;
 
         /// <summary>Maximum riser the player steps up without jumping (mm).</summary>
         public float MaxStepHeightMm { get; set; } = 200f;
@@ -368,6 +421,33 @@ namespace BimGo.Scene
 
         /// <summary>Walkthrough video frames per second: 30 or 60.</summary>
         public int VideoFps { get; set; } = 30;
+
+        /// <summary>Round X-A: the sun time-lapse runs over a custom range (false: sunrise → sunset).</summary>
+        public bool TimeLapseCustom { get; set; }
+
+        /// <summary>Round X-A: the custom range's start and end (clock minutes; an end at or before the start is the next day).</summary>
+        public int TimeLapseFrom { get; set; } = 6 * 60;
+
+        /// <summary>See <see cref="TimeLapseFrom"/>.</summary>
+        public int TimeLapseTo { get; set; } = 20 * 60;
+
+        /// <summary>Round X-A: minutes before sunrise and after sunset (0–120).</summary>
+        public int TimeLapseMargin { get; set; } = 30;
+
+        /// <summary>Round X-A: the time-lapse clip's length (s, 5–120).</summary>
+        public int TimeLapseSeconds { get; set; } = 20;
+
+        /// <summary>Round X-A: the date and time burned into the time-lapse.</summary>
+        public bool TimeLapseStamp { get; set; }
+
+        /// <summary>Round X-A: batch stills' time list ("9:00 12:00 15:00", dates as 21/6 before their times).</summary>
+        public string BatchTimes { get; set; } = BatchStills.DEFAULT_TIMES;
+
+        /// <summary>Round X-A: batch stills of the tour's stops only (false: every bookmark).</summary>
+        public bool BatchTourStops { get; set; }
+
+        /// <summary>Round X-A: the date and time burned into batch stills.</summary>
+        public bool BatchStamp { get; set; }
 
         /// <summary>Units for lengths and areas on screen (review tools round): metric or imperial (per machine).</summary>
         public UnitSystem DisplayUnits { get; set; } = UnitSystem.Metric;
@@ -446,6 +526,13 @@ namespace BimGo.Scene
 
         /// <summary>Gamepad bindings changed from the defaults (build B): action id → chord ("PadLB+PadUp"; "" = none).</summary>
         public Dictionary<string, string> PadBindings { get; set; } = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Polish round P-B: the controls defaults version (<see cref="InputCatalog.DEFAULTS_VERSION"/>) the user has seen.
+        /// Older than the app's: a one-time toast and NEW / CHANGED tags in CONTROLS. A settings file without it (written
+        /// before P-B) reads as 0; a new install starts at the current version.
+        /// </summary>
+        public int ControlsDefaultsVersion { get; set; } = InputCatalog.DEFAULTS_VERSION;
 
         /// <summary>Gamepad look speed (build B; 1 = about 170° a second at full tilt).</summary>
         public float PadLookSensitivity { get; set; } = 1f;
@@ -629,6 +716,8 @@ namespace BimGo.Scene
                     string json = File.ReadAllText(SettingsPath);
                     if (JsonSerializer.Deserialize<LaunchSettings>(json, JSON_OPTIONS) is LaunchSettings loaded)
                     {
+                        // P-B: a file from before the controls defaults version saw version 0
+                        if (!json.Contains("\"" + nameof(ControlsDefaultsVersion) + "\"", StringComparison.Ordinal)) { loaded.ControlsDefaultsVersion = 0; }
                         loaded.Sanitise();
                         return loaded;
                     }
@@ -735,6 +824,7 @@ namespace BimGo.Scene
             ReflectionThreshold = ReflectionThreshold <= 37 ? 25 : 50;
             ReflectionStrength = float.IsFinite(ReflectionStrength) ? Math.Clamp(ReflectionStrength, 0.5f, 2f) : 1f;
             ProbeResolution = ProbeResolution >= 192 ? 256 : 128;
+            ScreenReflections = Math.Clamp(ScreenReflections, 0, 3); // X-C1
             FamilyLibraryMax = Math.Clamp(FamilyLibraryMax <= 0 ? 200 : FamilyLibraryMax, 10, MAX_FAMILY_LIBRARY);
             EmissiveKeywords = (EmissiveKeywords ?? DefaultEmissiveKeywords())
                 .Where(k => !string.IsNullOrWhiteSpace(k))
@@ -763,6 +853,12 @@ namespace BimGo.Scene
             if (!Enum.IsDefined(VideoSize)) { VideoSize = VideoSize.FullHd; }
             if (!Enum.IsDefined(DisplayUnits)) { DisplayUnits = UnitSystem.Metric; }
             VideoFps = VideoFps >= 45 ? 60 : 30;
+            TimeLapseFrom = Math.Clamp(TimeLapseFrom, 0, 1439);
+            TimeLapseTo = Math.Clamp(TimeLapseTo, 0, 1439);
+            TimeLapseMargin = Math.Clamp(TimeLapseMargin, 0, TimeLapsePlan.MAX_MARGIN);
+            TimeLapseSeconds = Math.Clamp(TimeLapseSeconds, TimeLapsePlan.MIN_SECONDS, TimeLapsePlan.MAX_SECONDS);
+            BatchTimes = string.IsNullOrWhiteSpace(BatchTimes) ? BatchStills.DEFAULT_TIMES : BatchTimes.Trim();
+            if (BatchTimes.Length > 200) { BatchTimes = BatchTimes[..200]; }
             EyeHeightStanding = CleanEye(EyeHeightStanding, DEFAULT_EYE_STANDING);
             EyeHeightSeated = CleanEye(EyeHeightSeated, DEFAULT_EYE_SEATED);
             EyeHeightChild = CleanEye(EyeHeightChild, DEFAULT_EYE_CHILD);
@@ -781,6 +877,9 @@ namespace BimGo.Scene
                 }
             }
             PadBindings = pad;
+            ControlsDefaultsVersion = Math.Max(0, ControlsDefaultsVersion);
+            OcclusionMode = Math.Clamp(OcclusionMode, 0, 2); // Y-D1 r2
+            LightQuality = Math.Clamp(LightQuality, 0, 2); // Y-D2
             var generic = new Dictionary<string, string>(StringComparer.Ordinal);
             if (GenericPadMap != null)
             {

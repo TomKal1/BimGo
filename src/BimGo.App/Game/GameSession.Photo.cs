@@ -42,10 +42,17 @@ namespace BimGo.Game
         private bool _photoJpeg;
         private bool _photo8K;
         private bool _photoGrid = true;
+
+        // Polish round P-C: grid lines in the photo (opt-in; when grids are on), and while a photo renders: its line
+        // scale (stills at 2–4× keep the lines' look) and that a real photo (not a thumbnail) is rendering
+        private bool _photoGridLines;
+        private float _photoLineScale = 1f;
+        private bool _photoShooting;
         private float _photoExposure;
         private float _photoSavedFov;
         private int _photoShotIn;        // frames until the shot (one frame shows "RENDERING…" first)
         private Vector4 _photoPanelRect;
+        private readonly ScrollRegion _photoDockScroll = new(); // Round Y-B: the photo dock's body
         private string _photoNotice;
         private volatile string _photoMessage;
         private volatile string _photoLastPath;
@@ -62,6 +69,7 @@ namespace BimGo.Game
             if (_paused) { SetPaused(false); }
             CloseSunPanel();
             CloseGridsPanel(); // grids round A: one panel at a time
+            CloseFixtureDock(); // Round Y-C2
             CloseSunHours();
             CloseSectionEditor();
             ShowUi();
@@ -82,6 +90,7 @@ namespace BimGo.Game
             _fov = _photoSavedFov;
             _window.Input.ReleaseAll();
             if (!_paused && _window.IsActive && !_clashModeOn) { _window.SetCaptured(true); } // clash mode keeps its cursor
+            EndKeyPhoto(); // Round K-C: PHOTO AT THIS KEY puts the walkthrough back
         }
 
         /// <summary>
@@ -159,7 +168,8 @@ namespace BimGo.Game
                 Camera.Update();
                 _photoTarget?.Dispose();
                 _photoResolve?.Dispose();
-                _photoTarget = _photoResolve = null;
+                _warmTarget?.Dispose(); // X-C1
+                _photoTarget = _photoResolve = _warmTarget = null;
             }
         }
 
@@ -179,12 +189,21 @@ namespace BimGo.Game
             Camera.ViewportHeight = height;
             Camera.Aspect = (float)width / Math.Max(height, 1);
             Camera.Update();
-            byte[] pixels = RenderPhotoView(width, height);
+            byte[] pixels;
+            _photoShooting = true;
+            _photoLineScale = scale;
+            try { pixels = RenderPhotoView(width, height, legend: true, legendScale: scale); }
+            finally
+            {
+                _photoShooting = false;
+                _photoLineScale = 1f;
+            }
 
             bool jpeg = _photoJpeg;
             string path = PhotoPath(jpeg ? ".jpg" : ".png", $" {width}x{height}");
             string reduced = scale < _photoScale ? $" (reduced to {scale}× for this GPU)" : string.Empty;
             _photoNotice = "Saving…";
+            Interlocked.Increment(ref _photoSaving); // K-C: a batch waits for its saves
             Task.Run(() =>
             {
                 try
@@ -199,6 +218,10 @@ namespace BimGo.Game
                 {
                     Utilities.Log_Utils.Write($"Photo could not be saved: {ex}");
                     _photoMessage = "The photo could not be saved: " + ex.Message;
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _photoSaving);
                 }
             });
         }
@@ -228,11 +251,19 @@ namespace BimGo.Game
                 Camera.SetCustomView(forwards[i], ups[i]);
                 Camera.Update();
                 matrices[i] = Camera.ViewProjection;
-                faces[i] = RenderPhotoView(face, face);
+                _photoShooting = true; // P-C: grids in the 360 too when ticked
+                _photoLineScale = Math.Max(1f, face / (float)Math.Max(1, _window.Height));
+                try { faces[i] = RenderPhotoView(face, face); }
+                finally
+                {
+                    _photoShooting = false;
+                    _photoLineScale = 1f;
+                }
             }
 
             string path = PhotoPath(".jpg", $" 360 {(_photo8K ? "8K" : "4K")}");
             _photoNotice = "Stitching the 360…";
+            Interlocked.Increment(ref _photoSaving); // K-C: a batch waits for its saves
             Task.Run(() =>
             {
                 try
@@ -249,20 +280,70 @@ namespace BimGo.Game
                     Utilities.Log_Utils.Write($"Panorama could not be saved: {ex}");
                     _photoMessage = "The 360 could not be saved: " + ex.Message;
                 }
+                finally
+                {
+                    Interlocked.Decrement(ref _photoSaving);
+                }
             });
+        }
+
+        // Round X-C1: the warm-up target, and true while it renders
+        private RenderTarget _warmTarget;
+        private bool _reflectionWarmup;
+
+        /// <summary>
+        /// Round X-C1: with sharp reflections on, a still's camera is first drawn small (at most 1600 px wide, no mirrored
+        /// views) so its floors and water have a previous frame from the same view to reflect (a bookmark or a 360 face
+        /// is far from what was on screen).
+        /// </summary>
+        private void WarmReflections(int width, int height)
+        {
+            if (_sharpOff || !_realistic || _whitecard || !_reflections || _ssrQuality == 0 || _reflectDebug != 0 || _renderer == null || !_renderer.HasMaterials) { return; }
+            int w = Math.Min(width, 1600), h = Math.Max(16, (int)((long)height * w / Math.Max(width, 1)));
+            _warmTarget ??= new RenderTarget();
+            _reflectionWarmup = true;
+            try { RenderScene(w, h, _warmTarget, 0, photo: true); }
+            finally { _reflectionWarmup = false; }
         }
 
         /// <summary>
         /// Renders the camera's current view into an off-screen target (MSAA when it fits the budget), resolves it and
         /// reads it back as bottom-up BGRA.
         /// </summary>
-        private byte[] RenderPhotoView(int width, int height)
+        /// <param name="legend">Colour round B: a still: the colour profile's legend goes in when ticked (not in 360s).</param>
+        /// <param name="legendScale">
+        /// Polish round P-C: the still's size against the window (2–4×): the legend is drawn that much bigger, so it reads
+        /// as it does on screen.
+        /// </param>
+        /// <param name="sharp">Round X-C1: false for thumbnails (no sharp reflections: not worth the time at that size).</param>
+        private byte[] RenderPhotoView(int width, int height, bool legend = false, int legendScale = 1, bool sharp = true)
+        {
+            _sharpOff = !sharp;
+            try { return RenderPhotoViewSharp(width, height, legend, legendScale); }
+            finally { _sharpOff = false; }
+        }
+
+        // Round X-C1: true while a thumbnail renders (no sharp reflections)
+        private bool _sharpOff;
+
+        private byte[] RenderPhotoViewSharp(int width, int height, bool legend, int legendScale)
         {
             long pixels = (long)width * height;
             int samples = pixels * 4 <= PHOTO_SAMPLE_BUDGET ? 4 : pixels * 2 <= PHOTO_SAMPLE_BUDGET ? 2 : 0;
             _photoTarget ??= new RenderTarget();
             _photoResolve ??= new RenderTarget();
+            WarmReflections(width, height); // X-C1
             RenderScene(width, height, _photoTarget, samples, photo: true);
+            bool stamp = legend && _photoStampOn; // Round X-A: a batch still's date / time stamp (bottom right)
+            if (legend && (ProfileLegendInShots || stamp))
+            {
+                // P-C: laid out on a screen 1/k the size, then flushed over the whole target (k× bigger)
+                int k = Math.Clamp(legendScale, 1, 4);
+                _photoTarget.Bind();
+                QueueProfileLegendForShot(width / k, height / k);
+                if (stamp) { QueueSunStamp(width / k, height / k); }
+                _ui.Flush(width / k, height / k);
+            }
             _photoResolve.Ensure(width, height, 0);
             _photoTarget.ResolveTo(_photoResolve);
             byte[] bgra = new byte[pixels * 4];
@@ -368,8 +449,9 @@ namespace BimGo.Game
             File.Move(temp, path, overwrite: true);
         }
 
-        /// <summary>Pictures\BimGo\&lt;model&gt; photo &lt;kind&gt; &lt;time&gt;.ext.</summary>
+        /// <summary>Pictures\BimGo\&lt;model&gt; photo &lt;kind&gt; &lt;time&gt;.ext (Round K-C: a batch shot's own name).</summary>
         private string PhotoPath(string extension, string kind) =>
+            _photoNamed != null ? _photoNamed + extension :
             Path.Combine(ScreenshotFolder, SafeFileName(Path.GetFileNameWithoutExtension(DocumentName)) + " photo" + kind + " " +
                 DateTime.Now.ToString("yyyy-MM-dd HHmmss", System.Globalization.CultureInfo.InvariantCulture) + extension);
 
@@ -396,8 +478,8 @@ namespace BimGo.Game
         #region Panel
 
         /// <summary>
-        /// Photo mode's screen: the thirds grid (stills), "RENDERING…" while a shot is due, and the panel (type, size,
-        /// format, field of view, exposure, grid, sun time, TAKE PHOTO, OPEN FOLDER, CLOSE).
+        /// Photo mode's screen: the thirds grid (stills), "RENDERING…" while a shot is due, the toasts and the photo dock
+        /// (<see cref="BuildPhotoDock"/>).
         /// </summary>
         private void BuildPhotoOverlay(FontAtlas f, InputState input, int width, int height)
         {
@@ -420,15 +502,22 @@ namespace BimGo.Game
                 _ui.TextCentred(f.Bold, width * 0.5f, height * 0.5f - S(8), _photoKind == 0 ? "RENDERING…" : "RENDERING 360…", UiTheme.TEXT);
             }
             BuildToast(f, width);
+            BuildPhotoDock(f, input);
+        }
 
-            float w = S(320), x = width - S(20) - w, y = S(20), h = S(474);
-            _photoPanelRect = new Vector4(x, y, w, h);
-            _ui.Panel(x, y, w, h, UiTheme.PANEL_STRONG, UiTheme.ACCENT);
-            float ix = x + S(16), iw = w - S(32), cy = y + S(14);
-            _ui.Text(f.Small, ix, cy, "PHOTO MODE", UiTheme.ACCENT, S(1.4f));
-            cy += S(26);
-            _ui.TextWrapped(f.Small, ix, cy, iw, HINT_PHOTO_USE.Text, UiTheme.TEXT_MUTED, maxLines: 1);
-            cy += S(24);
+        /// <summary>
+        /// Round Y-B: photo mode's panel on the shell: the right-hand dock (header, scrolled body, notice strip, footer
+        /// with CLOSE), at the top of the column (the minimap hides in photo mode). Type, size, format, field of view,
+        /// exposure, sun time, the grids, TAKE PHOTO and OPEN FOLDER.
+        /// </summary>
+        private void BuildPhotoDock(FontAtlas f, InputState input)
+        {
+            DockFrame d = BeginDock("PHOTO MODE", UiTheme.ACCENT, UiTheme.ACCENT, S(UiTheme.DOCK_WIDTH), _photoDockScroll, notice: _photoNotice != null);
+            _photoPanelRect = d.Rect;
+            float ix = d.Ix, iw = d.Iw;
+            float label = S(90);
+            float cy = BeginDockBody(d, _photoDockScroll, input);
+            cy += _ui.TextWrapped(f.Small, ix, cy, iw, HINT_PHOTO_USE.Text, UiTheme.TEXT_MUTED, maxLines: 2) + S(10);
 
             int kind = Segmented(f, input, ix, cy, iw, PHOTO_KINDS, _photoKind);
             if (kind != _photoKind) { _photoKind = kind; }
@@ -437,62 +526,66 @@ namespace BimGo.Game
             if (_photoKind == 0)
             {
                 _ui.Text(f.Body, ix, cy + S(7), "Size", UiTheme.TEXT_SOFT);
-                int scale = Segmented(f, input, ix + S(90), cy, iw - S(90), PHOTO_SCALES, _photoScale - 1) + 1;
+                int scale = Segmented(f, input, ix + label, cy, iw - label, PHOTO_SCALES, _photoScale - 1) + 1;
                 if (scale != _photoScale) { _photoScale = scale; }
                 cy += S(36);
                 Text.Clear().Append(_window.Width * (long)_photoScale).Append(" × ").Append(_window.Height * (long)_photoScale).Append(" px");
-                _ui.Text(f.Small, ix + S(90), cy, Text.Span, UiTheme.TEXT_FAINT);
+                _ui.Text(f.Small, ix + label, cy, Text.Span, UiTheme.TEXT_FAINT);
                 cy += S(22);
                 _ui.Text(f.Body, ix, cy + S(7), "Format", UiTheme.TEXT_SOFT);
-                int format = Segmented(f, input, ix + S(90), cy, iw - S(90), PHOTO_FORMATS, _photoJpeg ? 1 : 0);
+                int format = Segmented(f, input, ix + label, cy, iw - label, PHOTO_FORMATS, _photoJpeg ? 1 : 0);
                 _photoJpeg = format == 1;
                 cy += S(40);
                 _ui.Text(f.Body, ix, cy + S(7), "View", UiTheme.TEXT_SOFT);
-                float fov = StepperValue(f, input, ix + S(90), cy, _fov, 5f, 30f, 120f, 0, "° wide");
+                float fov = StepperValue(f, input, ix + label, cy, _fov, 5f, 30f, 120f, 0, "° wide");
                 if (fov != _fov) { _fov = fov; }
                 cy += S(38);
             }
             else
             {
                 _ui.Text(f.Body, ix, cy + S(7), "Size", UiTheme.TEXT_SOFT);
-                int size = Segmented(f, input, ix + S(90), cy, iw - S(90), PANO_SIZES, _photo8K ? 1 : 0);
+                int size = Segmented(f, input, ix + label, cy, iw - label, PANO_SIZES, _photo8K ? 1 : 0);
                 _photo8K = size == 1;
                 cy += S(36);
-                _ui.Text(f.Small, ix + S(90), cy, _photo8K ? "8192 × 4096 px JPEG" : "4096 × 2048 px JPEG", UiTheme.TEXT_FAINT);
-                cy += S(22 + 78);
+                _ui.Text(f.Small, ix + label, cy, _photo8K ? "8192 × 4096 px JPEG" : "4096 × 2048 px JPEG", UiTheme.TEXT_FAINT);
+                cy += S(26);
             }
 
             _ui.Text(f.Body, ix, cy + S(7), "Exposure", UiTheme.TEXT_SOFT);
-            float ev = StepperValue(f, input, ix + S(90), cy, _photoExposure, 0.5f, -3f, 3f, 1, " EV");
+            float ev = StepperValue(f, input, ix + label, cy, _photoExposure, 0.5f, -3f, 3f, 1, " EV");
             if (ev != _photoExposure) { _photoExposure = ev; }
             cy += S(38);
 
             if (ShadowsOn)
             {
                 _ui.Text(f.Body, ix, cy + S(7), "Sun", UiTheme.TEXT_SOFT);
-                if (SmallButton(f, input, ix + S(90), cy, S(30), S(30), "−")) { StepSunTime(-15); }
+                if (SmallButton(f, input, ix + label, cy, S(30), S(30), "−")) { StepSunTime(-15); }
                 Text.Clear().Append(_sun.Time.Minutes / 60).Append(':');
                 if (_sun.Time.Minutes % 60 < 10) { Text.Append('0'); }
                 Text.Append(_sun.Time.Minutes % 60);
-                _ui.TextCentred(f.Bold, ix + S(90) + S(94), cy + S(6), Text.Span, UiTheme.TEXT);
-                if (SmallButton(f, input, ix + S(90) + S(158), cy, S(30), S(30), "+")) { StepSunTime(15); }
+                _ui.TextCentred(f.Bold, ix + label + S(94), cy + S(6), Text.Span, UiTheme.TEXT);
+                if (SmallButton(f, input, ix + label + S(158), cy, S(30), S(30), "+")) { StepSunTime(15); }
+                cy += S(38);
             }
             else
             {
-                _ui.TextWrapped(f.Small, ix, cy + S(4), iw, HINT_PHOTO_SHADOWS.Text, UiTheme.TEXT_FAINT, maxLines: 1);
+                cy += _ui.TextWrapped(f.Small, ix, cy + S(4), iw, HINT_PHOTO_SHADOWS.Text, UiTheme.TEXT_FAINT, maxLines: 2) + S(14);
             }
-            cy += S(38);
 
-            bool grid = Checkbox(f, input, ix, cy + S(4), iw, "Thirds grid (not in the photo)", _photoGrid);
-            _photoGrid = grid;
+            _photoGrid = Checkbox(f, input, ix, cy + S(4), iw, "Thirds grid (not in the photo)", _photoGrid);
             cy += S(34);
+
+            // Polish round P-C: the grid lines in the photo (the grids key / panel turn them on)
+            _photoGridLines = Checkbox(f, input, ix, cy + S(4), iw, GridsShowing ? "Grid lines in the photo" : "Grid lines in the photo (grids are off)", _photoGridLines);
+            cy += S(38);
 
             if (MenuButton(f, ix, cy, iw, _photoShotIn > 0 ? "RENDERING…" : HINT_PHOTO_TAKE.Text, true, false, _photoShotIn == 0, S(44))) { RequestPhoto(); }
             cy += S(52);
             if (SmallButton(f, input, ix, cy, iw, S(30), "OPEN FOLDER")) { OpenPhotoFolder(); }
-            cy += S(40);
-            if (_photoNotice != null) { _ui.TextWrapped(f.Small, ix, cy, iw, _photoNotice, UiTheme.MEASURE_TEXT, maxLines: 2); }
-            if (SmallButton(f, input, ix, y + h - S(44), iw, S(30), HINT_PHOTO_CLOSE.Text)) { ClosePhotoMode(); }
+            cy += S(30);
+            EndDockBody(_photoDockScroll, input, cy);
+
+            if (EndDock(d, _photoNotice, null, closeLabel: HINT_PHOTO_CLOSE.Text) == DOCK_CLOSE) { ClosePhotoMode(); }
         }
 
         #endregion

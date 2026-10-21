@@ -957,7 +957,7 @@ namespace BimGo.Rendering
                 int o = i * 12;
                 data[o] = p.Position.X; data[o + 1] = p.Position.Y; data[o + 2] = p.Position.Z; data[o + 3] = i * 6;
                 data[o + 4] = p.Box.Min.X; data[o + 5] = p.Box.Min.Y; data[o + 6] = p.Box.Min.Z; data[o + 7] = p.Baked ? 1f : 0f;
-                data[o + 8] = p.Box.Max.X; data[o + 9] = p.Box.Max.Y; data[o + 10] = p.Box.Max.Z; data[o + 11] = 0f;
+                data[o + 8] = p.Box.Max.X; data[o + 9] = p.Box.Max.Y; data[o + 10] = p.Box.Max.Z; data[o + 11] = p.Room < 0 ? 1f : 0f; // X-C1: a fallback probe (outside rooms)
             }
             Gl.ActiveTexture(Gl.TEXTURE0 + DATA_UNIT);
             Gl.BindTexture(Gl.TEXTURE_2D, _data);

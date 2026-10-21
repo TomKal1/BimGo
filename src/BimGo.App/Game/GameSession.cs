@@ -108,6 +108,9 @@ namespace BimGo.Game
         private bool _probeHigh;
         private int _reflectDebug;
 
+        // Round X-C1: screen-space reflections (0 off, 1 low, 2 medium, 3 high; Realistic mode)
+        private int _ssrQuality = 2;
+
         // Realistic mode: how Revit's tint is drawn, and CC0 proxies for missing images (files made before proxies)
         private TintMode _tintMode;
         private bool _proxyMissing;
@@ -117,6 +120,10 @@ namespace BimGo.Game
         private bool _invertY;
         private bool _vsync;
         private bool _showFps;
+        private bool _showPerf; // Round Y-D1
+        private int _occlusionMode = 1; // Y-D1 r2: 0 off, 1 auto, 2 on
+        private int _lightQuality = 1;  // Y-D2: 0 low, 1 medium, 2 high
+        private bool _depthPrepass = true; // Y-D2
         private bool _showHelp; // off by default: a small "F1: Help" note in the corner
         private bool _showMap = true;
         private float _groundZ;
@@ -206,6 +213,7 @@ namespace BimGo.Game
             _reflectThreshold = settings.ReflectionThreshold <= 37 ? 25 : 50;
             _reflectStrength = float.IsFinite(settings.ReflectionStrength) ? Math.Clamp(settings.ReflectionStrength, 0.5f, 2f) : 1f;
             _reflectProbes = settings.ReflectionProbes;
+            _ssrQuality = Math.Clamp(settings.ScreenReflections, 0, 3); // X-C1
             _probeHigh = settings.ProbeResolution >= 192;
             _tintMode = settings.RevitTint == TintMode.Off ? TintMode.Off : TintMode.Multiply;
             _proxyMissing = settings.ProxyMissingTextures;
@@ -216,7 +224,12 @@ namespace BimGo.Game
             _sensitivity = settings.MouseSensitivity;
             _invertY = settings.InvertY;
             _vsync = settings.VSync;
+            _frameLimit = LaunchSettings.NearestFrameRateLimit(settings.FrameRateLimit);
             _showFps = settings.ShowFps;
+            _showPerf = settings.ShowPerformance; // Round Y-D1
+            _occlusionMode = settings.OcclusionMode;
+            _lightQuality = settings.LightQuality; // Y-D2
+            _depthPrepass = settings.DepthPrepass;
             GizmoSnap = settings.GizmoSnap;
             SnapMoveMm = LaunchSettings.NearestStep(LaunchSettings.SNAP_MOVE_STEPS_MM, settings.SnapMoveMm);
             SnapAngleDeg = LaunchSettings.NearestStep(LaunchSettings.SNAP_ANGLE_STEPS_DEG, settings.SnapAngleDeg);
@@ -309,7 +322,11 @@ namespace BimGo.Game
                 if (Scene.Settings.LoadComments) { Comments.Load(); }
             }
             Comments.Changed += UpdateTitle;
+            Comments.CurrentEye = () => CurrentStandingEye; // P-C: views keep the eye-height preset
             InitialiseBookmarks();
+            InitialisePaths(); // Round K-A: camera paths
+            InitialiseEntourage(); // Round X-B: billboards
+            InitialiseLightProfiles(); // Round X-D1: IES / built-in light profiles per fixture type
             InitialiseSun();
             InitialiseVisibility();
 
@@ -318,10 +335,11 @@ namespace BimGo.Game
             _placeGun = new PlaceGun(this);
             _guns = new Gun[]
             {
-                new ScanGun(this), new MeasureGun(this), _portalGun, _commentGun,
+                new ScanGun(this), _measureGun = new MeasureGun(this), _portalGun, _commentGun,
                 new TeleportGun(this), new HammerGun(this), new GizmoGun(this), new CloneGun(this), _placeGun
             };
             RefreshGunKeys();
+            InitialiseMeasurements(); // Round Y-A: saved measurements
 
             // Re-apply the file's edits (demolitions, moves, clones) on top of the untouched geometry
             int replayFailures = ReplayJournal();
@@ -335,6 +353,7 @@ namespace BimGo.Game
             else if (Bookmarks.LastError != null) { Toast(Bookmarks.LastError); }
             else if (!string.IsNullOrEmpty(Scene.PhaseNote)) { Toast(Scene.PhaseNote, 6f); }
             else if (replayFailures > 0) { Toast($"{replayFailures} saved edit{(replayFailures == 1 ? " refers" : "s refer")} to elements not in this file and {(replayFailures == 1 ? "was" : "were")} skipped.", 5f); }
+            else if (ShowControlsDefaultsNotice()) { /* polish round P-B: once after an update that changed default keys */ }
             else
             {
                 string edits = _journal.Count > 0 ? $" · {_journal.Count} edit{(_journal.Count == 1 ? string.Empty : "s")}" : string.Empty;
@@ -342,6 +361,24 @@ namespace BimGo.Game
                 string start = _startedAtSavedHome ? $" Starting at your saved home ({Key(InputAction.SetHome)} sets it)." : string.Empty;
                 Toast($"{Scene.Elements.Length:N0} elements · {Scene.TriangleCount:N0} triangles{links}{edits}.{start} Click to look around.", _startedAtSavedHome ? 4f : 2.6f);
             }
+        }
+
+        /// <summary>
+        /// Polish round P-B: after an update that changed default keys, a one-time toast (how many, any clash with the
+        /// user's own keys, where to look); the clashes are logged. settings.json then records the version as seen.
+        /// </summary>
+        /// <returns>True when the toast showed.</returns>
+        private bool ShowControlsDefaultsNotice()
+        {
+            string notice = Hotkeys.PendingDefaultsNotice();
+            if (notice == null) { return false; }
+            foreach ((BindingClash first, BindingClash second) in Hotkeys.NewDefaultClashes(Hotkeys.FreshChanges))
+            {
+                Utilities.Log_Utils.Write($"Key bindings: the new default {Hotkeys.Map.Display(first.Chord)} for “{first.Def.Label}” / “{second.Def.Label}” clashes with your own binding (CONTROLS shows it in red).");
+            }
+            Toast(notice, 7f);
+            Hotkeys.MarkDefaultsSeen();
+            return true;
         }
 
         /// <summary>
@@ -464,7 +501,7 @@ namespace BimGo.Game
             ElementRecord[] elements = Scene.Elements;
             for (int e = 0; e < elements.Length; e++)
             {
-                bool visible = _groupVisible[SceneBatches.GroupOf(elements[e])] && !_hidden[e] && !_userHidden[e];
+                bool visible = _groupVisible[SceneBatches.GroupOf(elements[e])] && !_hidden[e] && !_userHidden[e] && !ProfileHides(e);
                 _pickMask[e] = visible;
                 // Doors render as modelled but are always no-clip, so openings stay walkable
                 _collisionMask[e] = visible && elements[e].CategoryIndex != _doorCategory;
@@ -527,6 +564,7 @@ namespace BimGo.Game
                         previous = clock.Elapsed.TotalSeconds;
                         continue;
                     }
+                    EndFrameLimit();
                     return open ? _endReason : SessionEndReason.WindowClosed;
                 }
 
@@ -535,8 +573,10 @@ namespace BimGo.Game
                 previous = now;
                 _clock += dt;
                 _frameTime = dt;
-                AdvanceSky(dt); // sky round: clouds drift, the sky look reaches the renderer
-                AdvanceWater(dt); // water round W: the ripples' clock runs at the ripple speed
+                float worldDt = _video != null ? 0f : dt; // Round X-A: while recording, each video frame moves them by its own step
+                AdvanceSky(worldDt); // sky round: clouds drift, the sky look reaches the renderer
+                AdvanceWater(worldDt); // water round W: the ripples' clock runs at the ripple speed
+                AdvanceWeather(dt); // Round W-B: the rain and snow's clock
 
                 if (_window.IsMinimised)
                 {
@@ -569,6 +609,7 @@ namespace BimGo.Game
                 _window.Swap();
                 _window.Input.EndFrame();
                 UpdateFps(dt);
+                WaitForFrameLimit(); // Round X-D0: the frame rate limit
             }
         }
 
@@ -587,6 +628,7 @@ namespace BimGo.Game
 
             // The gamepad's cursor (menus, editors) follows what is open (build B; used from the next frame's poll)
             _window.PadCursor = CurrentPadCursorMode();
+            UpdatePadFocus(input); // polish round P-A2: the D-pad's focus ring and LB / RB tabs (before the keys below)
             if (_paused || _tourActive) { CloseGunWheel(pick: false); }
 
             // A bookmark tour has the keys (it carries on when the window loses focus)
@@ -666,6 +708,20 @@ namespace BimGo.Game
                 return;
             }
 
+            // Round Y-C2: the fixture light profile dock has the cursor; the player stands still
+            if (FixtureDockHasKeys && !_paused)
+            {
+                UpdateFixtureDockKeys(input);
+                return;
+            }
+
+            // Round K-B: the 3D path editor has the cursor; its own keys fly, RMB-drag looks
+            if (_pathEditOn && !_paused)
+            {
+                UpdatePathEditor(input, dt);
+                return;
+            }
+
             // Clash mode (Round C-B): the docked clash list has the cursor; the move keys fly, RMB-drag looks
             if (_clashModeOn && !_paused)
             {
@@ -691,11 +747,13 @@ namespace BimGo.Game
             {
                 if (_wheelOpen) { CloseGunWheel(pick: false); }
                 else if (captured) { current.OnCancel(); }
-                else if (_paused && (CloseMenuPreview() || ClosePush() || CloseComments() || CloseBookmarks() || CloseTextures() || CloseLibrary() || CloseRooms() || CloseClashes() || CloseGeometry() || CloseControls())) { /* back to the pause menu */ }
+                else if (PanelBack()) { /* one level back: overlay, sub-view, panel (polish round P-A1) */ }
                 else { SetPaused(!_paused); }
             }
             if (input.Pressed(InputAction.Help)) { _showHelp = !_showHelp; }
             if (input.Pressed(InputAction.Refresh) && !captured) { RefreshFromRevit(); }
+            if (input.Pressed(InputAction.RevitViewNew) && !captured) { SendRevitView(Live.RevitViewAction.Create); } // Round X-E
+            if (input.Pressed(InputAction.RevitViewUpdate) && !captured) { SendRevitView(Live.RevitViewAction.Update); }
             if (input.Pressed(InputAction.Fullscreen)) { _window.ToggleFullscreen(); }
             if (input.Pressed(InputAction.Screenshot)) { RequestScreenshot(); }
 
@@ -797,6 +855,16 @@ namespace BimGo.Game
                 OpenPhotoMode();
                 return;
             }
+            if (input.Pressed(InputAction.MediaPanel))
+            {
+                OpenMediaPanel(); // Round K-A: photo, tour, paths, video
+                return;
+            }
+            if (input.Pressed(InputAction.PathEditMode))
+            {
+                EnterPathEditor(_mediaPath); // Round K-B: the 3D path editor
+                return;
+            }
             if (input.Pressed(InputAction.SectionBox))
             {
                 OpenSectionEditor();
@@ -823,7 +891,13 @@ namespace BimGo.Game
                 OpenGridsPanel();
                 return;
             }
+            if (input.Pressed(InputAction.FixtureProfile))
+            {
+                ToggleFixtureDock(); // Round Y-C2: the aimed fixture's own light profile
+                return;
+            }
             if (input.Pressed(InputAction.GridsCycle)) { CycleGrids(); }
+            if (input.Pressed(InputAction.ColourProfile)) { ToggleProfile(); } // colour round A
             if (ShadowsOn) { StepSunTimeKeys(input); }
             if (input.Pressed(InputAction.Jump) && !_player.Flying) { _player.QueueJump(); }
 
@@ -837,6 +911,7 @@ namespace BimGo.Game
             }
             if (input.Pressed(InputAction.Unarmed)) { SetUnarmed(!_unarmed); }
             else if (_unarmed) { /* no gun: the wheel and gun keys below wait */ }
+            else if (input.Wheel != 0 && _guns[_activeGun].OnWheel(input)) { input.ConsumeWheel(); } // X-B3: billboard size
             else if (input.Pressed(InputAction.PreviousGun)) { SelectGun((_activeGun - 1 + _guns.Length) % _guns.Length); }
             else if (input.Pressed(InputAction.NextGun)) { SelectGun((_activeGun + 1) % _guns.Length); }
             // The mouse wheel (polish round): the selected gun's modes (Measure: distance / area / angle / clearance;
@@ -879,8 +954,14 @@ namespace BimGo.Game
         {
             if (_tourActive) { return; } // the tour places the player itself
             _player.Controller.GroundZ = _groundZ;
-            bool frozen = IsEditingComment || _sunPanelOpen || _sunHoursOpen || GridsPanelHasKeys || !_window.IsActive || _guns[_activeGun].CapturesInput || ClashFreezesPlayer;
-            if (_clashModeOn)
+            bool frozen = IsEditingComment || _sunPanelOpen || _sunHoursOpen || GridsPanelHasKeys || FixtureDockHasKeys || !_window.IsActive || _guns[_activeGun].CapturesInput || ClashFreezesPlayer
+                || PathFreezesPlayer;
+            if (_pathEditOn)
+            {
+                // Round K-B: the path editor flies on its own keys (← / → pick keys there)
+                _player.FixedUpdate(dt, _window.Input, inputEnabled: !frozen, InputAction.PathFlyUp, InputAction.PathFlyDown, PATH_MOVES);
+            }
+            else if (_clashModeOn)
             {
                 // Clash mode flies with its own up / down keys (the gamepad's A and B click and go back there)
                 _player.FixedUpdate(dt, _window.Input, inputEnabled: !frozen, InputAction.ClashFlyUp, InputAction.ClashFlyDown);
@@ -1009,7 +1090,7 @@ namespace BimGo.Game
         /// True while a mode that works with a free cursor is on (sun panel, sun hours study, photo mode, the section box
         /// editor, clash mode): resuming must not capture the mouse then.
         /// </summary>
-        private bool CursorModeOpen => _sunPanelOpen || _sunHoursOpen || _photoOpen || _sectionOpen || _clashModeOn || _gridsPanelOpen;
+        private bool CursorModeOpen => _sunPanelOpen || _sunHoursOpen || _photoOpen || _sectionOpen || _clashModeOn || _gridsPanelOpen || _pathEditOn || _fixtureDockOpen;
 
         /// <summary>
         /// Pauses (releases the mouse) or resumes (captures it again, unless a free-cursor mode is on: C-B1 fixes, the
@@ -1216,6 +1297,7 @@ namespace BimGo.Game
             settings.ReflectionThreshold = _reflectThreshold;
             settings.ReflectionStrength = _reflectStrength;
             settings.ReflectionProbes = _reflectProbes;
+            settings.ScreenReflections = _ssrQuality; // X-C1
             settings.ProbeResolution = _probeHigh ? 256 : 128;
             settings.RevitTint = _tintMode;
             settings.ProxyMissingTextures = _proxyMissing;
@@ -1225,6 +1307,7 @@ namespace BimGo.Game
             settings.AmbientOcclusion = _ambientOcclusion;
             settings.ArtificialLights = _lightMode;
             settings.ArtificialLightIntensity = _lightIntensity;
+            settings.AllLightsLive = _allLightsLive; // X-C1
             settings.BloomIntensity = _bloomIntensity;
             settings.FieldOfView = _fov;
             settings.MouseSensitivity = _sensitivity;
@@ -1233,7 +1316,12 @@ namespace BimGo.Game
             settings.ShowGunBar = _showGunBar;
             settings.InvertY = _invertY;
             settings.VSync = _vsync;
+            settings.FrameRateLimit = _frameLimit;
             settings.ShowFps = _showFps;
+            settings.ShowPerformance = _showPerf; // Round Y-D1
+            settings.OcclusionMode = _occlusionMode;
+            settings.LightQuality = _lightQuality; // Y-D2
+            settings.DepthPrepass = _depthPrepass;
             settings.GizmoSnap = GizmoSnap;
             settings.SnapMoveMm = SnapMoveMm;
             settings.SnapAngleDeg = SnapAngleDeg;
@@ -1255,6 +1343,7 @@ namespace BimGo.Game
         public void Dispose()
         {
             try { AbortVideo(); } catch (Exception ex) { Utilities.Log_Utils.Write($"Video stop failed: {ex.Message}"); }
+            EndFrameLimit();
             if (_tourActive) { try { StopTour(finished: false); } catch (Exception ex) { Utilities.Log_Utils.Write($"Tour stop failed: {ex.Message}"); } }
             _window.PadCursor = PadCursorMode.Menu; // the start screen
             try { SaveSettings(); } catch { /* logged inside */ }
@@ -1263,9 +1352,11 @@ namespace BimGo.Game
             _window.SetCaptured(false);
             _push?.Dispose();
             try { ReleaseThumbnails(); } catch (Exception ex) { Utilities.Log_Utils.Write($"Thumbnail cleanup failed: {ex.Message}"); }
+            try { DisposeEntourage(); } catch (Exception ex) { Utilities.Log_Utils.Write($"Entourage cleanup failed: {ex.Message}"); } // Round X-B
             try { ReleaseLibraryPreviews(); } catch (Exception ex) { Utilities.Log_Utils.Write($"Library preview cleanup failed: {ex.Message}"); }
             try { ReleaseMarkup(); } catch (Exception ex) { Utilities.Log_Utils.Write($"Markup cleanup failed: {ex.Message}"); }
             Sound.Dispose();
+            _weatherSound.Dispose(); // Round W-C
             _renderer?.Dispose();
             _overlay.Dispose();
             _gridOverlay.Dispose();
@@ -1274,6 +1365,7 @@ namespace BimGo.Game
             _sectionOverlay?.Dispose();
             _photoTarget?.Dispose();
             _photoResolve?.Dispose();
+            _warmTarget?.Dispose(); // X-C1
             _target.Dispose();
             _ui?.Dispose();
         }

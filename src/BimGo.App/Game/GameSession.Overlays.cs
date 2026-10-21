@@ -45,6 +45,10 @@ namespace BimGo.Game
 
         private const int DROPDOWN_MAX_ROWS = 12;
 
+        // Round Y-B: the open dropdown's current choice row this frame (x, y, w, h; w = 0: not shown), where the ring
+        // lands when the list opens
+        private System.Numerics.Vector4 _dropdownSelectedRect;
+
         private DropdownState _dropdown;
         private ConfirmState _confirm;
         private bool _overlayClick;
@@ -155,8 +159,18 @@ namespace BimGo.Game
         /// <param name="bh">The panel's height.</param>
         private void DrawOverlays(FontAtlas f, InputState input, float bx, float by, float bw, float bh)
         {
-            if (_confirm != null) { DrawConfirm(f, input, bx, by, bw, bh); }
-            else if (_dropdown != null) { DrawDropdown(f, input, by, bh); }
+            // Round Y-B: the controls drawn now are overlay focus targets (the gamepad's ring stays among them)
+            _focusInOverlay = true;
+            _dropdownSelectedRect = default;
+            try
+            {
+                if (_confirm != null) { DrawConfirm(f, input, bx, by, bw, bh); }
+                else if (_dropdown != null) { DrawDropdown(f, input, by, bh); }
+            }
+            finally
+            {
+                _focusInOverlay = false;
+            }
             _overlayClick = false;
             _overlayWheel = 0;
         }
@@ -220,7 +234,7 @@ namespace BimGo.Game
                 d.Fresh = false;
                 d.Scroll = d.Selected >= 0 ? d.Selected - visible / 2 : 0;
             }
-            bool overList = Hover(input, lx, ly, listW, listH);
+            bool overList = Hover(input, lx, ly, listW, listH, focus: false);
             if (_overlayWheel != 0 && overList) { d.Scroll -= _overlayWheel * (count > 30 ? 3 : 1); }
             d.Scroll = Math.Clamp(d.Scroll, 0, maxScroll);
 
@@ -235,6 +249,7 @@ namespace BimGo.Game
                 float ry = ly + pad + (i - d.Scroll) * rowH;
                 bool hover = Hover(input, lx + pad, ry, listW - pad * 2f, rowH);
                 bool current = i == d.Selected;
+                if (current) { _dropdownSelectedRect = new System.Numerics.Vector4(lx + pad, ry, listW - pad * 2f, rowH); }
                 if (hover || current) { _ui.Rect(lx + pad, ry, listW - pad * 2f - scrollW, rowH, hover ? Rgba.Hex(0xFFFFFF, 0.1f) : Rgba.Hex(0x22D3EE, 0.12f)); }
                 if (current) { _ui.Rect(lx + pad, ry, S(3), rowH, UiTheme.ACCENT); }
                 _ui.TextWrapped(f.Body, lx + pad + S(10), ry + rowH * 0.5f - f.Body.LineHeight * 0.5f, listW - pad * 2f - S(20) - scrollW, d.Labels[i],
@@ -322,7 +337,7 @@ namespace BimGo.Game
                 _confirm = null;
                 c.AltConfirmed?.Invoke(c.Skip);
             }
-            else if (cancel || (_overlayClick && !Hover(input, x, y, w, h)))
+            else if (cancel || (_overlayClick && !Hover(input, x, y, w, h, focus: false)))
             {
                 _confirm = null;
             }

@@ -132,4 +132,14 @@ Choose what to load and any extra parameters, then pick where to save. The file 
 
 Shows whether BimGo is connected, and lets you bring it to the front, send a fresh snapshot, or end the session.</value>
   </data>
+  <data name="BimGo_NewView" xml:space="preserve">
+    <value>Make a new perspective 3D view from where you stand in BimGo (live session).
+
+BimGo sends its camera; Revit makes "BimGo 01", "BimGo 02"… with BimGo's eye, direction and field of view, and opens it. One undo entry. BimGo's pause menu and Shift+F5 do the same.</value>
+  </data>
+  <data name="BimGo_UpdateView" xml:space="preserve">
+    <value>Put BimGo's camera on the active perspective 3D view (live session).
+
+Open the perspective view first: it takes BimGo's eye, direction and field of view. One undo entry. BimGo's pause menu and Alt+F5 do the same.</value>
+  </data>
 </root>

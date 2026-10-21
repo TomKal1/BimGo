@@ -185,7 +185,7 @@ namespace BimGo.Game
                 Camera.ViewportHeight = RENDER_H;
                 Camera.Aspect = (float)RENDER_W / RENDER_H;
                 Camera.Update();
-                byte[] pixels = RenderPhotoView(RENDER_W, RENDER_H);
+                byte[] pixels = RenderPhotoView(RENDER_W, RENDER_H, sharp: false);
                 return EncodeJpeg(pixels, RENDER_W, RENDER_H, FILE_THUMB_WIDTH, FILE_THUMB_HEIGHT, FILE_THUMB_JPEG_QUALITY);
             }
             catch (Exception ex)
@@ -201,7 +201,8 @@ namespace BimGo.Game
                 Camera.Update();
                 _photoTarget?.Dispose();
                 _photoResolve?.Dispose();
-                _photoTarget = _photoResolve = null;
+                _warmTarget?.Dispose(); // X-C1
+                _photoTarget = _photoResolve = _warmTarget = null;
                 Gl.BindFramebuffer(Gl.FRAMEBUFFER, 0);
                 Gl.Viewport(0, 0, _window.Width, _window.Height);
             }

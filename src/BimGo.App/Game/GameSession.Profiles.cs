@@ -29,6 +29,7 @@ namespace BimGo.Game
             settings.ReflectionThreshold = _reflectThreshold;
             settings.ReflectionProbes = _reflectProbes;
             settings.ProbeResolution = _probeHigh ? 256 : QualityProfiles.PROBE_RESOLUTION;
+            settings.ScreenReflections = _ssrQuality; // X-C1
         }
 
         /// <summary>
@@ -64,6 +65,7 @@ namespace BimGo.Game
             bool probesWereOn = _reflectProbes;
             _reflectProbes = s.ReflectionProbes;
             _probeHigh = s.ProbeResolution >= 192;
+            _ssrQuality = Math.Clamp(s.ScreenReflections, 0, 3); // X-C1
             if (_reflectProbes && !probesWereOn) { _renderer.RetryProbes(); }
 
             // (the segmented control already clicked)

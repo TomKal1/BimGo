@@ -82,7 +82,15 @@ namespace BimGo.Scene
         /// <param name="scene">The scene (needs per-vertex materials).</param>
         /// <param name="keywords">Grass keywords (material name fragments, case ignored).</param>
         /// <param name="cancel">Stops the build (returns <see cref="Empty"/>).</param>
-        public static GrassField Build(SceneData scene, IReadOnlyList<string> keywords, CancellationToken cancel = default)
+        /// <param name="visible">
+        /// Polish round P-C: per element, false to leave it out (hidden, demolished, moved: its moved copy comes in
+        /// <paramref name="instances"/>); null = every element.
+        /// </param>
+        /// <param name="instances">
+        /// Polish round P-C: moved, cloned and placed copies: the source element and its transform (scene-local).
+        /// </param>
+        public static GrassField Build(SceneData scene, IReadOnlyList<string> keywords, CancellationToken cancel = default,
+            IReadOnlyList<bool> visible = null, IReadOnlyList<(int Element, Matrix4x4 Model)> instances = null)
         {
             MaterialData materials = scene?.Materials;
             if (materials == null || materials.IsEmpty || keywords == null || keywords.Count == 0) { return Empty; }
@@ -105,9 +113,24 @@ namespace BimGo.Scene
             var covers = new List<Triangle>();
             SceneVertex[] vertices = scene.Vertices;
             uint[] indices = scene.Indices;
-            foreach (ElementRecord element in scene.Elements)
+            Matrix4x4 model = Matrix4x4.Identity;
+            bool transformed = false;
+            for (int e = 0; e < scene.Elements.Length; e++)
             {
+                ElementRecord element = scene.Elements[e];
                 if (element == null || element.IsLibraryTemplate) { continue; }
+                if (visible != null && e < visible.Count && !visible[e]) { continue; }
+                Collect(element.OpaqueStart, element.OpaqueCount);
+                Collect(element.TransparentStart, element.TransparentCount);
+            }
+
+            // P-C: moved / cloned / placed copies, their triangles transformed (library templates are placed this way)
+            transformed = true;
+            foreach ((int index, Matrix4x4 matrix) in instances ?? Array.Empty<(int, Matrix4x4)>())
+            {
+                if (index < 0 || index >= scene.Elements.Length || scene.Elements[index] == null) { continue; }
+                model = matrix;
+                ElementRecord element = scene.Elements[index];
                 Collect(element.OpaqueStart, element.OpaqueCount);
                 Collect(element.TransparentStart, element.TransparentCount);
             }
@@ -121,6 +144,12 @@ namespace BimGo.Scene
                     uint a = indices[i], b = indices[i + 1], c = indices[i + 2];
                     if (a >= vertices.Length || b >= vertices.Length || c >= vertices.Length) { continue; }
                     Vector3 pa = vertices[a].Position, pb = vertices[b].Position, pc = vertices[c].Position;
+                    if (transformed)
+                    {
+                        pa = Vector3.Transform(pa, model);
+                        pb = Vector3.Transform(pb, model);
+                        pc = Vector3.Transform(pc, model);
+                    }
                     Vector3 normal = Vector3.Cross(pb - pa, pc - pa);
                     float length = normal.Length();
                     if (length < 1e-9f || normal.Z / length < MIN_UP) { continue; }

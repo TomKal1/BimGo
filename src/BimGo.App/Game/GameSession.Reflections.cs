@@ -16,6 +16,9 @@ namespace BimGo.Game
         /// <summary>The Reflections tab's source: the sky only, probes (128 px), probes at 256 px.</summary>
         private static readonly string[] REFLECTION_SOURCE_OPTIONS = { "Sky", "Probes", "Probes HQ" };
 
+        /// <summary>Round X-C1: screen-space reflections' quality.</summary>
+        private static readonly string[] SSR_OPTIONS = { "Off", "Low", "Medium", "High" };
+
         /// <summary>Seconds without further change before stale probes re-bake (a sun slider drag is one change).</summary>
         private const float PROBE_SETTLE = 1f;
 
@@ -38,19 +41,7 @@ namespace BimGo.Game
             // Kept while probes are chosen (switching colour modes doesn't re-place them); baked only while shown
             bool wanted = (_reflections && _reflectProbes) || _reflectDebug == 2;
             bool shown = wanted && _realistic && !_whitecard;
-            var template = new SceneDrawParams
-            {
-                Whitecard = _whitecard,
-                Realistic = _realistic,
-                Tint = _tintMode,
-                ReflectThreshold = _reflectThreshold / 100f,
-                ReflectGain = _reflectStrength,
-                Time = _clock,
-                FogDensity = 0.0022f,
-                Sun = true
-            };
-
-            string error = _renderer.UpdateReflectionProbes(wanted, shown, _probeHigh ? 256 : 128, Camera.Position, template, _groupVisible, Dynamics, _groundZ);
+            string error = _renderer.UpdateReflectionProbes(wanted, shown, _probeHigh ? 256 : 128, Camera.Position, ProbeTemplate(), _groupVisible, Dynamics, _groundZ);
             if (error != null)
             {
                 _reflectProbes = false;
@@ -90,13 +81,26 @@ namespace BimGo.Game
             }
         }
 
+        /// <summary>What a probe capture draws with (Round X-A: shared with the time-lapse's re-bake).</summary>
+        private SceneDrawParams ProbeTemplate() => new()
+        {
+            Whitecard = _whitecard,
+            Realistic = _realistic,
+            Tint = _tintMode,
+            ReflectThreshold = _reflectThreshold / 100f,
+            ReflectGain = _reflectStrength,
+            Time = _clock,
+            FogDensity = 0.0022f,
+            Sun = true
+        };
+
         /// <summary>
         /// Everything a probe capture depends on: the model (hidden / moved / cloned elements, category toggles), the
         /// sun and sky, the artificial lights, the colour mode and Revit tint.
         /// </summary>
         private long ProbeSceneKey()
         {
-            SunLighting l = _renderer.Lighting;
+            SunLighting l = _probeLighting; // W-C: without a lightning flash (a flash never re-bakes the probes)
             var hash = new HashCode();
             hash.Add(l.Enabled);
             hash.Add(l.SunDirection);
@@ -109,15 +113,24 @@ namespace BimGo.Game
             hash.Add(_sun?.CloudCover ?? 0f); // sky round: probes re-bake when the cover changes (not as the clouds drift)
             hash.Add(_lightMode);
             hash.Add(_lightIntensity);
+            hash.Add(_lightProfileRevision); // X-D1: a light profile changed
             hash.Add(_realistic);
             hash.Add(_tintMode);
+            hash.Add(_renderer.ProbeGrass); // polish round P-C: blades came (or went), or the field was rebuilt
+            hash.Add(_grassField.GrassCells);
+            hash.Add(_grassHeightMm);
+            hash.Add(_renderer.Weather.Kind); // Round W-B: wet / snowy surfaces in the probes (not the falling drops)
+            hash.Add(_renderer.Weather.Wet);
+            hash.Add(_renderer.Weather.Snow);
+            hash.Add(_renderer.HasCoverMap);
             long key = ShadowSceneKey() ^ ((long)hash.ToHashCode() << 17);
             return key == 0 ? 1 : key;
         }
 
         /// <summary>
         /// The pause menu's Reflections tab: which surfaces reflect (off / some / all), the source (sky, probes,
-        /// probes HQ), the strength, and the probes' status with REFRESH. Saved with the settings.
+        /// probes HQ), X-C1's screen-space reflections (off / low / medium / high), the strength, and the probes' status
+        /// with REFRESH. Saved with the settings.
         /// </summary>
         private void BuildReflectionsTab(FontAtlas f, InputState input, float x, float y, float w)
         {
@@ -152,6 +165,22 @@ namespace BimGo.Game
             }
             y += S(64);
 
+            // Round X-C1: sharp reflections: mirrored views of the nearest glass / mirror walls, and what is on screen in
+            // floors and water (the probes fill in elsewhere)
+            _ui.Text(f.Body, x, y, "Sharp reflections (photos, videos)", _reflections ? UiTheme.TEXT : UiTheme.TEXT_MUTED);
+            int ssr = Segmented(f, input, x, y + S(22), w, SSR_OPTIONS, _ssrQuality);
+            if (ssr != _ssrQuality)
+            {
+                _ssrQuality = ssr;
+                if (ssr == 0)
+                {
+                    _renderer.ReleaseReflectionHistory();
+                    _renderer.ReleasePlanarTargets();
+                }
+            }
+            _ui.Text(f.Small, x, y + S(60), "GLASS & MIRRORS · FLOORS & WATER", UiTheme.TEXT_FAINT, S(0.4f));
+            y += S(82);
+
             // Strength
             Text.Clear().Append((long)MathF.Round(_reflectStrength * 100f)).Append(" %");
             float strength = Slider(f, input, SLIDER_REFLECT, x, y, w, "Reflection strength", Text.Span, _reflectStrength, 0.5f, 2f);
@@ -182,8 +211,8 @@ namespace BimGo.Game
             y += S(44);
 
             _ui.TextWrapped(f.Body, x, y, w,
-                "Probes capture each room once and re-bake a moment after the sun, lights or model change. HQ uses 256 px captures (4× the memory).",
-                UiTheme.TEXT_FAINT, maxLines: 4);
+                "Probes capture each room once and re-bake a moment after the sun, lights or model change. HQ uses 256 px captures (4× the memory). Sharp reflections (photos, videos, batch stills and photo mode's preview): the biggest glass and mirror walls in view are drawn again from the mirrored camera (Low: 2 at half resolution, Medium: 4, High: 8 at full) and floors and water show what is on screen; the probes fill in the rest, and the live view.",
+                UiTheme.TEXT_FAINT, maxLines: 8);
         }
     }
 }

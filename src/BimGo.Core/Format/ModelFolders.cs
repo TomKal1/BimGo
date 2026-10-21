@@ -65,6 +65,18 @@ namespace BimGo.Format
         /// <summary>Clash detection's sets, tests and results (Round C).</summary>
         public const string CLASHES_FILE = "clashes.json";
 
+        /// <summary>Round K: keyframed camera paths in a model folder.</summary>
+        public const string PATHS_FILE = "paths.json";
+
+        /// <summary>Round X-B: billboards in a model folder (their pictures in <c>entourage-images</c> beside it).</summary>
+        public const string ENTOURAGE_FILE = "entourage.json";
+
+        /// <summary>Round X-D1: light profile choices and imported .ies files in a model folder.</summary>
+        public const string LIGHT_PROFILES_FILE = "light-profiles.json";
+
+        /// <summary>Round Y-A: the Measure gun's saved measurements in a model folder.</summary>
+        public const string MEASUREMENTS_FILE = "measurements.json";
+
         /// <summary>Texture choices in a model folder (machine-specific image paths: never shared).</summary>
         public const string TEXTURE_OVERRIDES_FILE = "texture-overrides.json";
 
@@ -81,7 +93,11 @@ namespace BimGo.Format
             (BOOKMARKS_FILE, BimGoFormat.BOOKMARK_SIDECAR_SUFFIX),
             (SUN_FILE, BimGoFormat.SUN_SIDECAR_SUFFIX),
             (VISIBILITY_FILE, BimGoFormat.VISIBILITY_SIDECAR_SUFFIX),
-            (CLASHES_FILE, BimGoFormat.CLASH_SIDECAR_SUFFIX)
+            (CLASHES_FILE, BimGoFormat.CLASH_SIDECAR_SUFFIX),
+            (PATHS_FILE, BimGoFormat.PATHS_SIDECAR_SUFFIX), // Round K
+            (ENTOURAGE_FILE, BimGoFormat.ENTOURAGE_SIDECAR_SUFFIX), // Round X-B
+            (LIGHT_PROFILES_FILE, BimGoFormat.LIGHT_PROFILES_SIDECAR_SUFFIX), // Round X-D1
+            (MEASUREMENTS_FILE, BimGoFormat.MEASUREMENTS_SIDECAR_SUFFIX) // Round Y-A
         };
 
         #endregion
@@ -280,6 +296,47 @@ namespace BimGo.Format
                 }
                 if (TryCopy(source, target, overwrite: true)) { copied++; }
             }
+
+            // Round Y-A: comment pictures shared beside the model (newer or missing ones)
+            copied += SyncPictures(SharedPicturesFolderFor(besideCommentsPath), System.IO.Path.Combine(folder, CommentSnapshots.FOLDER.TrimEnd('/')));
+            return copied;
+        }
+
+        /// <summary>
+        /// Round Y-A: the folder beside a Revit model that shared comment pictures go in (&lt;model&gt;.bimgo-comment-pictures),
+        /// or null.
+        /// </summary>
+        public static string SharedPicturesFolderFor(string besideCommentsPath)
+        {
+            if (string.IsNullOrWhiteSpace(besideCommentsPath)) { return null; }
+            string basePath = besideCommentsPath.EndsWith(BimGoFormat.SIDECAR_SUFFIX, StringComparison.OrdinalIgnoreCase)
+                ? besideCommentsPath[..^BimGoFormat.SIDECAR_SUFFIX.Length]
+                : System.IO.Path.Combine(System.IO.Path.GetDirectoryName(besideCommentsPath) ?? string.Empty, System.IO.Path.GetFileNameWithoutExtension(besideCommentsPath));
+            return basePath + BimGoFormat.COMMENT_PICTURES_SIDECAR_SUFFIX;
+        }
+
+        /// <summary>
+        /// Round Y-A: copies the comment pictures (.jpg) from one folder to another when the target lacks them or has an
+        /// older copy. Nothing is deleted (a stale picture is harmless; a colleague's may still be needed). Never throws.
+        /// </summary>
+        /// <returns>How many pictures were copied.</returns>
+        public static int SyncPictures(string sourceFolder, string targetFolder)
+        {
+            int copied = 0;
+            try
+            {
+                if (string.IsNullOrWhiteSpace(sourceFolder) || string.IsNullOrWhiteSpace(targetFolder) || !Directory.Exists(sourceFolder)) { return 0; }
+                foreach (string source in Directory.EnumerateFiles(sourceFolder, "*.jpg"))
+                {
+                    string target = System.IO.Path.Combine(targetFolder, System.IO.Path.GetFileName(source));
+                    if (File.Exists(target) && File.GetLastWriteTimeUtc(source) <= File.GetLastWriteTimeUtc(target)) { continue; }
+                    if (TryCopy(source, target, overwrite: true)) { copied++; }
+                }
+            }
+            catch (Exception ex)
+            {
+                Utilities.Log_Utils.Write($"Comment pictures not synced ({sourceFolder} -> {targetFolder}): {ex.Message}");
+            }
             return copied;
         }
 
@@ -308,6 +365,12 @@ namespace BimGo.Format
                 string target = suffix == BimGoFormat.SIDECAR_SUFFIX ? info.BesideCommentsPath : SidecarJson.BesideComments(info.BesideCommentsPath, suffix);
                 if (!Directory.Exists(System.IO.Path.GetDirectoryName(target))) { return; }
                 TryCopy(writtenPath, target, overwrite: true);
+
+                // Round Y-A: the comments' pictures go with them (newer or missing ones; the comments folder beside comments.json)
+                if (suffix == BimGoFormat.SIDECAR_SUFFIX)
+                {
+                    SyncPictures(System.IO.Path.Combine(folder, CommentSnapshots.FOLDER.TrimEnd('/')), SharedPicturesFolderFor(info.BesideCommentsPath));
+                }
             }
             catch (Exception ex)
             {

@@ -18,6 +18,9 @@ namespace BimGo.Rendering
         /// <summary>Frustum planes for chunk culling.</summary>
         public Vector4[] Planes;
 
+        /// <summary>Round Y-D1: the main view: skip the chunks the occlusion queries hid (see <see cref="SceneRenderer.BeginOcclusionFrame"/>).</summary>
+        public bool Occlusion;
+
         /// <summary>Eye position (fog, lighting).</summary>
         public Vector3 Eye;
 
@@ -48,7 +51,7 @@ namespace BimGo.Rendering
         /// <summary>Reflection strength multiplier (0.5–2).</summary>
         public float ReflectGain;
 
-        /// <summary>Debug colours instead of the material: 0 off, 1 reflection tiers, 2 reflection probe cells.</summary>
+        /// <summary>Debug colours instead of the material: 0 off, 1 reflection tiers, 2 reflection probe cells, 3 SSR hits (X-C1).</summary>
         public int ReflectDebug;
 
         /// <summary>Reflect the reflection probes where they exist (else the sky).</summary>
@@ -62,6 +65,15 @@ namespace BimGo.Rendering
 
         /// <summary>Apply the section cut (<see cref="SceneRenderer.SetSection"/>): the player's view and highlights only.</summary>
         public bool Section;
+
+        /// <summary>
+        /// Round X-C1: screen-space reflections (0 off, 1 low, 2 medium, 3 high): the player's view, photos and videos
+        /// only (needs this frame's pre-pass and a history).
+        /// </summary>
+        public int ScreenReflections;
+
+        /// <summary>Round X-C1: glass and mirrors read this frame's mirrored views (the player's view, photos and videos only).</summary>
+        public bool Planar;
     }
 
     /// <summary>
@@ -90,6 +102,7 @@ namespace BimGo.Rendering
         private int _groundGeometryCenter, _groundGeometryHalf, _geometryGlow;
         private int _skyInvViewProj, _skyEye, _groundViewProj, _groundCenter, _groundHalf, _groundEye, _groundFog;
         private int _skySun, _skySunDir, _skyZenith, _skyHorizon, _skyDisc, _skySunShape, _skyCloudCover, _skyCloudOffset;
+        private int _skyMoonDir, _skyMoonSun, _skyMoonDisc, _skyMoonGlow, _skyNight, _skyStars, _skyTime, _skyCelestialX, _skyCelestialY, _skyCelestialZ; // W-A
         private int _depthViewProj, _depthModel, _transmitViewProj, _transmitModel, _transmitGlass, _transmitWhitecard;
 
         // Sun and shadows
@@ -270,7 +283,7 @@ namespace BimGo.Rendering
         /// </summary>
         private struct ArtificialUniforms
         {
-            public int Count, Pos, Color, Shadow, Emissive, Shoulder;
+            public int Count, Pos, Color, Shadow, Emissive, Shoulder, FarCount;
 
             public static ArtificialUniforms From(ShaderProgram p)
             {
@@ -278,8 +291,15 @@ namespace BimGo.Rendering
                 p.Use();
                 Gl.Uniform1(p.Uniform("uLightShadowMap"), LightShadows.UNIT);
                 Gl.Uniform1(p.Uniform("uLightShadowTexel"), LightShadows.Texel);
+                // Round X-C1: the far lights block reads the shared uniform buffer's binding point
+                uint block = Gl.GetUniformBlockIndex(p.Id, "FarLights");
+                if (block != Gl.INVALID_INDEX) { Gl.UniformBlockBinding(p.Id, block, FAR_LIGHTS_BINDING); }
+                // Round X-D1: the light profile tables
+                uint profiles = Gl.GetUniformBlockIndex(p.Id, "LightProfiles");
+                if (profiles != Gl.INVALID_INDEX) { Gl.UniformBlockBinding(p.Id, profiles, LIGHT_PROFILES_BINDING); }
                 return new ArtificialUniforms
                 {
+                    FarCount = p.Uniform("uFarCount"),
                     Count = p.Uniform("uLightCount"),
                     Pos = p.Uniform("uLightPos[0]"),
                     Color = p.Uniform("uLightColor[0]"),
@@ -295,10 +315,11 @@ namespace BimGo.Rendering
         /// </summary>
         private struct GeometryUniforms
         {
-            public int ViewProj, Model, Eye, Right, Up, Forward, ClipCount, ClipPlanes;
+            public int ViewProj, Model, Eye, Right, Up, Forward, ClipCount, ClipPlanes, ProfilePass;
 
             public static GeometryUniforms From(ShaderProgram p) => new()
             {
+                ProfilePass = p.Uniform("uProfilePass"),
                 ClipCount = p.Uniform("uClipCount"),
                 ClipPlanes = p.Uniform("uClipPlanes"),
                 ViewProj = p.Uniform("uViewProj"),
@@ -320,6 +341,7 @@ namespace BimGo.Rendering
             public int ReflectThreshold, ReflectGain, ReflectDebug, Time, CloudCover, CloudOffset, WaterTint, WaterReflect, WaterWaves, WaveScale;
             public int ProbesOn, ProbeGridOrigin, ProbeGridCell, ProbeGridSize, ProbeMaxLod;
             public int ClipCount, ClipPlanes;
+            public int ProfilePass, ProfileDetail;
 
             public static SceneUniforms From(ShaderProgram p)
             {
@@ -334,6 +356,7 @@ namespace BimGo.Rendering
                 Gl.Uniform1(p.Uniform("uProbeArray"), ReflectionProbes.ARRAY_UNIT);
                 Gl.Uniform1(p.Uniform("uProbeGrid"), ReflectionProbes.GRID_UNIT);
                 Gl.Uniform1(p.Uniform("uProbeData"), ReflectionProbes.DATA_UNIT);
+                Gl.Uniform1(p.Uniform("uProfileTex"), PROFILE_UNIT); // colour round A
                 return Locations(p);
             }
 
@@ -371,7 +394,9 @@ namespace BimGo.Rendering
                 WaterWaves = p.Uniform("uWaterWaves"),
                 WaveScale = p.Uniform("uWaveScale"),
                 ClipCount = p.Uniform("uClipCount"),
-                ClipPlanes = p.Uniform("uClipPlanes")
+                ClipPlanes = p.Uniform("uClipPlanes"),
+                ProfilePass = p.Uniform("uProfilePass"),
+                ProfileDetail = p.Uniform("uProfileDetail")
             };
         }
 
@@ -396,6 +421,8 @@ namespace BimGo.Rendering
             _groundGeometryProgram = ShaderProgram.Create("ao ground geometry", Shaders.GROUND_VS, Shaders.GEOMETRY_GROUND_FS);
 
             _sceneUniforms = SceneUniforms.From(_sceneProgram);
+            InitialiseScreenReflections(); // Round X-C1
+            InitialisePlanarReflections();
             _sceneLight = LightUniforms.From(_sceneProgram);
             _groundLight = LightUniforms.From(_groundProgram);
             _sceneAo = AoUniforms.From(_sceneProgram);
@@ -404,6 +431,8 @@ namespace BimGo.Rendering
             _groundLights = ArtificialUniforms.From(_groundProgram);
             _geometryGlow = _geometryProgram.Uniform("uGlow");
             _geometryUniforms = GeometryUniforms.From(_geometryProgram);
+            _geometryProgram.Use();
+            Gl.Uniform1(_geometryProgram.Uniform("uProfileTex"), PROFILE_UNIT); // colour round A (its own unit, as every sampler)
             _groundGeometryUniforms = GeometryUniforms.From(_groundGeometryProgram);
             _groundGeometryCenter = _groundGeometryProgram.Uniform("uCenter");
             _groundGeometryHalf = _groundGeometryProgram.Uniform("uHalf");
@@ -417,6 +446,18 @@ namespace BimGo.Rendering
             _skySunShape = _skyProgram.Uniform("uSunShape");
             _skyCloudCover = _skyProgram.Uniform("uCloudCover");
             _skyCloudOffset = _skyProgram.Uniform("uCloudOffset");
+            _skyMoonDir = _skyProgram.Uniform("uMoonDir");
+            _skyMoonSun = _skyProgram.Uniform("uMoonSun");
+            _skyMoonDisc = _skyProgram.Uniform("uMoonDisc");
+            _skyMoonGlow = _skyProgram.Uniform("uMoonGlow");
+            _skyNight = _skyProgram.Uniform("uNight");
+            _skyStars = _skyProgram.Uniform("uStars");
+            _skyTime = _skyProgram.Uniform("uTime");
+            _skyCelestialX = _skyProgram.Uniform("uCelestialX");
+            _skyCelestialY = _skyProgram.Uniform("uCelestialY");
+            _skyCelestialZ = _skyProgram.Uniform("uCelestialZ");
+            _skyLightning = _skyProgram.Uniform("uLightning"); // Round W-C
+            _skyBolt = _skyProgram.Uniform("uBolt");
             _depthViewProj = _shadowDepthProgram.Uniform("uViewProj");
             _depthModel = _shadowDepthProgram.Uniform("uModel");
             _transmitViewProj = _shadowTransmitProgram.Uniform("uViewProj");
@@ -429,6 +470,7 @@ namespace BimGo.Rendering
             _groundHalf = _groundProgram.Uniform("uHalf");
             _groundEye = _groundProgram.Uniform("uEye");
             _groundFog = _groundProgram.Uniform("uFogColor");
+            InitialiseWeather(); // Round W-B
 
             // Static geometry
             _vao = Gl.GenVertexArray();
@@ -463,6 +505,7 @@ namespace BimGo.Rendering
             // Glowing surfaces: a second vertex stream on both VAOs (left disabled when there are none: reads as no glow)
             UploadEmissive(scene);
             UploadMaterials(scene);
+            if (HasMaterials) { RefreshReflectivePlanes(); } // Round X-C1: glass / mirror planes
             _dynamicRanges = new ElementRange[scene.Elements.Length];
             _hasDynamicRange = new bool[scene.Elements.Length];
 
@@ -571,6 +614,7 @@ namespace BimGo.Rendering
             _materials.WaterKeywords = keywords ?? Array.Empty<string>();
             _materials.WaterKeywordsOpaque = keywordsOpaque;
             _materials.RefreshTable();
+            if (HasMaterials) { RefreshReflectivePlanes(); } // Round X-C1: water no longer counts as glass, or does
         }
 
         /// <summary>Water materials in the current table (QOL round: shown under the override).</summary>
@@ -592,6 +636,7 @@ namespace BimGo.Rendering
         {
             if (_materialVbo == 0 || materials == null || materials.IsEmpty) { return null; }
             MaterialWarning = _materials.Initialise(materials, ProxyPack.Shared, AutoProxy);
+            RefreshReflectivePlanes(materials); // Round X-C1
             return MaterialWarning;
         }
 
@@ -779,7 +824,7 @@ namespace BimGo.Rendering
             }
 
             // Sun below the horizon: no direct light, so nothing to shadow (keep the maps for when it rises)
-            if (Lighting.AltitudeDegrees < -1f) { return null; }
+            if (Lighting.AltitudeDegrees < -1f && !Lighting.MoonLights) { return null; } // W-A: the moon casts them at night
 
             if (!_shadows.Ensure(preset, _hasTransparent)) { return _shadows.LastError; }
 
@@ -824,6 +869,7 @@ namespace BimGo.Rendering
             Gl.UniformMatrix4(_depthModel, Matrix4x4.Identity);
             DrawBatches(planes, groupVisible, transparent: false, countStats: false);
             if (dynamics != null && dynamics.Instances.Count > 0) { DrawDynamicInstances(dynamics, planes, transparent: false, _depthModel); }
+            DrawBillboardShadows(matrix); // Round X-B: billboards cast their silhouettes (turned to face the sun)
             Gl.Disable(Gl.POLYGON_OFFSET_FILL);
             Gl.ColorMask(true, true, true, true);
 
@@ -905,11 +951,12 @@ namespace BimGo.Rendering
         /// <param name="glow">Bloom wanted (ignored when the model has no glowing surfaces).</param>
         /// <returns>Null, or a reason the effects could not be shown (the caller switches them off).</returns>
         public string UpdateScreenEffects(FpsCamera camera, int width, int height, bool[] groupVisible, DynamicSet dynamics, float groundZ,
-            bool ao, bool glow)
+            bool ao, bool glow, bool reflections = false)
         {
             glow &= HasEmissive;
             _aoActive = _glowActive = false;
-            if (!ao && !glow)
+            _ssrGeometry = false; // Round X-C1
+            if (!ao && !glow && !reflections)
             {
                 _effects.Release();
                 return null;
@@ -930,7 +977,8 @@ namespace BimGo.Rendering
             ApplyGeometry(_geometryUniforms, camera.ViewProjection, eye, right, up, forward);
             Gl.Uniform1(_geometryGlow, glow ? 1f : 0f);
             ApplyClip(_geometryUniforms.ClipCount, _geometryUniforms.ClipPlanes, true);
-            DrawBatches(camera.Planes, groupVisible, transparent: false, countStats: false);
+            Gl.Uniform1(_geometryUniforms.ProfilePass, BindProfile(true) ? 1 : 0); // colour round A: ghosts don't occlude
+            DrawBatches(camera.Planes, groupVisible, transparent: false, countStats: false, skip: OcclusionMask); // Y-D1: the main view's culling
             if (dynamics != null && dynamics.Instances.Count > 0) { DrawDynamicInstances(dynamics, camera.Planes, transparent: false, _geometryUniforms.Model); }
 
             _groundGeometryProgram.Use();
@@ -942,6 +990,7 @@ namespace BimGo.Rendering
             Gl.BindVertexArray(0);
 
             _effects.Compute(camera, ao, glow);
+            SetScreenReflectionGeometry(reflections, right, up, forward); // Round X-C1: the ray march reads the pre-pass
             _aoForward = forward;
             _aoActive = ao;
             _glowActive = glow;
@@ -964,6 +1013,7 @@ namespace BimGo.Rendering
         public void DisableScreenEffects()
         {
             _aoActive = _glowActive = false;
+            _ssrGeometry = false;
             _effects.Release();
         }
 
@@ -975,6 +1025,7 @@ namespace BimGo.Rendering
         public void SkipScreenEffects()
         {
             _aoActive = _glowActive = false;
+            _ssrGeometry = false;
         }
 
         /// <summary>
@@ -1122,11 +1173,15 @@ namespace BimGo.Rendering
             FlushDynamic();
             bool aoWas = _aoActive;
             _aoActive = false;
+            bool profileWas = ProfileOn;
+            ProfileOn = false; // colour round A: probes capture the model's own colours
 
             SceneDrawParams p = template;
             p.Reflections = false;
             p.Probes = false;
             p.ReflectDebug = 0;
+            p.ScreenReflections = 0; // Round X-C1: never in probe faces
+            p.Planar = false;
             p.Plan = false;
             p.Sun = true;
             p.ClipZ = new Vector2(-1e7f, 1e7f);
@@ -1138,7 +1193,7 @@ namespace BimGo.Rendering
                 Matrix4x4 matrix = _probes.FaceMatrix(probe, face, out Vector3 eye, out Vector4[] planes);
                 _probes.BeginFace(probe, face, clear);
                 Matrix4x4.Invert(matrix, out Matrix4x4 inverse);
-                DrawSky(inverse, eye);
+                DrawSky(inverse, eye, stars: false); // W-A: no stars in probes (their faces are too coarse for points)
 
                 p.ViewProjection = matrix;
                 p.Planes = planes;
@@ -1154,6 +1209,7 @@ namespace BimGo.Rendering
                 DrawBatches(planes, groupVisible, transparent: false, countStats: false);
                 if (hasDynamics) { DrawDynamicInstances(dynamics, planes, transparent: false, _sceneUniforms.Model); }
                 DrawGround(matrix, eye, groundZ);
+                if (ProbeGrass && p.Realistic) { DrawGrass(p, probe: true); } // polish round P-C: blades in the reflections
 
                 Gl.Enable(Gl.BLEND);
                 Gl.BlendFunc(Gl.SRC_ALPHA, Gl.ONE_MINUS_SRC_ALPHA);
@@ -1169,6 +1225,7 @@ namespace BimGo.Rendering
             }
 
             _aoActive = aoWas;
+            ProfileOn = profileWas;
             _probes.EndCapture();
         }
 
@@ -1206,13 +1263,78 @@ namespace BimGo.Rendering
             ArtificialLighting a = Artificial;
             int count = on ? a.Count : 0;
             float emissive = on ? a.Emissive : 0f;
+            int far = on ? a.FarCount : 0;
+            UploadFarLights(); // X-C1 (once per change)
+            UploadLightProfiles(); // X-D1 (once per change)
             Gl.Uniform1(u.Count, count);
+            Gl.Uniform1(u.FarCount, far);
             Gl.Uniform1(u.Emissive, emissive);
-            Gl.Uniform1(u.Shoulder, count > 0 || emissive > 0f ? 1 : 0);
+            Gl.Uniform1(u.Shoulder, count > 0 || far > 0 || emissive > 0f ? 1 : 0);
             if (count == 0) { return; }
             Gl.Uniform4(u.Pos, count, a.Position);
             Gl.Uniform4(u.Color, count, a.Colour);
             Gl.Uniform4(u.Shadow, count, a.Shadow);
+        }
+
+        /// <summary>Round X-C1: the uniform buffer binding point of the far lights block.</summary>
+        private const uint FAR_LIGHTS_BINDING = 1;
+
+        private uint _farLightsBuffer;
+
+        /// <summary>Round X-D1: the uniform buffer binding point of the light profiles block.</summary>
+        private const uint LIGHT_PROFILES_BINDING = 2;
+
+        private uint _lightProfilesBuffer;
+
+        /// <summary>
+        /// Round X-D1: the light profile tables' block (std140: 768 uvec4 of table bytes, then 24 vec4 of scales): made once
+        /// (zeroed, full size) and bound; uploaded when the per-type choices change.
+        /// </summary>
+        private void UploadLightProfiles()
+        {
+            ArtificialLighting a = Artificial;
+            int tableBytes = a.ProfileBytes.Length, infoBytes = a.ProfileInfo.Length * 16;
+            if (_lightProfilesBuffer == 0)
+            {
+                _lightProfilesBuffer = Gl.GenBuffer();
+                Gl.BindBuffer(Gl.UNIFORM_BUFFER, _lightProfilesBuffer);
+                var zero = new byte[tableBytes + infoBytes];
+                fixed (byte* z = zero) { Gl.BufferData(Gl.UNIFORM_BUFFER, zero.Length, z, Gl.DYNAMIC_DRAW); }
+                Gl.BindBufferBase(Gl.UNIFORM_BUFFER, LIGHT_PROFILES_BINDING, _lightProfilesBuffer);
+                a.ProfilesDirty = true;
+            }
+            if (!a.ProfilesDirty) { return; }
+            a.ProfilesDirty = false;
+            Gl.BindBuffer(Gl.UNIFORM_BUFFER, _lightProfilesBuffer);
+            fixed (byte* bytes = a.ProfileBytes) { Gl.BufferSubData(Gl.UNIFORM_BUFFER, 0, tableBytes, bytes); }
+            fixed (Vector4* info = a.ProfileInfo) { Gl.BufferSubData(Gl.UNIFORM_BUFFER, tableBytes, infoBytes, info); }
+            Gl.BindBuffer(Gl.UNIFORM_BUFFER, 0);
+        }
+
+        /// <summary>
+        /// Round X-C1: the unshadowed ("all fixtures") lights' block: the buffer made once (zeroed, full size, so the
+        /// block is always backed) and bound to its binding point; this frame's lights uploaded when they changed.
+        /// </summary>
+        private void UploadFarLights()
+        {
+            ArtificialLighting a = Artificial;
+            const int bytes = ArtificialLighting.MAX_FAR * 16;
+            if (_farLightsBuffer == 0)
+            {
+                _farLightsBuffer = Gl.GenBuffer();
+                Gl.BindBuffer(Gl.UNIFORM_BUFFER, _farLightsBuffer);
+                var zero = new byte[bytes * 2];
+                fixed (byte* z = zero) { Gl.BufferData(Gl.UNIFORM_BUFFER, bytes * 2, z, Gl.DYNAMIC_DRAW); }
+                Gl.BindBufferBase(Gl.UNIFORM_BUFFER, FAR_LIGHTS_BINDING, _farLightsBuffer);
+                a.FarDirty = true;
+            }
+            if (!a.FarDirty) { return; }
+            a.FarDirty = false;
+            if (a.FarCount == 0) { return; }
+            Gl.BindBuffer(Gl.UNIFORM_BUFFER, _farLightsBuffer);
+            fixed (Vector4* pos = a.FarPosition) { Gl.BufferSubData(Gl.UNIFORM_BUFFER, 0, a.FarCount * 16, pos); }
+            fixed (Vector4* col = a.FarColour) { Gl.BufferSubData(Gl.UNIFORM_BUFFER, bytes, a.FarCount * 16, col); }
+            Gl.BindBuffer(Gl.UNIFORM_BUFFER, 0);
         }
 
         #endregion
@@ -1227,7 +1349,8 @@ namespace BimGo.Rendering
         /// <summary>
         /// Draws the gradient sky (no depth) for any view (the camera, or a probe face).
         /// </summary>
-        private void DrawSky(in Matrix4x4 inverseViewProjection, Vector3 eye)
+        /// <param name="stars">Round W-A: draw the stars and the Milky Way (not in probe faces).</param>
+        private void DrawSky(in Matrix4x4 inverseViewProjection, Vector3 eye, bool stars = true)
         {
             Gl.Disable(Gl.DEPTH_TEST);
             Gl.DepthMask(false);
@@ -1236,7 +1359,8 @@ namespace BimGo.Rendering
             Gl.Uniform3(_skyEye, eye.X, eye.Y, eye.Z);
             SunLighting l = Lighting;
             Gl.Uniform1(_skySun, l.Enabled ? 1 : 0);
-            Gl.Uniform3(_skySunDir, l.SunDirection.X, l.SunDirection.Y, l.SunDirection.Z);
+            Vector3 sunDir = l.SkySunDirection.LengthSquared() > 0.5f ? l.SkySunDirection : l.SunDirection; // W-A: the real sun (the moon may light the scene)
+            Gl.Uniform3(_skySunDir, sunDir.X, sunDir.Y, sunDir.Z);
             Gl.Uniform3(_skyZenith, l.Zenith.X, l.Zenith.Y, l.Zenith.Z);
             Gl.Uniform3(_skyHorizon, l.Horizon.X, l.Horizon.Y, l.Horizon.Z);
             Gl.Uniform3(_skyDisc, l.SunDisc.X, l.SunDisc.Y, l.SunDisc.Z);
@@ -1244,6 +1368,19 @@ namespace BimGo.Rendering
             Gl.Uniform3(_skySunShape, MathF.Cos(SkyLook.DISC_OUTER * sky.SunSize), MathF.Cos(SkyLook.DISC_INNER * sky.SunSize), sky.SunGlare);
             Gl.Uniform1(_skyCloudCover, sky.CloudCover);
             Gl.Uniform2(_skyCloudOffset, sky.CloudOffset.X, sky.CloudOffset.Y);
+            Gl.Uniform3(_skyMoonDir, l.MoonDirection.X, l.MoonDirection.Y, l.MoonDirection.Z);
+            Gl.Uniform3(_skyMoonSun, l.MoonSunDirection.X, l.MoonSunDirection.Y, l.MoonSunDirection.Z);
+            Gl.Uniform3(_skyMoonDisc, l.MoonDisc.X, l.MoonDisc.Y, l.MoonDisc.Z);
+            Gl.Uniform3(_skyMoonGlow, l.MoonGlow.X, l.MoonGlow.Y, l.MoonGlow.Z);
+            Gl.Uniform1(_skyNight, l.Night);
+            Gl.Uniform4(_skyStars, stars ? sky.Stars.X : 0f, sky.Stars.Y, sky.Stars.Z, sky.Stars.W);
+            Gl.Uniform1(_skyTime, sky.Time);
+            Gl.Uniform3(_skyCelestialX, sky.CelestialX.X, sky.CelestialX.Y, sky.CelestialX.Z);
+            Gl.Uniform3(_skyCelestialY, sky.CelestialY.X, sky.CelestialY.Y, sky.CelestialY.Z);
+            Gl.Uniform3(_skyCelestialZ, sky.CelestialZ.X, sky.CelestialZ.Y, sky.CelestialZ.Z);
+            float strike = stars ? sky.Lightning.W : 0f; // W-C: not in probe faces
+            Gl.Uniform4(_skyLightning, sky.Lightning.X, sky.Lightning.Y, sky.Lightning.Z, strike);
+            Gl.Uniform4(_skyBolt, sky.Bolt.X, sky.Bolt.Y, sky.Bolt.Z, sky.Bolt.W);
             Gl.BindVertexArray(_emptyVao);
             Gl.DrawArrays(Gl.TRIANGLES, 0, 3);
             Gl.DepthMask(true);
@@ -1270,6 +1407,7 @@ namespace BimGo.Rendering
             ApplyLight(_groundLight, sun: true, transmit: true);
             ApplyAo(_groundAo, on: true);
             ApplyArtificial(_groundLights, on: true);
+            ApplyWeather(_groundWeather, on: true); // Round W-B
             Gl.BindVertexArray(_emptyVao);
             Gl.DrawArrays(Gl.TRIANGLES, 0, 6);
         }
@@ -1282,17 +1420,18 @@ namespace BimGo.Rendering
         /// <param name="transparent">Which pass.</param>
         public void DrawStatic(in SceneDrawParams p, bool[] groupVisible, bool transparent)
         {
-            if (!transparent) { ChunksDrawn = 0; }
+            if (!transparent && !p.Plan) { ResetDrawStats(); } // Y-D1: the minimap (plan) doesn't count
 
             _sceneProgram.Use();
             ApplyUniforms(_sceneUniforms, p, Vector4.Zero, transmit: !transparent);
-            DrawBatches(p.Planes, groupVisible, transparent, countStats: true);
+            DrawBatches(p.Planes, groupVisible, transparent, countStats: !p.Plan, skip: p.Occlusion ? OcclusionMask : null);
         }
 
         /// <summary>
         /// Multi-draws the visible chunks of every batch of one pass with the current program.
         /// </summary>
-        private void DrawBatches(Vector4[] planes, bool[] groupVisible, bool transparent, bool countStats)
+        /// <param name="skip">Round Y-D1: per chunk, leave it out (the main view's occlusion culling), or null.</param>
+        private void DrawBatches(Vector4[] planes, bool[] groupVisible, bool transparent, bool countStats, bool[] skip = null)
         {
             Gl.BindVertexArray(_vao);
 
@@ -1312,15 +1451,30 @@ namespace BimGo.Rendering
                     for (int c = batch.ChunkStart; c < end; c++)
                     {
                         if (!FpsCamera.IsVisible(planes, chunks[c].Bounds)) { continue; }
+                        if (countStats)
+                        {
+                            ChunksInView++;
+                            TrianglesInView += chunks[c].IndexCount / 3; // Y-D1 r2: Auto decides on it
+                        }
+                        if (skip != null && skip[c])
+                        {
+                            if (countStats) { ChunksOccluded++; }
+                            continue;
+                        }
                         counts[drawCount] = chunks[c].IndexCount;
                         offsets[drawCount] = (nint)chunks[c].IndexStart * sizeof(uint);
+                        if (countStats) { TrianglesDrawn += chunks[c].IndexCount / 3; }
                         drawCount++;
                     }
 
                     if (drawCount > 0)
                     {
                         Gl.MultiDrawElements(Gl.TRIANGLES, counts, Gl.UNSIGNED_INT, (void**)offsets, drawCount);
-                        if (countStats) { ChunksDrawn += drawCount; }
+                        if (countStats)
+                        {
+                            ChunksDrawn += drawCount;
+                            DrawCalls++;
+                        }
                     }
                 }
             }
@@ -1353,15 +1507,32 @@ namespace BimGo.Rendering
             // AO follows "transmit": on for opaque surfaces and highlights, off for glass (it isn't in the pre-pass)
             ApplyAo(_sceneAo, transmit && !p.Plan);
             ApplyArtificial(_sceneLights, !p.Plan);
+            ApplyWeather(_sceneWeather, !p.Plan); // Round W-B
             Gl.Uniform1(u.FogDensity, p.FogDensity);
             Gl.Uniform1(u.Whitecard, p.Whitecard ? 1 : 0);
             Gl.Uniform1(u.Plan, p.Plan ? 1 : 0);
             Gl.Uniform2(u.ClipZ, p.ClipZ.X, p.ClipZ.Y);
             ApplyClip(u.ClipCount, u.ClipPlanes, p.Section);
             Gl.Uniform4(u.Override, overrideColour.X, overrideColour.Y, overrideColour.Z, overrideColour.W);
-            Gl.Uniform1(u.Ghost, overrideColour.W > 0f ? 0f : GhostAlpha);
+
+            // Colour round A: the profile (not on highlights, nor under the clash view's ghost / wireframe); its ghost
+            // pass draws the ghosted elements as the clash view's grey glass
+            int profilePass = overrideColour.W <= 0f && BindProfile(GhostAlpha <= 0f) ? (_profileGhostPass ? 2 : 1) : 0;
+            Gl.Uniform1(u.ProfilePass, profilePass);
+            if (profilePass > 0) { Gl.Uniform1(u.ProfileDetail, _profileDetail); }
+            Gl.Uniform1(u.Ghost, overrideColour.W > 0f ? 0f : profilePass == 2 ? PROFILE_GHOST_ALPHA : GhostAlpha);
+
+            // The sky in reflections (Round W-B: wet surfaces reflect it in every colour mode)
+            SunLighting l = Lighting;
+            Vector3 zenith = l.Enabled ? l.Zenith : SKY_ZENITH, horizon = l.Enabled ? l.Horizon : FOG_COLOUR;
+            Gl.Uniform3(u.SkyZenith, zenith.X, zenith.Y, zenith.Z);
+            Gl.Uniform3(u.SkyHorizon, horizon.X, horizon.Y, horizon.Z);
+            Gl.Uniform1(u.CloudCover, Sky.CloudCover);
+            Gl.Uniform2(u.CloudOffset, Sky.CloudOffset.X, Sky.CloudOffset.Y);
 
             bool realistic = p.Realistic && !p.Whitecard && HasMaterials;
+            ApplyScreenReflections(_sceneSsr, realistic ? p : default); // Round X-C1 (off outside the Realistic mode)
+            ApplyPlanarReflections(_scenePlanar, realistic ? p : default);
             Gl.Uniform1(u.Realistic, realistic ? 1 : 0);
             if (!realistic) { return; }
             _materials.Bind();
@@ -1370,8 +1541,6 @@ namespace BimGo.Rendering
             Gl.Uniform1(u.ReflectGain, p.ReflectGain > 0f ? p.ReflectGain : 1f);
             Gl.Uniform1(u.ReflectDebug, p.ReflectDebug);
             Gl.Uniform1(u.Time, WaterClock); // uTime only moves the water here (water round W)
-            Gl.Uniform1(u.CloudCover, Sky.CloudCover);
-            Gl.Uniform2(u.CloudOffset, Sky.CloudOffset.X, Sky.CloudOffset.Y);
             Gl.Uniform4(u.WaterTint, WaterTint.X, WaterTint.Y, WaterTint.Z, WaterTint.W);
             Gl.Uniform1(u.WaterReflect, WaterReflect);
             Gl.Uniform1(u.WaterWaves, WaterWaves);
@@ -1387,10 +1556,6 @@ namespace BimGo.Rendering
                 Gl.Uniform1(u.ProbeMaxLod, _probes.MaxLod);
             }
             Gl.Uniform1(u.TintMode, (int)p.Tint);
-            SunLighting l = Lighting;
-            Vector3 zenith = l.Enabled ? l.Zenith : SKY_ZENITH, horizon = l.Enabled ? l.Horizon : FOG_COLOUR;
-            Gl.Uniform3(u.SkyZenith, zenith.X, zenith.Y, zenith.Z);
-            Gl.Uniform3(u.SkyHorizon, horizon.X, horizon.Y, horizon.Z);
         }
 
         /// <summary>The classic sky's zenith (matches SKY_FS with the sun off).</summary>
@@ -1413,6 +1578,16 @@ namespace BimGo.Rendering
             DisposeSection();
             DisposePhoto();
             DisposeGrass();
+            DisposeBillboards(); // Round X-B
+            DisposeWeather();
+            DisposeProfile();
+            DisposeScreenReflections(); // Round X-C1
+            DisposePlanarReflections();
+            DisposeOcclusion(); // Round Y-D1
+            DisposePrepass(); // Round Y-D2
+            Timers.Dispose();
+            Gl.DeleteBuffer(_farLightsBuffer); // X-C1
+            Gl.DeleteBuffer(_lightProfilesBuffer); // X-D1
             _shadows.Dispose();
             _effects.Dispose();
             _lightShadows.Dispose();

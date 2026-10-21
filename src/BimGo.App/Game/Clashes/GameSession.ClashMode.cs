@@ -96,6 +96,7 @@ namespace BimGo.Game
         private void EnterClashMode(ClashRecord clash, string testId = null)
         {
             EnsureClashes();
+            ExitPathEditor(); // Round K-B: one free-cursor mode at a time
             _clashPickerRule = null;
             CloseOverlay();
             CloseClashes();
@@ -136,6 +137,7 @@ namespace BimGo.Game
         {
             if (!_clashModeOn) { return; }
             CloseGridsPanel(); // grids round A (clash mode's cursor handling follows)
+            CloseFixtureDock(); // Round Y-C2
             if (_clashBatch != null) { FinishClashBatch(cancelled: true); }
             CancelClashReport(); // C-C3
             _clashReportCardOpen = false;
@@ -181,6 +183,7 @@ namespace BimGo.Game
             // Grids round A: the grids keys stay live in clash mode (Esc closes an open grids panel first)
             if (input.Pressed(InputAction.GridsPanel)) { ToggleGridsPanel(); }
             if (input.Pressed(InputAction.GridsCycle)) { CycleGrids(); }
+            if (input.Pressed(InputAction.ColourProfile)) { ToggleProfile(); } // colour round A: shows in the real model view
             if (_gridsPanelOpen && _clashTool == CLASH_TOOL_NONE && !OverlayOpen && input.Pressed(InputAction.Back))
             {
                 CloseGridsPanel();
@@ -221,7 +224,7 @@ namespace BimGo.Game
             if (input.Pressed(InputAction.Fullscreen)) { _window.ToggleFullscreen(); }
             if (input.Pressed(InputAction.Screenshot)) { RequestScreenshot(); }
             // C-C1: RMB pressed over the dock opens a row menu, so it doesn't look until it is released
-            if (input.RightPressed && _clashDockW > 0f && Hover(input, _clashDockX, _clashDockY, _clashDockW, _clashDockH)) { _clashMenuLook = true; }
+            if (input.RightPressed && _clashDockW > 0f && Hover(input, _clashDockX, _clashDockY, _clashDockW, _clashDockH, focus: false)) { _clashMenuLook = true; }
             if (!input.RightDown) { _clashMenuLook = false; }
             if (input.Down(InputAction.DragLook) && !_clashFlying && !_clashMenuLook) { _player.Look(input.MouseDeltaX, input.MouseDeltaY, _sensitivity, _invertY); }
             UpdateRoom();
@@ -252,6 +255,8 @@ namespace BimGo.Game
             else if (input.Pressed(InputAction.ClashPictures)) { ToggleClashThumbnails(); } // sky round: P / the pad's Back
             else if (input.Pressed(InputAction.ClashUngroup)) { UngroupFromKeys(); } // C-C1: Ctrl+Shift+G
             else if (input.Pressed(InputAction.ClashGroup)) { GroupClashes(ClashTargets(), null); } // C-C1: Ctrl+G
+            else if (input.Pressed(InputAction.ClashPickPoints)) { StartPickPointsFromKey(); } // P-B: K (TOOLS ▾ → PICK POINTS)
+            else if (input.Pressed(InputAction.ClashStatusCycle)) { CycleCurrentClashStatus(); } // P-B: the gamepad's LB+A
             else
             {
                 for (int k = 0; k < ClashStatus.All.Length; k++)
@@ -487,6 +492,22 @@ namespace BimGo.Game
 
         #region Status and Revit
 
+        /// <summary>
+        /// Polish round P-B: the next status for the picked group or the current clash (new → active → reviewed →
+        /// approved → resolved → new), through <see cref="SetCurrentClashStatus"/>.
+        /// </summary>
+        private void CycleCurrentClashStatus()
+        {
+            string status = _clashGroupCurrent?.Status ?? _clashCurrent?.Status;
+            if (status == null)
+            {
+                Sound.Play(SoundId.Error);
+                return;
+            }
+            int next = (ClashStatus.IndexOf(status) + 1) % ClashStatus.All.Length;
+            SetCurrentClashStatus(ClashStatus.All[next]);
+        }
+
         /// <summary>1–5: the current clash's status (stamped with who and when).</summary>
         private void SetCurrentClashStatus(string status)
         {
@@ -708,6 +729,7 @@ namespace BimGo.Game
             Gl.Disable(Gl.POLYGON_OFFSET_FILL);
 
             Gl.DepthMask(false);
+            _renderer.DrawProfileGhosts(p, _groupVisible, Dynamics); // colour round A: the profile's ghosted elements
             _renderer.DrawStatic(p, _groupVisible, transparent: true);
             _renderer.DrawDynamic(p, Dynamics, transparent: true);
             Gl.DepthMask(true);

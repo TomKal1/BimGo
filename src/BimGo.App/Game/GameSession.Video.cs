@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using BimGo.Audio;
+using BimGo.Format;
 using BimGo.Platform;
 using BimGo.Rendering;
 using BimGo.Scene;
@@ -9,8 +10,9 @@ using Gl = BimGo.Native.Gl;
 namespace BimGo.Game
 {
     /// <summary>
-    /// Walkthrough video (tour round, build A2): BOOKMARKS → TOUR SETTINGS → RECORD VIDEO renders the bookmark tour to
-    /// an MP4 (H.264, Windows Media Foundation) with its fades, holds, swivels and glides, and its UI setting.
+    /// Walkthrough video (tour round, build A2): RECORD VIDEO renders the bookmark tour to an MP4 (H.264, Windows Media
+    /// Foundation) with its fades, holds, swivels and glides, and its UI setting. Round K-A: or a camera path (the same
+    /// player); recorded from MEDIA → VIDEO (source: the tour or a path), TOUR or PATHS.
     /// <list type="bullet">
     /// <item>Frames are rendered off-screen at a fixed rate (the tour clock steps 1 / fps per frame), not in real
     /// time, so the video is smooth on any PC; as many frames as fit in ~45 ms are rendered per window frame.</item>
@@ -18,7 +20,7 @@ namespace BimGo.Game
     /// the video's height (a second UI batch at a matching scale), then the fade; read back and encoded on a worker
     /// (<see cref="VideoRecorder"/>).</item>
     /// <item>The window shows the frames as they come (letterboxed) with progress, time left and CANCEL (Esc).
-    /// Cancelling deletes the file. The result goes to Videos\BimGo; the tour settings show OPEN FOLDER.</item>
+    /// Cancelling deletes the file. The result goes to Videos\BimGo; MEDIA → VIDEO shows OPEN FOLDER.</item>
     /// </list>
     /// Size (window / 1080p / 4K) and rate (30 / 60) are per-machine settings.
     /// </summary>
@@ -61,12 +63,14 @@ namespace BimGo.Game
         {
             _videoSize = Enum.IsDefined(settings.VideoSize) ? settings.VideoSize : VideoSize.FullHd;
             _videoFps = settings.VideoFps >= 45 ? 60 : 30;
+            ReadTimeLapseSettings(settings); // Round X-A
         }
 
         private void WriteVideoSettings(LaunchSettings settings)
         {
             settings.VideoSize = _videoSize;
             settings.VideoFps = _videoFps;
+            WriteTimeLapseSettings(settings); // Round X-A
         }
 
         /// <summary>The frame size for the current setting (even numbers).</summary>
@@ -85,21 +89,43 @@ namespace BimGo.Game
         #region Start / finish
 
         /// <summary>
-        /// RECORD VIDEO: starts the tour and a recording of it.
+        /// RECORD VIDEO: starts the tour (or, Round K-A, a camera path) and a recording of it.
         /// </summary>
-        private void StartVideo()
+        /// <param name="cameraPath">The camera path to record, or null for the bookmark tour.</param>
+        private void StartVideo(CameraPath cameraPath = null)
         {
             if (_video != null || _tourActive) { return; }
-            VideoFrameSize(out int width, out int height);
+            if (!VideoSizeFits(out int width, out int height)) { return; }
+            if (!(cameraPath != null ? StartPath(cameraPath) : StartTour())) { return; }
+
+            string what = cameraPath != null ? " path " + SafeFileName(cameraPath.Name) + " " : " tour ";
+            BeginVideoRecording(width, height, what, $"RECORDING VIDEO · {width} × {height} · {_videoFps} FPS · {FormatClock(_tour.Duration)}", stamp: false);
+        }
+
+        /// <summary>
+        /// The frame size for the setting, if the GPU can render it (else a notice in MEDIA).
+        /// </summary>
+        private bool VideoSizeFits(out int width, out int height)
+        {
+            VideoFrameSize(out width, out height);
             int max = Gl.GetInteger(Gl.MAX_RENDERBUFFER_SIZE);
             if (max > 0 && (width > max || height > max))
             {
-                _bookmarksNotice = $"This graphics card can't render {width} × {height} frames (its limit is {max} px): pick a smaller size";
+                _mediaNotice = $"This graphics card can't render {width} × {height} frames (its limit is {max} px): pick a smaller size";
                 Sound.Play(SoundId.Error);
-                return;
+                return false;
             }
-            if (!StartTour()) { return; }
+            return true;
+        }
 
+        /// <summary>
+        /// Starts the recorder for the tour player that just started (a tour, a path, or Round X-A's time-lapse view).
+        /// </summary>
+        /// <param name="what">The middle of the file name (" tour ", " path &lt;name&gt; ", " time-lapse &lt;view&gt; ").</param>
+        /// <param name="header">The progress panel's first line.</param>
+        /// <param name="stamp">Round X-A: the date / time stamp goes into the frames (it needs the video-scale UI batch).</param>
+        private void BeginVideoRecording(int width, int height, string what, string header, bool stamp)
+        {
             _videoWidth = width;
             _videoHeight = height;
             _videoFrame = 0;
@@ -108,21 +134,21 @@ namespace BimGo.Game
             long pixels = (long)width * height;
             _videoSamples = _msaa > 0 && pixels * _msaa <= PHOTO_SAMPLE_BUDGET ? _msaa : pixels * 2 <= PHOTO_SAMPLE_BUDGET && _msaa > 0 ? 2 : 0;
 
-            if (_tourRun.ShowUi)
+            if (_tourRun.ShowUi || stamp)
             {
-                // The HUD at the video's height: its own UI batch (fonts rasterised at that scale)
+                // The HUD (or the stamp) at the video's height: its own UI batch (fonts rasterised at that scale)
                 _videoUiScale = UiScale * height / Math.Max(1f, _window.Height);
                 _videoUi = new UiBatch();
                 _videoUi.Initialise(_videoUiScale);
             }
 
-            string name = SafeFileName(Path.GetFileNameWithoutExtension(DocumentName)) + " tour " +
+            string name = SafeFileName(Path.GetFileNameWithoutExtension(DocumentName)) + what +
                 DateTime.Now.ToString("yyyy-MM-dd HHmmss", System.Globalization.CultureInfo.InvariantCulture) + ".mp4";
             string path = Path.Combine(VideoFolder, name);
             int bitrate = (int)Math.Clamp(pixels * _videoFps / 5, 4_000_000L, 80_000_000L); // ~0.2 bits per pixel
             _video = new VideoRecorder(path, width, height, _videoFps, bitrate);
             _videoClock = Stopwatch.StartNew();
-            _videoHeader = $"RECORDING VIDEO · {width} × {height} · {_videoFps} FPS · {FormatClock(_tour.Duration)}";
+            _videoHeader = header;
             _window.SetCaptured(false); // CANCEL is clickable
             Utilities.Log_Utils.Write($"Video: {path}, {width}x{height} @ {_videoFps} fps, {_videoFrames} frames, {bitrate / 1_000_000.0:0.0} Mb/s, MSAA {_videoSamples}, UI {_tourRun.ShowUi}.");
         }
@@ -155,7 +181,7 @@ namespace BimGo.Game
             EndVideo("Recording cancelled (the partial file was deleted)");
         }
 
-        /// <summary>The worker is done: report the file (or the error) and go back to the tour settings.</summary>
+        /// <summary>The worker is done: report the file (or the error) and go back to MEDIA → VIDEO.</summary>
         private void FinishVideo()
         {
             string error = _video.Error;
@@ -176,8 +202,8 @@ namespace BimGo.Game
         }
 
         /// <summary>
-        /// Releases the recorder and the video's targets, ends the tour (the walkthrough comes back as it was) and
-        /// opens the tour settings with a notice.
+        /// Releases the recorder and the video's targets, ends the tour or path (the walkthrough comes back as it was)
+        /// and opens MEDIA → VIDEO with a notice.
         /// </summary>
         private void EndVideo(string notice)
         {
@@ -191,13 +217,12 @@ namespace BimGo.Game
             _videoUi?.Dispose();
             _videoUi = null;
 
+            EndTimeLapse(); // Round X-A: the sun's clock is the walkthrough's again (before the tour puts the sun back)
             StopTour(finished: true);
             _toast = null;
             SetPaused(true);
-            OpenBookmarks();
-            _tourSettingsOpen = true;
-            _tourDraft = Bookmarks.Tour.Copy();
-            _bookmarksNotice = notice;
+            OpenMedia(MEDIA_VIDEO); // Round K-A
+            _mediaNotice = notice;
         }
 
         /// <summary>
@@ -219,6 +244,7 @@ namespace BimGo.Game
             _videoTarget = _videoResolve = null;
             _videoUi?.Dispose();
             _videoUi = null;
+            EndTimeLapse();
         }
 
         /// <summary>OPEN FOLDER: Explorer with the last video selected (or the folder).</summary>
@@ -235,7 +261,7 @@ namespace BimGo.Game
             catch (Exception ex)
             {
                 Utilities.Log_Utils.Write($"Video folder not opened: {ex.Message}");
-                _bookmarksNotice = "The folder could not be opened";
+                _mediaNotice = "The folder could not be opened";
             }
         }
 
@@ -291,6 +317,12 @@ namespace BimGo.Game
             _tourTime = _videoFrame / (float)_videoFps;
             EvaluateTour();
             UpdateRoom();
+            if (_timeLapse != null) { ApplyTimeLapseSun(_videoFrame); } // Round X-A: the sun at this frame's clock time
+
+            // Round X-A: the clouds and water move by the frame's step (not the window's), so every video is smooth
+            float step = 1f / _videoFps;
+            AdvanceSky(_timeLapse != null ? step * TIMELAPSE_CLOUD_RATE : step);
+            AdvanceWater(step);
 
             int w = _videoWidth, h = _videoHeight;
             Camera.ClearCustomView();
@@ -302,6 +334,7 @@ namespace BimGo.Game
             Camera.ViewportHeight = h;
             Camera.Aspect = (float)w / h;
             Camera.Update();
+            if (_timeLapse != null) { RefreshTimeLapseProbes(); } // X-A: reflections follow the light
 
             _videoTarget ??= new RenderTarget();
             _videoResolve ??= new RenderTarget();
@@ -311,7 +344,8 @@ namespace BimGo.Game
 
             // 2D into the frame: the HUD (UI on) and the fade
             _videoResolve.Bind();
-            if (_videoUi != null) { BuildVideoHud(w, h); }
+            if (_videoUi != null && _tourRun.ShowUi) { BuildVideoHud(w, h); }
+            if (_videoUi != null && _timeLapse != null && _timeLapseStamp) { BuildVideoStamp(w, h); } // X-A
             if (_tourPose.Black > 0.002f)
             {
                 _ui.Rect(0, 0, w, h, Rgba.Hex(0x000000, Math.Clamp(_tourPose.Black, 0f, 1f)));
@@ -341,8 +375,7 @@ namespace BimGo.Game
                 FontAtlas f = _ui.Atlas;
                 float mapX = w - S(20) - S(220), mapY = S(20);
                 if (_showMap) { DrawMinimapPlan(mapX + S(8), mapY + S(30), S(204), S(170), w, h); }
-                BuildStatusPanel(f);
-                BuildCoordinatePanel(f, S(20), S(20) + S(146) + S(10));
+                BuildInfoColumn(f, h, sunLegend: false, profileLegend: false, help: false); // P-A2: the left column
                 if (_showMap) { DrawMinimapOverlay(mapX, mapY); }
                 BuildTourBar(f, w, h);
                 _ui.Flush(w, h);

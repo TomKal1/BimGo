@@ -372,7 +372,12 @@ namespace BimGo.Extraction
                     Lumens = light.Lumens,
                     Kelvin = light.Kelvin,
                     Downward = light.Downward,
-                    Estimated = light.Estimated
+                    Estimated = light.Estimated,
+                    // Round Y-C1: the profile, orientation and distribution survive the drop (they used to be lost here)
+                    Ies = light.Ies,
+                    Aim = light.Aim,
+                    Across = light.Across,
+                    Distribution = light.Distribution
                 };
             }
         }

@@ -16,7 +16,7 @@ namespace BimGo.Scene
         /// <summary>Material colours, medium shadows, lights and bloom, sky reflections on the shiniest surfaces.</summary>
         Medium = 2,
 
-        /// <summary>Textures, 4x anti-aliasing, high shadows, lights and bloom, probe reflections on all reflective tiers.</summary>
+        /// <summary>Textures, 4x anti-aliasing, high shadows, lights and bloom, probe reflections on all reflective tiers, medium screen-space reflections (X-C1).</summary>
         Realistic = 3
     }
 
@@ -25,7 +25,7 @@ namespace BimGo.Scene
     /// Shared by the app's pause menu and the Revit Options window so both mean the same thing.
     /// <para>Governed settings: colour mode, anti-aliasing, ambient occlusion, shadow <i>quality</i> (whether shadows
     /// are on is a per-model choice, O, and is left alone), artificial lights, bloom, reflections (on, tier threshold,
-    /// sky or probes, probe resolution). Probes HQ is never part of a profile.</para>
+    /// sky or probes, probe resolution; X-C1: the Realistic profile's screen-space reflections). Probes HQ is never part of a profile.</para>
     /// <para>Allocation-free: the app recognises the current profile every frame the pause menu is open.</para>
     /// </summary>
     public static class QualityProfiles
@@ -38,6 +38,9 @@ namespace BimGo.Scene
 
         /// <summary>Probe resolution the Realistic profile uses (HQ, 256, stays a manual choice).</summary>
         public const int PROBE_RESOLUTION = 128;
+
+        /// <summary>Round X-C1: the Realistic profile's screen-space reflections (2 = medium; the others leave it alone).</summary>
+        public const int SCREEN_REFLECTIONS = 2;
 
         /// <summary>
         /// Sets the governed values of a profile (Custom changes nothing).
@@ -82,6 +85,7 @@ namespace BimGo.Scene
                     settings.ReflectionThreshold = 25;
                     settings.ReflectionProbes = true;
                     settings.ProbeResolution = PROBE_RESOLUTION;
+                    settings.ScreenReflections = SCREEN_REFLECTIONS; // X-C1
                     break;
             }
             settings.QualityProfile = profile == QualityProfile.Custom ? Detect(settings) : profile;
@@ -125,7 +129,8 @@ namespace BimGo.Scene
                     && settings.Reflections
                     && settings.ReflectionThreshold <= 37
                     && settings.ReflectionProbes
-                    && settings.ProbeResolution < 192,
+                    && settings.ProbeResolution < 192
+                    && settings.ScreenReflections == SCREEN_REFLECTIONS,
 
                 _ => false
             };

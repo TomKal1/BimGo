@@ -198,6 +198,18 @@ namespace BimGo.Live
 
         /// <summary>Revit → app: the per-entry outcome of a push or dry run (<see cref="JournalResultPayload"/>).</summary>
         public const string JOURNAL_RESULT = "journal.result";
+
+        /// <summary>
+        /// app → Revit (Round X-E): make a perspective 3D view from BimGo's camera, or update Revit's active one
+        /// (<see cref="RevitViewPayload"/>); one BimGo transaction each.
+        /// </summary>
+        public const string VIEW_MAKE = "view.make";
+
+        /// <summary>Revit → app (Round X-E): the outcome of view.make (<see cref="MessagePayload"/>).</summary>
+        public const string VIEW_RESULT = "view.result";
+
+        /// <summary>Revit → app (Round X-E): the ribbon asks for BimGo's camera (<see cref="RevitViewRequestPayload"/>).</summary>
+        public const string VIEW_REQUEST = "view.request";
     }
 
     /// <summary>
@@ -329,6 +341,12 @@ namespace BimGo.Live
         public string RevitVersion { get; set; } = string.Empty;
         public string PhaseName { get; set; }
         public string ExistingPhaseName { get; set; }
+
+        /// <summary>
+        /// Optional (Round X-E, additive): true from an add-in that makes and updates views from BimGo's camera
+        /// (an older add-in leaves it out: the app then says the add-in needs updating).
+        /// </summary>
+        public bool RevitViews { get; set; }
     }
 
     public sealed class RefreshRequestPayload

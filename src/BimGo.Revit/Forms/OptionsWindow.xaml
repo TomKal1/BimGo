@@ -305,7 +305,7 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Margin="20,16,20,16">
                         <!-- Extra parameters -->
-                        <TextBlock Style="{StaticResource SectionHeader}" Text="EXTRA PARAMETERS (SHOWN BY THE SCAN GUN, SAVED IN .BIMGO FILES)"/>
+                        <TextBlock Style="{StaticResource SectionHeader}" Text="EXTRA PARAMETERS (SCAN GUN, SEARCH SET RULES AND COLOUR PROFILES; SAVED IN .BIMGO FILES)"/>
                         <Border Style="{StaticResource Card}" Margin="0,0,0,18">
                             <StackPanel>
                                 <DockPanel Margin="0,0,0,8">

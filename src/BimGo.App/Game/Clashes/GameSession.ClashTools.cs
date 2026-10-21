@@ -178,6 +178,11 @@ namespace BimGo.Game
                 ExitClashMode();
                 return;
             }
+            if (_clashTool == CLASH_TOOL_PICK && input.Pressed(InputAction.ClashPickPoints)) // P-B: K again leaves pick points
+            {
+                CancelClashTool();
+                return;
+            }
             if (input.Pressed(InputAction.Help)) { _showHelp = !_showHelp; }
             if (input.Pressed(InputAction.HideUi)) { ToggleUiHidden(); }
             if (input.Pressed(InputAction.Fullscreen)) { _window.ToggleFullscreen(); }
@@ -579,6 +584,21 @@ namespace BimGo.Game
 
         #region PICK POINTS
 
+        /// <summary>
+        /// Polish round P-B: the pick points key (K) starts the tool as TOOLS ▾ → PICK POINTS does (a test must be under
+        /// review); K again or Esc leaves it.
+        /// </summary>
+        private void StartPickPointsFromKey()
+        {
+            if (_clashDocument == null || _clashReviewTest == null)
+            {
+                Sound.Play(SoundId.Error);
+                Toast("Pick points needs a clash test to review (TESTS…)", 2f);
+                return;
+            }
+            BeginClashPickTool();
+        }
+
         /// <summary>PICK POINTS: the dots take clicks; the picks are the list selection (kept when it already holds several).</summary>
         private void BeginClashPickTool()
         {
@@ -590,7 +610,7 @@ namespace BimGo.Game
                 _clashCurrent = current;
             }
             ClashPicksChanged();
-            Toast($"Pick points: click dots (or rows) to pick · Ctrl+drag a box adds · {Key(InputAction.ClashFrame)}: new group · Esc leaves", 4f);
+            Toast($"Pick points: click dots (or rows) to pick · Ctrl+drag a box adds · {Key(InputAction.ClashFrame)}: new group · {Key(InputAction.ClashPickPoints)} or Esc leaves", 4f);
         }
 
         /// <summary>Clicks on dots (toggle), Ctrl+drag (marquee adds), RMB-drag looks.</summary>
@@ -1007,7 +1027,7 @@ namespace BimGo.Game
             $"Drag the cyan handles ({Hotkeys.Label(InputAction.SectionFreeDrag)}: free) · RMB-drag orbits · wheel zooms · move keys pan · " +
             $"{Hotkeys.Label(InputAction.ClashFrame)} commits · Esc cancels");
         private static readonly KeyHint HINT_CLASH_PICK = new(() =>
-            $"Click dots or rows to pick · Ctrl+drag a box adds · RMB-drag looks · {Hotkeys.Label(InputAction.ClashFrame)}: new group · Esc leaves");
+            $"Click dots or rows to pick · Ctrl+drag a box adds · RMB-drag looks · {Hotkeys.Label(InputAction.ClashFrame)}: new group · {Hotkeys.Label(InputAction.ClashPickPoints)} or Esc leaves");
         private static readonly KeyHint HINT_CLASH_SPHERE = new(() =>
             $"Drag the white handle to size the sphere ({Hotkeys.Label(InputAction.SectionFreeDrag)}: free) · click a dot or row to move the centre · " +
             $"{Hotkeys.Label(InputAction.ClashFrame)} groups · Esc cancels");

@@ -7,8 +7,8 @@ using BimGo.Scene;
 namespace BimGo.Game
 {
     /// <summary>
-    /// QOL round: the pause menu's Appearance tab (was Debug): colour-by modes (reflection tier, probe; parameter value
-    /// and search set to come) and the material overrides (water by Revit asset / keywords, glass keywords for the next
+    /// QOL round: the pause menu's Appearance tab (was Debug): colour-by modes (reflection tier, probe; colour round A:
+    /// the Colour profiles row opens the COLOUR PROFILES panel) and the material overrides (water by Revit asset / keywords, glass keywords for the next
     /// Go). Grass round: WATER and GRASS sub-pages (water colour and reflection; grass blades). Also the options
     /// preview: the scene without the backdrop, only the graphics settings showing.
     /// </summary>
@@ -17,7 +17,7 @@ namespace BimGo.Game
         #region Fields
 
         /// <summary>Colour-by modes: off, reflection tiers, reflection probe cells (not saved).</summary>
-        private static readonly string[] COLOUR_BY_OPTIONS = { "Off", "Reflection", "Probes" };
+        private static readonly string[] COLOUR_BY_OPTIONS = { "Off", "Reflection", "Probes", "SSR" };
 
         /// <summary>Grass round: the water colour presets' labels (<see cref="MaterialOverrides.WATER_PRESETS"/> order).</summary>
         private static readonly string[] WATER_COLOUR_OPTIONS = MaterialOverrides.WATER_PRESETS.Select(p => p.Label).ToArray();
@@ -159,7 +159,7 @@ namespace BimGo.Game
                 return;
             }
 
-            // ---- Colour by (debug colours; parameter value / search set come later)
+            // ---- Colour by (debug colours; colour round A: colour profiles by value or search set, their own panel)
             _ui.Text(f.Small, ix, y, "COLOUR BY", UiTheme.TEXT_MUTED, S(1.8f));
             int mode = Segmented(f, input, ix, y + S(20), iw, COLOUR_BY_OPTIONS, _reflectDebug);
             if (mode != _reflectDebug)
@@ -167,7 +167,7 @@ namespace BimGo.Game
                 _reflectDebug = mode;
                 if (mode != 0 && (!_realistic || _renderer == null || !_renderer.HasMaterials))
                 {
-                    Toast("Colour by reflection / probe needs the Realistic colour mode and a snapshot with materials.", 4f);
+                    Toast("Colour by reflection / probe / SSR needs the Realistic colour mode and a snapshot with materials.", 4f);
                 }
             }
             y += S(60);
@@ -175,13 +175,17 @@ namespace BimGo.Game
             {
                 1 => "Red 75 %+, orange 50 %, yellow 25 %, grey none, cyan glass, blue water.",
                 2 => "One colour per reflection probe, blended at room edges; grey = sky.",
+                3 => "Green: screen-space reflection found (brighter = surer); magenta: probes / sky instead; grey: not reflective.",
                 _ => "Colours surfaces by reflection tier or probe (Realistic mode). Not saved."
             };
             y += _ui.TextWrapped(f.Small, ix, y, iw, help, UiTheme.TEXT_MUTED, maxLines: 3) + S(6);
-            PlaceholderRow(f, ix, y, iw, "By parameter value");
-            y += S(22);
-            PlaceholderRow(f, ix, y, iw, "By search set");
-            y += S(32);
+            if (PageRow(f, input, ix, y, iw, "Colour profiles", ColourProfileSummary()))
+            {
+                Sound.Play(SoundId.UiClick);
+                OpenColourProfiles();
+                return;
+            }
+            y += S(44);
 
             // ---- Material overrides
             _ui.Text(f.Small, ix, y, "MATERIAL OVERRIDES", UiTheme.TEXT_MUTED, S(1.8f));
@@ -222,6 +226,10 @@ namespace BimGo.Game
             bool glassPending = MaterialOverrides.FormatKeywords(_glassKeywords) != _glassKeywordsAtLoad;
             _ui.Text(f.Small, ix, y, glassPending ? "Changed: applies at the next Go / Export" : "Applies at Go / Export (baked)",
                 glassPending ? UiTheme.MEASURE_LABEL : UiTheme.TEXT_FAINT);
+            y += S(30);
+
+            // Polish round P-A1: the window-size check (layouts at 720p / 1080p / 1440p)
+            BuildWindowCheckRow(f, input, ix, y, iw);
         }
 
         /// <summary>Grass round: switches the Appearance tab to a page (0 main, 1 water, 2 grass).</summary>
@@ -452,15 +460,6 @@ namespace BimGo.Game
         }
 
         /// <summary>
-        /// A greyed "coming later" row (layout placeholder for the next override modes).
-        /// </summary>
-        private void PlaceholderRow(FontAtlas f, float x, float y, float w, string label)
-        {
-            _ui.Text(f.Body, x, y, label, UiTheme.TEXT_FAINT);
-            _ui.TextRight(f.Small, x + w, y + S(2), "LATER", UiTheme.TEXT_FAINT, S(1.2f));
-        }
-
-        /// <summary>
         /// The water rule changed: rebuilds the material table and says how many materials are water now.
         /// </summary>
         private void WaterOverrideChanged()
@@ -496,18 +495,21 @@ namespace BimGo.Game
         /// </summary>
         private void BuildMenuPreview(FontAtlas f, InputState input, int width, int height)
         {
+            // Polish round P-A1: the card's height comes from the window (it scrolls when short), DONE always fits under it
             float columnW = S(280), pad = S(48);
             float x = width - S(56) - columnW;
-            float panelTop = pad - S(36), panelBottom = pad + S(68) + S(32) + S(RIGHT_CARD_HEIGHT) + S(60);
+            float cardTop = pad + S(68) + S(32), doneReserve = S(12) + S(36);
+            float cardH = SettingsCardHeight(cardTop, doneReserve);
+            float panelTop = pad - S(36), panelBottom = cardTop + cardH + doneReserve + S(12);
             _ui.Rect(x - S(16), panelTop, columnW + S(32), MathF.Min(panelBottom, height - S(8)) - panelTop, Rgba.Hex(0x101318, 0.55f));
 
             _ui.Text(f.Small, x, panelTop + S(10), "PREVIEW", UiTheme.ACCENT, S(2f));
             _ui.TextRight(f.Small, x + columnW, panelTop + S(10), "ESC RETURNS", UiTheme.TEXT_MUTED, S(1.2f));
             BuildProfileRow(f, input, x, pad, columnW);
-            BuildSettingsTabs(f, input, x, pad + S(68), columnW);
+            cardH = BuildSettingsTabs(f, input, x, pad + S(68), columnW, doneReserve);
 
-            float doneY = pad + S(68) + S(32) + S(RIGHT_CARD_HEIGHT) + S(12);
-            if (doneY + S(36) <= height - S(8) && MenuButton(f, x, doneY, columnW, "DONE", false, false, height: S(36), compact: true)) { CloseMenuPreview(); }
+            float doneY = cardTop + cardH + S(12);
+            if (MenuButton(f, x, doneY, columnW, "DONE", false, false, height: S(36), compact: true)) { CloseMenuPreview(); }
         }
 
         #endregion

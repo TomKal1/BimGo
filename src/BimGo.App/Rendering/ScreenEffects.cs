@@ -58,6 +58,9 @@ namespace BimGo.Rendering
 
         #region State
 
+        /// <summary>Round X-C1: the pre-pass (camera-basis normal, view depth; half resolution) for the reflections' ray march.</summary>
+        public uint GeometryTexture => _geometryTexture;
+
         /// <summary>True once the targets are allocated and complete.</summary>
         public bool Ready { get; private set; }
 

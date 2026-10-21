@@ -53,7 +53,7 @@ namespace BimGo.Game
         private string _pushButtonLabel;
         private string _pushPhaseLine;
         private bool _pushApplyConflicts;
-        private int _pushScroll;
+        private readonly ScrollRegion _pushScroll = new(); // Round Y-B: the report list (shell scroll region)
         private int _pushSent;
 
         #endregion
@@ -85,7 +85,7 @@ namespace BimGo.Game
         /// </summary>
         private void OpenPush()
         {
-            _pushScroll = 0;
+            _pushScroll.Reset();
             _pushRows.Clear();
             _pushResult = null;
             _pushTitle = "PUSH TO REVIT";
@@ -243,7 +243,7 @@ namespace BimGo.Game
         private void BuildPushRows(JournalResultPayload result)
         {
             _pushRows.Clear();
-            _pushScroll = 0;
+            _pushScroll.Reset();
             foreach (JournalEntryResult entryResult in result.Results)
             {
                 JournalEntry entry = entryResult.Seq >= 1 && entryResult.Seq <= _journal.Count ? _journal.Entries[entryResult.Seq - 1] : null;
@@ -333,43 +333,39 @@ namespace BimGo.Game
         #region Panel
 
         /// <summary>
-        /// Draws and handles the push panel (in place of the pause menu).
+        /// Draws and handles the push panel (in place of the pause menu). Round Y-B: on the panel shell (standard width):
+        /// the target in the sub-line, the report in a clipped scroll region, the state's actions in the footer.
         /// </summary>
         private void BuildPushPanel()
         {
             FontAtlas f = _ui.Atlas;
             InputState input = _window.Input;
-            int width = _window.Width, height = _window.Height;
-            _ui.Rect(0, 0, width, height, UiTheme.MENU_BACKGROUND);
 
-            float w = MathF.Min(S(920), width - S(80));
-            float h = height - S(96);
-            float x = (width - w) * 0.5f, y = S(48);
-            _ui.Panel(x, y, w, h, UiTheme.CARD, UiTheme.CARD_BORDER);
-
-            float ix = x + S(24), iw = w - S(48);
-            float cy = y + S(20);
-            _ui.Text(f.Small, ix, cy, _pushTitle ?? "PUSH TO REVIT", UiTheme.TEXT_MUTED, S(2f));
-            cy += S(22);
-
-            // Target line: model · Revit version · phases
+            // Sub-line: model · Revit version · phases
+            Text.Clear();
             if (_push != null)
             {
                 SessionInfo session = _push.Session;
-                Text.Clear().Append(string.IsNullOrWhiteSpace(session.DocTitle) ? "Revit model" : session.DocTitle)
+                Text.Append(string.IsNullOrWhiteSpace(session.DocTitle) ? "Revit model" : session.DocTitle)
                     .Append(" · Revit ").Append(session.RevitVersion ?? string.Empty);
                 if (_pushPhaseLine != null) { Text.Append(" · ").Append(_pushPhaseLine); }
-                _ui.TextWrapped(f.Bold, ix, cy, iw, Text.Span, UiTheme.TEXT, maxLines: 1);
-                cy += S(26);
             }
+            else
+            {
+                Text.Append("This file's edits → the Revit model it came from");
+            }
+            PanelFrame frame = BeginPanel(PanelSize.Standard, _pushTitle ?? "PUSH TO REVIT", UiTheme.ACCENT, Text.Span);
+            float ix = frame.Ix, iw = frame.Iw;
+            float cy = frame.BodyTop;
 
-            float buttonsY = y + h - S(24) - S(48);
+            int tryAgain = -1, cancel = -1, push = -1, save = -1, export = -1;
+            string hint = null;
             switch (_pushState)
             {
                 case PushState.Error:
-                    _ui.TextWrapped(f.Body, ix, cy + S(8), iw, _pushMessage ?? "Something went wrong.", UiTheme.TEXT_SOFT, maxLines: 10);
-                    if (MenuButton(f, ix, buttonsY, S(200), "TRY AGAIN", primary: true, danger: false)) { OpenPush(); }
-                    if (MenuButton(f, ix + S(216), buttonsY, S(160), "CLOSE", false, false)) { ClosePush(); }
+                    _ui.TextWrapped(f.Body, ix, cy + S(4), iw, _pushMessage ?? "Something went wrong.", UiTheme.TEXT_SOFT, maxLines: 12);
+                    tryAgain = FooterAction("TRY AGAIN", ShellStyle.Primary);
+                    hint = "TRY AGAIN checks again · Esc back";
                     break;
 
                 case PushState.Checking:
@@ -377,21 +373,51 @@ namespace BimGo.Game
                     bool applying = _pushState == PushState.Applying;
                     Text.Clear().Append(applying ? "Pushing " : "Checking ").Append(_pushSent).Append(_pushSent == 1 ? " edit" : " edits")
                         .Append(applying ? " into Revit… " : " against the model (nothing changes yet)… ").Append(_push?.Waited ?? 0f, 0).Append(" s");
-                    _ui.TextWrapped(f.Body, ix, cy + S(8), iw, Text.Span, UiTheme.TEXT_SOFT, maxLines: 2);
-                    _ui.TextWrapped(f.Body, ix, cy + S(36), iw, "If Revit is in the middle of a command, finish or cancel it there.", UiTheme.TEXT_MUTED, maxLines: 2);
-                    if (!applying && MenuButton(f, ix, buttonsY, S(160), "CANCEL", false, false)) { ClosePush(); }
+                    cy += _ui.TextWrapped(f.Body, ix, cy + S(4), iw, Text.Span, UiTheme.TEXT_SOFT, maxLines: 2) + S(12);
+                    _ui.TextWrapped(f.Body, ix, cy, iw, "If Revit is in the middle of a command, finish or cancel it there.", UiTheme.TEXT_MUTED, maxLines: 2);
+                    if (!applying) { cancel = FooterAction("CANCEL"); }
+                    hint = applying ? "Waiting for Revit's answer: the panel stays open until it arrives" : "Nothing in Revit changes during the check";
                     break;
 
                 case PushState.Preview:
-                    BuildPushReport(f, input, ix, cy, iw, buttonsY - S(56));
-                    BuildPreviewButtons(f, input, ix, iw, buttonsY);
-                    break;
+                    {
+                        // The conflicts tick sits under the list (it re-checks)
+                        int conflicts = _pushResult?.Conflicts ?? 0;
+                        bool tick = conflicts > 0 || _pushApplyConflicts;
+                        float tickH = tick ? S(36) : 0f;
+                        BuildPushReport(f, input, ix, cy, iw, frame.BodyBottom - tickH);
+                        if (tick)
+                        {
+                            bool applyConflicts = Checkbox(f, input, ix, frame.BodyBottom - S(28), iw,
+                                "Apply conflicting edits anyway, from where the elements are in Revit now", _pushApplyConflicts);
+                            if (applyConflicts != _pushApplyConflicts)
+                            {
+                                // The preview must show what the real push will do: check again with the new choice
+                                _pushApplyConflicts = applyConflicts;
+                                SendPush(dryRun: true);
+                            }
+                        }
+                        push = FooterAction(_pushButtonLabel ?? "PUSH", ShellStyle.Primary, (_pushResult?.Applied ?? 0) > 0 && _pushState == PushState.Preview);
+                        cancel = FooterAction("CANCEL");
+                        hint = "Nothing has changed in Revit yet · the push is one undo step there";
+                        break;
+                    }
 
                 case PushState.Done:
-                    BuildPushReport(f, input, ix, cy, iw, buttonsY - S(16));
-                    BuildDoneButtons(f, ix, buttonsY);
+                    BuildPushReport(f, input, ix, cy, iw, frame.BodyBottom);
+                    if (IsDirty) { save = FooterAction("SAVE", ShellStyle.Primary); }
+                    export = FooterAction("EXPORT REPORT…");
+                    hint = IsDirty ? "Save this file to remember what was pushed" : "Pushed edits are marked in the file";
                     break;
             }
+
+            int pressed = EndPanel(frame, null, hint);
+            if (pressed == FOOTER_LEFT || pressed == FOOTER_NONE) { return; }
+            if (pressed == tryAgain) { OpenPush(); }
+            else if (pressed == cancel) { ClosePush(); }
+            else if (pressed == push) { SendPush(dryRun: false); }
+            else if (pressed == save) { Save(saveAs: false); }
+            else if (pressed == export) { ExportPushReport(); }
         }
 
         /// <summary>
@@ -406,92 +432,45 @@ namespace BimGo.Game
         }
 
         /// <summary>
-        /// Summary, note and the scrolling list of entries.
+        /// Summary, note and the list of entries (a clipped, pixel-scrolled region down to <paramref name="bottom"/>).
         /// </summary>
         private void BuildPushReport(FontAtlas f, InputState input, float x, float y, float w, float bottom)
         {
             _ui.Text(f.Bold, x, y, _pushSummary ?? string.Empty, UiTheme.ACCENT, S(0.6f));
-            y += S(24);
+            y += S(26);
 
             if (_pushState == PushState.Done && _pushResult?.UndoLabel != null)
             {
                 Text.Clear().Append("One undo in Revit takes the whole push back: “").Append(_pushResult.UndoLabel).Append("”. Save this file to remember what was pushed.");
-                _ui.TextWrapped(f.Body, x, y, w, Text.Span, UiTheme.TEXT_SOFT, maxLines: 2);
-                y += S(40);
+                y += _ui.TextWrapped(f.Body, x, y, w, Text.Span, UiTheme.TEXT_SOFT, maxLines: 2) + S(10);
             }
             if (!string.IsNullOrEmpty(_pushMessage))
             {
-                _ui.TextWrapped(f.Body, x, y, w, _pushMessage, UiTheme.MEASURE_TEXT, maxLines: 2);
-                y += S(40);
+                y += _ui.TextWrapped(f.Body, x, y, w, _pushMessage, UiTheme.MEASURE_TEXT, maxLines: 2) + S(10);
             }
+            if (bottom - y < S(40)) { return; }
 
-            // Rows (only the visible ones are drawn; the wheel scrolls)
-            float rowH = S(42);
-            int visible = Math.Max(1, (int)((bottom - y) / rowH));
-            int maxScroll = Math.Max(0, _pushRows.Count - visible);
-            if (input.Wheel != 0) { _pushScroll = Math.Clamp(_pushScroll - input.Wheel * 3, 0, maxScroll); }
-            _pushScroll = Math.Clamp(_pushScroll, 0, maxScroll);
-
+            // Rows (only the visible ones are drawn)
+            float rowH = S(UiTheme.ROW_HEIGHT);
+            float top = BeginScroll(_pushScroll, input, x, y, w, bottom - y, out float cw);
+            VisibleRows(_pushScroll, rowH, _pushRows.Count, out int first, out int last);
             float chipW = S(96);
-            for (int i = _pushScroll; i < _pushRows.Count && i < _pushScroll + visible; i++)
+            for (int i = first; i < last; i++)
             {
                 PushRow row = _pushRows[i];
-                float ry = y + (i - _pushScroll) * rowH;
-                if (((i - _pushScroll) & 1) == 0) { _ui.Rect(x - S(8), ry - S(4), w + S(16), rowH, Rgba.Hex(0xFFFFFF, 0.03f)); }
+                float ry = top + i * rowH;
+                if ((i & 1) == 0) { _ui.Rect(x, ry, cw, rowH - S(4), UiTheme.ROW_STRIPE); }
 
-                _ui.Panel(x, ry + S(2), chipW, S(20), Rgba.WithAlpha(row.Colour, 0.16f), Rgba.WithAlpha(row.Colour, 0.6f));
-                _ui.TextCentred(f.Small, x + chipW * 0.5f, ry + S(6), row.StatusText, row.Colour, S(0.8f));
+                float rx = x + S(8);
+                _ui.Panel(rx, ry + S(6), chipW, S(20), Rgba.WithAlpha(row.Colour, 0.16f), Rgba.WithAlpha(row.Colour, 0.6f));
+                _ui.TextCentred(f.Small, rx + chipW * 0.5f, ry + S(10), row.StatusText, row.Colour, S(0.8f));
 
-                _ui.Text(f.Mono, x + chipW + S(12), ry + S(3), row.Number, UiTheme.TEXT_FAINT);
-                _ui.TextWrapped(f.Body, x + chipW + S(60), ry + S(1), w - chipW - S(60), row.Label, UiTheme.TEXT, maxLines: 1);
-                _ui.TextWrapped(f.Small, x + chipW + S(60), ry + S(20), w - chipW - S(60), row.Message, UiTheme.TEXT_MUTED, maxLines: 1);
+                _ui.Text(f.Mono, rx + chipW + S(12), ry + S(7), row.Number, UiTheme.TEXT_FAINT);
+                float tx = rx + chipW + S(60), tw = cw - (tx - x) - S(8);
+                _ui.TextWrapped(f.Body, tx, ry + S(4), tw, row.Label, UiTheme.TEXT, maxLines: 1);
+                _ui.TextWrapped(f.Small, tx, ry + S(23), tw, row.Message, UiTheme.TEXT_MUTED, maxLines: 1);
             }
-
-            if (maxScroll > 0)
-            {
-                Text.Clear().Append(_pushScroll + 1).Append('–').Append(Math.Min(_pushRows.Count, _pushScroll + visible)).Append(" of ").Append(_pushRows.Count).Append(" · wheel to scroll");
-                _ui.TextRight(f.Small, x + w, bottom + S(2), Text.Span, UiTheme.TEXT_FAINT);
-            }
-        }
-
-        /// <summary>
-        /// Preview: apply-conflicts toggle (re-checks), push and cancel.
-        /// </summary>
-        private void BuildPreviewButtons(FontAtlas f, InputState input, float x, float w, float buttonsY)
-        {
-            int conflicts = _pushResult?.Conflicts ?? 0;
-            if (conflicts > 0 || _pushApplyConflicts)
-            {
-                bool applyConflicts = Checkbox(f, input, x, buttonsY - S(36), w,
-                    "Apply conflicting edits anyway, from where the elements are in Revit now", _pushApplyConflicts);
-                if (applyConflicts != _pushApplyConflicts)
-                {
-                    // The preview must show what the real push will do: check again with the new choice
-                    _pushApplyConflicts = applyConflicts;
-                    SendPush(dryRun: true);
-                    return;
-                }
-            }
-
-            int toApply = _pushResult?.Applied ?? 0;
-            if (MenuButton(f, x, buttonsY, S(240), _pushButtonLabel ?? "PUSH", primary: true, danger: false, enabled: toApply > 0)) { SendPush(dryRun: false); }
-            if (MenuButton(f, x + S(256), buttonsY, S(160), "CANCEL", false, false)) { ClosePush(); }
-        }
-
-        /// <summary>
-        /// Done: save, export the report, close.
-        /// </summary>
-        private void BuildDoneButtons(FontAtlas f, float x, float buttonsY)
-        {
-            float bx = x;
-            if (IsDirty)
-            {
-                if (MenuButton(f, bx, buttonsY, S(160), "SAVE", primary: true, danger: false)) { Save(saveAs: false); }
-                bx += S(176);
-            }
-            if (MenuButton(f, bx, buttonsY, S(220), "EXPORT REPORT…", false, false)) { ExportPushReport(); }
-            bx += S(236);
-            if (MenuButton(f, bx, buttonsY, S(160), "CLOSE", false, false)) { ClosePush(); }
+            EndScroll(_pushScroll, input, top + _pushRows.Count * rowH);
         }
 
         #endregion

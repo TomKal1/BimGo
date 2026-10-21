@@ -22,7 +22,7 @@ namespace BimGo.Native
         public const uint TRIANGLES = 0x0004, TRIANGLE_STRIP = 0x0005; // strip: grass blades (grass round)
         public const uint NEVER = 0x0200, LESS = 0x0201, LEQUAL = 0x0203, ALWAYS = 0x0207;
         public const uint SRC_COLOR = 0x0300, SRC_ALPHA = 0x0302, ONE_MINUS_SRC_ALPHA = 0x0303, ONE = 1, ZERO = 0;
-        public const uint FRONT = 0x0404, BACK = 0x0405, CCW = 0x0901;
+        public const uint FRONT = 0x0404, BACK = 0x0405, CCW = 0x0901, CW = 0x0900;
         public const uint CULL_FACE = 0x0B44, DEPTH_TEST = 0x0B71, BLEND = 0x0BE2, SCISSOR_TEST = 0x0C11;
         public const uint POLYGON_OFFSET_FILL = 0x8037, MULTISAMPLE = 0x809D, FRAMEBUFFER_SRGB = 0x8DB9;
         public const uint UNPACK_ALIGNMENT = 0x0CF5, PACK_ALIGNMENT = 0x0D05, MAX_SAMPLES = 0x8D57;
@@ -36,6 +36,7 @@ namespace BimGo.Native
         public const uint TEXTURE0 = 0x84C0;
         public const uint ARRAY_BUFFER = 0x8892, ELEMENT_ARRAY_BUFFER = 0x8893;
         public const uint STREAM_DRAW = 0x88E0, STATIC_DRAW = 0x88E4, DYNAMIC_DRAW = 0x88E8;
+        public const uint UNIFORM_BUFFER = 0x8A11, INVALID_INDEX = 0xFFFFFFFF; // X-C1: the far lights block
         public const uint FRAGMENT_SHADER = 0x8B30, VERTEX_SHADER = 0x8B31;
         public const uint COMPILE_STATUS = 0x8B81, LINK_STATUS = 0x8B82, INFO_LOG_LENGTH = 0x8B84;
         public const uint FRAMEBUFFER = 0x8D40, READ_FRAMEBUFFER = 0x8CA8, DRAW_FRAMEBUFFER = 0x8CA9, RENDERBUFFER = 0x8D41;
@@ -54,6 +55,7 @@ namespace BimGo.Native
 
         // Ambient occlusion (float colour targets, read with texelFetch)
         public const uint RGBA32F = 0x8814, RG16F = 0x822F, RG = 0x8227, HALF_FLOAT = 0x140B, RG32F = 0x8230;
+        public const uint R32F = 0x822E, RED = 0x1903; // Round W-B: the cover map
 
         // Artificial lights (glow target as a second colour attachment)
         public const uint RGBA16F = 0x881A, COLOR_ATTACHMENT1 = 0x8CE1;
@@ -66,11 +68,15 @@ namespace BimGo.Native
 
         // Section box caps (stencil in the scene target)
         public const uint STENCIL_BUFFER_BIT = 0x00000400, STENCIL_TEST = 0x0B90;
-        public const uint KEEP = 0x1E00, INVERT = 0x150A, EQUAL = 0x0202;
+        public const uint KEEP = 0x1E00, INVERT = 0x150A, EQUAL = 0x0202, REPLACE = 0x1E01; // REPLACE: polish round P-C (profile caps)
         public const uint DEPTH24_STENCIL8 = 0x88F0, DEPTH_STENCIL_ATTACHMENT = 0x821A;
 
         // Photo mode (large off-screen targets, exposure blend)
         public const uint MAX_RENDERBUFFER_SIZE = 0x84E8, DST_COLOR = 0x0306;
+
+        // Round Y-D1: occlusion queries and GPU timers (GL 3.3 core)
+        public const uint ANY_SAMPLES_PASSED = 0x8C2F, TIME_ELAPSED = 0x88BF;
+        public const uint QUERY_RESULT = 0x8866, QUERY_RESULT_AVAILABLE = 0x8867;
 
         #endregion
 
@@ -85,7 +91,7 @@ namespace BimGo.Native
         {
             // GL 1.1 (opengl32.dll exports)
             "glClear", "glClearColor", "glClearDepth", "glViewport", "glScissor", "glEnable", "glDisable",
-            "glDepthFunc", "glDepthMask", "glBlendFunc", "glCullFace", "glPolygonOffset", "glGetString",
+            "glDepthFunc", "glDepthMask", "glBlendFunc", "glCullFace", "glFrontFace", "glPolygonOffset", "glGetString",
             "glGetIntegerv", "glGetError", "glBindTexture", "glGenTextures", "glDeleteTextures", "glTexImage2D",
             "glTexParameteri", "glPixelStorei", "glDrawElements", "glDrawArrays", "glColorMask", "glDrawBuffer",
             "glReadBuffer", "glReadPixels", "glStencilFunc", "glStencilOp", "glStencilMask", "glClearStencil", "glPolygonMode",
@@ -97,6 +103,7 @@ namespace BimGo.Native
             "glGenBuffers", "glDeleteBuffers", "glBindBuffer", "glBufferData", "glBufferSubData",
             "glGenVertexArrays", "glDeleteVertexArrays", "glBindVertexArray", "glEnableVertexAttribArray",
             "glVertexAttribPointer", "glVertexAttribDivisor", "glDrawElementsInstanced", "glDrawArraysInstanced",
+            "glGetUniformBlockIndex", "glUniformBlockBinding", "glBindBufferBase",
 
             // Shaders
             "glCreateShader", "glShaderSource", "glCompileShader", "glGetShaderiv", "glGetShaderInfoLog",
@@ -108,6 +115,9 @@ namespace BimGo.Native
             "glGenFramebuffers", "glDeleteFramebuffers", "glBindFramebuffer", "glFramebufferRenderbuffer",
             "glCheckFramebufferStatus", "glGenRenderbuffers", "glDeleteRenderbuffers", "glBindRenderbuffer",
             "glRenderbufferStorageMultisample", "glBlitFramebuffer", "glFramebufferTextureLayer", "glFramebufferTexture2D", "glDrawBuffers",
+
+            // Queries (Round Y-D1: occlusion culling, GPU timers)
+            "glGenQueries", "glDeleteQueries", "glBeginQuery", "glEndQuery", "glGetQueryObjectuiv",
         };
 
         [DllImport("opengl32.dll", CharSet = CharSet.Ansi, BestFitMapping = false)]
@@ -177,6 +187,7 @@ namespace BimGo.Native
         public static void BlendFunc(uint src, uint dst) => _gl.BlendFunc((GLEnum)src, (GLEnum)dst);
         public static void BlendFuncSeparate(uint srcRgb, uint dstRgb, uint srcA, uint dstA) => _gl.BlendFuncSeparate((GLEnum)srcRgb, (GLEnum)dstRgb, (GLEnum)srcA, (GLEnum)dstA);
         public static void CullFace(uint mode) => _gl.CullFace((GLEnum)mode);
+        public static void FrontFace(uint mode) => _gl.FrontFace((GLEnum)mode); // X-C1: mirrored passes wind the other way
         public static void PolygonOffset(float factor, float units) => _gl.PolygonOffset(factor, units);
         public static void PolygonMode(uint face, uint mode) => _gl.PolygonMode((GLEnum)face, (GLEnum)mode);
         public static uint GetError() => (uint)_gl.GetError();
@@ -252,6 +263,9 @@ namespace BimGo.Native
         public static void BindBuffer(uint target, uint id) => _gl.BindBuffer((GLEnum)target, id);
         public static void BufferData(uint target, nint size, void* data, uint usage) => _gl.BufferData((GLEnum)target, (nuint)size, data, (GLEnum)usage);
         public static void BufferSubData(uint target, nint offset, nint size, void* data) => _gl.BufferSubData((GLEnum)target, offset, (nuint)size, data);
+        public static void BindBufferBase(uint target, uint index, uint buffer) => _gl.BindBufferBase((GLEnum)target, index, buffer);
+        public static uint GetUniformBlockIndex(uint program, string name) => _gl.GetUniformBlockIndex(program, name);
+        public static void UniformBlockBinding(uint program, uint index, uint binding) => _gl.UniformBlockBinding(program, index, binding);
 
         public static uint GenVertexArray()
         {
@@ -285,6 +299,35 @@ namespace BimGo.Native
 
         public static void DrawElementsInstanced(uint mode, int count, uint type, nint byteOffset, int instances)
             => _gl.DrawElementsInstanced((GLEnum)mode, (uint)count, (GLEnum)type, (void*)byteOffset, (uint)instances);
+
+        #endregion
+
+        #region Wrappers: queries (Round Y-D1)
+
+        /// <summary>Fills an array with new query objects.</summary>
+        public static void GenQueries(uint[] ids)
+        {
+            if (ids.Length == 0) { return; }
+            fixed (uint* p = ids) { _gl.GenQueries((uint)ids.Length, p); }
+        }
+
+        /// <summary>Deletes an array's query objects (zeros are skipped by GL).</summary>
+        public static void DeleteQueries(uint[] ids)
+        {
+            if (ids == null || ids.Length == 0) { return; }
+            fixed (uint* p = ids) { _gl.DeleteQueries((uint)ids.Length, p); }
+        }
+
+        public static void BeginQuery(uint target, uint id) => _gl.BeginQuery((GLEnum)target, id);
+        public static void EndQuery(uint target) => _gl.EndQuery((GLEnum)target);
+
+        /// <summary>A query's result or availability (glGetQueryObjectuiv).</summary>
+        public static uint GetQueryObject(uint id, uint name)
+        {
+            uint value = 0;
+            _gl.GetQueryObject(id, (GLEnum)name, &value);
+            return value;
+        }
 
         #endregion
 

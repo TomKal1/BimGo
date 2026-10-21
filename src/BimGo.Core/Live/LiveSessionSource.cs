@@ -60,6 +60,16 @@ namespace BimGo.Live
         /// </summary>
         /// <returns>False if not connected or there is nothing to select.</returns>
         bool ShowClash(IReadOnlyList<long> hostIds, IReadOnlyList<LinkedElementRef> linked, ClashViewRequest view);
+
+        /// <summary>Round X-E: true once Revit said it makes views from BimGo's camera (hello.ack).</summary>
+        bool RevitViewsSupported { get; }
+
+        /// <summary>Round X-E: asks Revit to make a view from this camera, or update its active one.</summary>
+        /// <returns>False if not connected.</returns>
+        bool MakeRevitView(RevitViewPayload view);
+
+        /// <summary>Round X-E: Revit's ribbon asked for the camera (the walkthrough answers with <see cref="MakeRevitView"/>).</summary>
+        bool TryTakeViewRequest(out RevitViewAction action);
     }
 
     /// <summary>
@@ -83,6 +93,7 @@ namespace BimGo.Live
         private bool _connected = true;
         private bool _closed;
         private bool _disposed;
+        private readonly Queue<RevitViewAction> _viewRequests = new(); // Round X-E: from Revit's ribbon
 
         /// <summary>
         /// Attaches to a session: clears stale messages, starts the app heartbeat and says hello.
@@ -252,6 +263,19 @@ namespace BimGo.Live
         }
 
         /// <inheritdoc/>
+        public bool RevitViewsSupported { get; private set; }
+
+        /// <inheritdoc/>
+        public bool MakeRevitView(RevitViewPayload view)
+        {
+            if (!Connected || view == null || !view.IsValid()) { return false; }
+            return _channel.Send(MessageTypes.VIEW_MAKE, view) != null;
+        }
+
+        /// <inheritdoc/>
+        public bool TryTakeViewRequest(out RevitViewAction action) => _viewRequests.TryDequeue(out action);
+
+        /// <inheritdoc/>
         public bool ShowLinkedElement(long linkInstanceId, long elementId)
         {
             if (!Connected || linkInstanceId <= 0) { return false; }
@@ -273,7 +297,18 @@ namespace BimGo.Live
             {
                 case MessageTypes.HELLO_ACK:
                     HelloAckPayload ack = envelope.Read<HelloAckPayload>();
-                    Utilities.Log_Utils.Write($"Revit acknowledged: {ack?.DocTitle} (Revit {ack?.RevitVersion}).");
+                    Utilities.Log_Utils.Write($"Revit acknowledged: {ack?.DocTitle} (Revit {ack?.RevitVersion}{(ack?.RevitViews == true ? ", makes views" : string.Empty)}).");
+                    if (ack?.RevitViews == true) { RevitViewsSupported = true; }
+                    break;
+
+                case MessageTypes.VIEW_RESULT:
+                    MessagePayload made = envelope.Read<MessagePayload>();
+                    if (made != null && !string.IsNullOrEmpty(made.Message)) { _notices.Enqueue(made.Message); }
+                    break;
+
+                case MessageTypes.VIEW_REQUEST:
+                    RevitViewRequestPayload asked = envelope.Read<RevitViewRequestPayload>();
+                    if (asked != null && _viewRequests.Count < 4) { RevitViewsSupported = true; _viewRequests.Enqueue(asked.Action); }
                     break;
 
                 case MessageTypes.EDIT_RESULT:

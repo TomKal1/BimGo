@@ -19,6 +19,34 @@ namespace BimGo.Commands.Cmds_BimGo
         public static WriterInfo Writer => new($"BimGo for Revit {Globals.REVIT_VERSION_STR}", Globals.ADDIN_VERSION);
 
         /// <summary>
+        /// Round X-E: NEW VIEW / UPDATE VIEW. Asks the app attached to the active model's session for its camera (the
+        /// view is made when the answer arrives, on the live event).
+        /// </summary>
+        public static Result RequestView(UIApplication uiApp, Live.RevitViewAction action)
+        {
+            UIDocument uiDoc = uiApp.ActiveUIDocument;
+            if (!CheckDocument(uiDoc, out string reason)) { return FormCallers.Cancelled(reason); }
+            try
+            {
+                Live.SessionHost host = Live.LiveDispatcher.Find(uiDoc.Document);
+                if (host == null || !host.AppAttached)
+                {
+                    return FormCallers.Cancelled(host == null
+                        ? "No live session for this model: press Go to walk it in BimGo, then make views from where you stand."
+                        : "BimGo isn't connected to this model's session yet.");
+                }
+                Live.LiveDispatcher.EnsureEvent(uiApp);
+                Live.LiveDispatcher.RequestView(host, action);
+                return Result.Succeeded;
+            }
+            catch (Exception ex)
+            {
+                Utilities.Log_Utils.Write($"View request failed: {ex}");
+                return FormCallers.Error($"BimGo couldn't ask for its view:\n{ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Shows the Options dialog for the active document and saves the choices.
         /// </summary>
         /// <param name="uiApp">The UIApplication.</param>
@@ -257,6 +285,49 @@ namespace BimGo.Commands.Cmds_BimGo
     }
 
     /// <summary>
+    /// Round X-E, NEW VIEW: asks BimGo (attached to the active model's live session) for its camera and makes a new
+    /// perspective 3D view there ("BimGo 01", "BimGo 02"…), made active. One undo entry.
+    /// </summary>
+    [Transaction(TransactionMode.ReadOnly)]
+    public class Cmd_NewView : IExternalCommand
+    {
+        /// <summary>
+        /// Execute the command.
+        /// </summary>
+        /// <param name="commandData">Command related data.</param>
+        /// <param name="message">Command related message.</param>
+        /// <param name="elements">Command related elements.</param>
+        /// <returns>A Result.</returns>
+        public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements) =>
+            CommandSteps.RequestView(commandData.Application, Live.RevitViewAction.Create);
+    }
+
+    /// <summary>
+    /// Round X-E, UPDATE VIEW: asks BimGo for its camera and puts it on the active perspective 3D view (with BimGo's
+    /// field of view on its crop). One undo entry.
+    /// </summary>
+    [Transaction(TransactionMode.ReadOnly)]
+    public class Cmd_UpdateView : IExternalCommand
+    {
+        /// <summary>
+        /// Execute the command.
+        /// </summary>
+        /// <param name="commandData">Command related data.</param>
+        /// <param name="message">Command related message.</param>
+        /// <param name="elements">Command related elements.</param>
+        /// <returns>A Result.</returns>
+        public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
+        {
+            UIDocument uiDoc = commandData.Application.ActiveUIDocument;
+            if (uiDoc?.ActiveView is not View3D view || view.IsTemplate || !view.IsPerspective)
+            {
+                return FormCallers.Cancelled("Open the perspective 3D view to update first (Update view puts BimGo's camera on the active perspective view).");
+            }
+            return CommandSteps.RequestView(commandData.Application, Live.RevitViewAction.Update);
+        }
+    }
+
+    /// <summary>
     /// Export .bimgo: opens the options, asks where to save, extracts the model and writes a standalone .bimgo
     /// (geometry, rooms, levels, metadata, picked parameters and the model's comments) for the BimGo app.
     /// Offers to open the file in BimGo afterwards.
@@ -312,11 +383,28 @@ namespace BimGo.Commands.Cmds_BimGo
                     ? null
                     : BookmarkFiles.Read(BookmarkFiles.SidecarFor(scene.CommentsPath), out _);
 
+                // Round X-B: and the billboards with their pictures (entourage.json and its images in the model folder)
+                string entouragePath = EntourageFiles.SidecarFor(scene.CommentsPath);
+                EntourageDocument entourage = entouragePath == null ? null : EntourageFiles.Read(entouragePath, out _);
+                Dictionary<string, byte[]> entourageImages = entourage == null ? null : EntourageFiles.ReadImages(EntourageFiles.ImagesFolderFor(entouragePath), entourage);
+
+                // Round X-D1: and the light profile choices with their imported .ies files (light-profiles.json)
+                string lightProfilesPath = LightProfileFiles.SidecarFor(scene.CommentsPath);
+                LightProfileDocument lightProfiles = lightProfilesPath == null ? null : LightProfileFiles.Read(lightProfilesPath, out _);
+
+                // Round Y-A: and the saved measurements (measurements.json)
+                string measurementsPath = MeasurementFiles.SidecarFor(scene.CommentsPath);
+                MeasurementDocument measurements = measurementsPath == null ? null : MeasurementFiles.Read(measurementsPath, out _);
+
                 var document = new BimGoDocument
                 {
                     Scene = scene,
                     Bookmarks = bookmarks ?? new BookmarkDocument { Model = scene.ModelTitle },
                     Comments = comments ?? new CommentDocument { Model = scene.ModelTitle },
+                    Entourage = entourage,
+                    EntourageImages = entourageImages,
+                    LightProfiles = lightProfiles,
+                    Measurements = measurements,
                     Journal = new EditJournal(),
                     CreatedUtc = scene.Provenance.ExtractedUtc,
                     Kind = FileKinds.EXPORT,

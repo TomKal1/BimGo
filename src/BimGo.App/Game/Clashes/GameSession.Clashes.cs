@@ -170,6 +170,7 @@ namespace BimGo.Game
                 CategoryName = template.CategoryName,
                 FamilyType = template.FamilyType,
                 LevelName = template.LevelName,
+                Phase = template.Phase,
                 Link = template.Link
             };
             return SearchSets.Matches(set, Scene, standIn);

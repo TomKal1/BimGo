@@ -56,5 +56,12 @@ namespace BimGo.Native
 
         [DllImport("winmm.dll")]
         public static extern uint waveOutClose(nint handle);
+
+        /// <summary>Round X-D0: 1 ms system timer while the frame rate limit sleeps.</summary>
+        [DllImport("winmm.dll")]
+        public static extern uint timeBeginPeriod(uint period);
+
+        [DllImport("winmm.dll")]
+        public static extern uint timeEndPeriod(uint period);
     }
 }

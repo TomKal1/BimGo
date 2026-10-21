@@ -365,7 +365,7 @@ namespace BimGo.Game
         private void UpdateMarkupMouse(InputState input)
         {
             Vector2 mouse = input.MousePosition;
-            bool over = Hover(input, _markupX, _markupY, _markupW, _markupH);
+            bool over = Hover(input, _markupX, _markupY, _markupW, _markupH, focus: false);
 
             if (input.LeftPressed && over)
             {
@@ -423,7 +423,10 @@ namespace BimGo.Game
         #region Panel
 
         /// <summary>
-        /// Draws and handles the editor (in place of the pause menu): toolbar, the picture with the markup, hints.
+        /// Draws and handles the editor (in place of the pause menu). Round Y-B: on the panel shell (wide): the comment's
+        /// text in the sub-line, UNDO / REDO / CLEAR in the header, the tools, colours and thickness on the body's first
+        /// row, the picture fitted into the rest of the body; the footer has ← CANCEL (or ← SKIP straight after a new
+        /// picture), SAVE and CLOSE (cancels too, back to the walkthrough).
         /// </summary>
         private void BuildMarkupEditor()
         {
@@ -431,31 +434,22 @@ namespace BimGo.Game
             InputState input = _window.Input;
             int width = _window.Width, height = _window.Height;
             if (_markupBase == null) { CloseMarkup(save: false); return; }
-            _ui.Rect(0, 0, width, height, UiTheme.MENU_BACKGROUND);
 
-            float margin = S(40);
-            float y = S(22);
+            const string UNDO = "UNDO", REDO = "REDO", CLEAR = "CLEAR";
+            float gapSmall = S(UiTheme.GAP_SMALL);
+            float headerW = ShellButtonWidth(f, UNDO) + ShellButtonWidth(f, REDO) + ShellButtonWidth(f, CLEAR) + gapSmall * 2f;
+            PanelFrame frame = BeginPanel(PanelSize.Wide, "MARKUP", UiTheme.COMMENT_LABEL, _markupFor?.Text ?? string.Empty, headerControls: headerW);
+            bool clear = HeaderButton(ref frame, CLEAR, ShellStyle.Danger, HasVisibleMarkup() || _markupTyping);
+            bool redo = HeaderButton(ref frame, REDO, ShellStyle.Normal, _markupRedo.Count > 0);
+            bool undo = HeaderButton(ref frame, UNDO, ShellStyle.Normal, _markupOps.Count > 0 || _markupTyping);
+            if (undo) { UndoMarkup(); }
+            if (redo) { RedoMarkup(); }
+            if (clear) { ClearMarkup(); }
 
-            // Title row with CANCEL / SAVE on the right
-            _ui.Text(f.Small, margin, y + S(4), "MARKUP", UiTheme.COMMENT_LABEL, S(2f));
-            float saveW = S(120), cancelW = S(120);
-            float buttonsX = width - margin - saveW - S(10) - cancelW;
-            _ui.TextWrapped(f.Body, margin + S(110), y + S(2), MathF.Max(S(60), buttonsX - margin - S(130)), _markupFor?.Text ?? string.Empty, UiTheme.TEXT_SOFT, maxLines: 1);
-            if (MenuButton(f, buttonsX, y - S(6), cancelW, _markupReturnToGame && !_markupDirty ? "SKIP" : "CANCEL", false, false, height: S(36)))
-            {
-                CloseMarkup(save: false);
-                return;
-            }
-            if (MenuButton(f, buttonsX + cancelW + S(10), y - S(6), saveW, "SAVE", true, false, enabled: _markupDirty || _markupTyping, height: S(36)))
-            {
-                CloseMarkup(save: true);
-                return;
-            }
-            y += S(44);
-
-            // Toolbar: tools · colours · thickness · undo / redo / clear (wraps on narrow windows)
-            float x = margin, rowH = S(32), right = width - margin;
-            float toolsW = S(380);
+            // Toolbar: tools · colours · thickness (wraps on narrow windows)
+            float left = frame.Ix, right = frame.Ix + frame.Iw;
+            float x = left, y = frame.BodyTop, rowH = S(32);
+            float toolsW = MathF.Min(S(380), frame.Iw);
             int tool = Segmented(f, input, x, y, toolsW, MARKUP_TOOLS, (int)_markupTool);
             if (tool != (int)_markupTool)
             {
@@ -466,7 +460,7 @@ namespace BimGo.Game
 
             float swatch = S(30), swatchGap = S(6);
             float swatchesW = MARKUP_COLOURS.Length * (swatch + swatchGap);
-            if (x + swatchesW > right) { x = margin; y += rowH + S(10); }
+            if (x + swatchesW > right) { x = left; y += rowH + S(10); }
             for (int i = 0; i < MARKUP_COLOURS.Length; i++)
             {
                 float sx = x + i * (swatch + swatchGap);
@@ -482,27 +476,18 @@ namespace BimGo.Game
             }
             x += swatchesW + S(12);
 
-            float widthsW = S(240);
-            if (x + widthsW > right) { x = margin; y += rowH + S(10); }
+            float widthsW = MathF.Min(S(240), frame.Iw);
+            if (x + widthsW > right) { x = left; y += rowH + S(10); }
             _markupWidth = Segmented(f, input, x, y, widthsW, MARKUP_WIDTHS, _markupWidth);
-            x += widthsW + S(18);
+            y += rowH + S(UiTheme.GAP);
 
-            float smallW = S(72), smallGap = S(6);
-            if (x + smallW * 3f + smallGap * 2f > right) { x = margin; y += rowH + S(10); }
-            if (SmallButton(f, input, x, y, smallW, rowH, "UNDO")) { UndoMarkup(); }
-            x += smallW + smallGap;
-            if (SmallButton(f, input, x, y, smallW, rowH, "REDO")) { RedoMarkup(); }
-            x += smallW + smallGap;
-            if (SmallButton(f, input, x, y, smallW, rowH, "CLEAR", danger: true)) { ClearMarkup(); }
-            y += rowH + S(16);
-
-            // The picture, fitted
-            float areaW = width - margin * 2f, areaH = height - y - S(52);
+            // The picture, fitted into the rest of the body
+            float areaW = frame.Iw, areaH = MathF.Max(S(40), frame.BodyBottom - y);
             float aspect = (float)_markupBase.Width / _markupBase.Height;
             _markupW = MathF.Min(areaW, areaH * aspect);
             _markupH = _markupW / aspect;
-            _markupX = margin + (areaW - _markupW) * 0.5f;
-            _markupY = y + (areaH - _markupH) * 0.5f;
+            _markupX = MathF.Round(left + (areaW - _markupW) * 0.5f);
+            _markupY = MathF.Round(y + (areaH - _markupH) * 0.5f);
             _ui.Image(_markupTexture, _markupX, _markupY, _markupW, _markupH, width, height);
             _ui.Outline(_markupX, _markupY, _markupW, _markupH, MathF.Max(1f, UiScale), Rgba.Hex(0xFFFFFF, 0.2f));
 
@@ -510,11 +495,24 @@ namespace BimGo.Game
             if (_markupDrawing != null) { DrawMarkupShapePreview(_markupDrawing); }
             if (_markupTyping) { DrawMarkupTextPreview(f); }
 
-            // Hints
-            string hint = _markupTyping
-                ? "Type the text · Enter places it · Esc cancels it"
-                : HINT_MARKUP.Text;
-            _ui.TextCentred(f.Body, width * 0.5f, height - S(36), hint, UiTheme.TEXT_MUTED);
+            // Footer: ← CANCEL / ← SKIP (PanelBack → CancelMarkupPanel), SAVE, CLOSE
+            int save = FooterAction("SAVE", ShellStyle.Primary, _markupDirty || _markupTyping);
+            string hint = _markupTyping ? "Type the text · Enter places it · Esc cancels it" : HINT_MARKUP.Text;
+            string back = _markupReturnToGame && !_markupDirty ? "← SKIP" : "← CANCEL";
+            int pressed = EndPanel(frame, null, hint, back);
+            if (pressed == save) { CloseMarkup(save: true); }
+        }
+
+        /// <summary>
+        /// Round Y-B: one level back from the editor (← CANCEL / ← SKIP, the gamepad's B through <see cref="PanelBack"/>):
+        /// closes it without saving.
+        /// </summary>
+        /// <returns>True when the editor was open.</returns>
+        private bool CancelMarkupPanel()
+        {
+            if (!_markupOpen) { return false; }
+            CloseMarkup(save: false);
+            return true;
         }
 
         /// <summary>The shape being dragged, drawn with the UI batch (screen space).</summary>
