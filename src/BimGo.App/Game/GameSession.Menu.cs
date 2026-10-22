@@ -526,7 +526,7 @@ namespace BimGo.Game
             bool libraryButton = HasLibrary;
             bool roomsButton = Scene.Rooms.Length > 0;
             int sessionButtons = 4 + (IsFileMode ? 3 : 1) + (_live != null ? 2 : 0); // + CONTROLS (input round B2), + Revit views (X-E)
-            int reviewButtons = 7 + (hiddenThings > 0 ? 1 : 0) + (texturesButton ? 1 : 0) + (libraryButton ? 1 : 0) + (roomsButton ? 1 : 0);
+            int reviewButtons = 8 + (hiddenThings > 0 ? 1 : 0) + (texturesButton ? 1 : 0) + (libraryButton ? 1 : 0) + (roomsButton ? 1 : 0);
             int rows = twoStacks ? Math.Max(sessionButtons, reviewButtons) : sessionButtons + reviewButtons;
             float step = Math.Clamp((endY - S(12) - buttonsTop) / rows, S(32), S(44));
             float buttonH = step - S(6);
@@ -577,6 +577,8 @@ namespace BimGo.Game
                 x = leftX + stackW + stackGap;
                 y = buttonsTop;
             }
+            if (MenuButton(f, x, y, stackW, "ISO VIEW", false, false, height: buttonH, compact: true)) { OpenLightingReview(); return; }
+            y += step;
             if (MenuButton(f, x, y, stackW, CommentsMenuLabel(), false, false, height: buttonH, compact: true)) { OpenComments(); return; }
             y += step;
             if (MenuButton(f, x, y, stackW, BookmarksMenuLabel(), false, false, height: buttonH, compact: true)) { OpenBookmarks(); return; }

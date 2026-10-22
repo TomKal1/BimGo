@@ -644,6 +644,7 @@ namespace BimGo.Game
                 active.DrawPanel(_ui, panelX + S(14), panelTop + S(12), panelWidth - S(28));
             }
 
+            BuildReviewShortcut(f, _window.Input);
             BuildSunIcon(f, _window.Input);
             if (_sunPanelOpen) { BuildSunPanel(f, _window.Input); }
             if (_sunHoursOpen) { BuildSunHoursPanel(f, _window.Input); }

@@ -6,13 +6,14 @@ using BimGo.Scene;
 
 namespace BimGo.Game
 {
-    /// <summary>Lighting engineer's model review: parallel views, room cutaways, free flight and annotated PNGs.</summary>
+    /// <summary>Model review: parallel views, room cutaways, free flight and annotated PNGs, with optional lighting results.</summary>
     internal sealed partial class GameSession
     {
         private static readonly string[] REVIEW_VIEWS = { "ISO", "PLAN", "RCP", "FLY" };
         private static readonly string[] REVIEW_RESULTS = { "Materials", "Illuminance", "Luminance" };
         private static readonly string[] REVIEW_MIN_LABELS = { "West / X min", "South / Y min", "Bottom" };
         private static readonly string[] REVIEW_MAX_LABELS = { "East / X max", "North / Y max", "Top" };
+        private const int DROP_REVIEW_LEVEL = 0;
         private static readonly KeyHint HINT_REVIEW_NAV = new(() =>
             $"Left drag: pan · {Key(InputAction.ReviewOrbit)} drag: orbit / fly look · {Key(InputAction.DragLook)} drag: orbit / look · wheel: zoom · click and release: select room");
         private static readonly KeyHint HINT_REVIEW_FLY = new(() =>
@@ -43,7 +44,34 @@ namespace BimGo.Game
         /// <summary>Material colours under the classic directional light, independent of the model's light output.</summary>
         private bool ReviewMaterialShading => _reviewOpen && !_reviewSceneLighting;
 
-        /// <summary>Opens from LIGHTS, retaining the walkthrough position and its cut for closing.</summary>
+        /// <summary>The walkthrough's ISO button sits beside the sun control.</summary>
+        private Vector4 ReviewShortcutRect
+        {
+            get
+            {
+                SunIconRect(out float x, out float y, out float size);
+                return new Vector4(x - S(116), y, S(108), size);
+            }
+        }
+
+        private bool ReviewShortcutVisible => !_uiHidden && !AnyDockOpen && !IsEditingComment && !_wheelOpen;
+
+        private bool HoverReviewShortcut(InputState input)
+        {
+            Vector4 r = ReviewShortcutRect;
+            return ReviewShortcutVisible && Hover(input, r.X, r.Y, r.Z, r.W);
+        }
+
+        private void BuildReviewShortcut(FontAtlas f, InputState input)
+        {
+            if (!ReviewShortcutVisible) { return; }
+            Vector4 r = ReviewShortcutRect;
+            bool hover = !_window.IsCaptured && HoverReviewShortcut(input);
+            _ui.Panel(r.X, r.Y, r.Z, r.W, UiTheme.PANEL, hover ? UiTheme.ACCENT : UiTheme.CONTROL_BORDER);
+            _ui.TextCentred(f.Bold, r.X + r.Z * 0.5f, r.Y + (r.W - f.Bold.LineHeight) * 0.5f, "ISO VIEW", hover ? UiTheme.ACCENT : UiTheme.TEXT);
+        }
+
+        /// <summary>Opens in ISO on the current room or whole building, retaining the walkthrough position and cut for closing.</summary>
         private void OpenLightingReview()
         {
             if (_reviewOpen) { return; }
@@ -63,11 +91,19 @@ namespace BimGo.Game
             _reviewShowCaps = false;
             _reviewSceneLighting = false;
             ResetReviewPointer();
-            _reviewLevel = Scene.Levels.Length > 0 ? LevelIndexAt(_player.Feet.Z) : -1;
+            _reviewLevel = -1;
             _reviewYaw = -MathF.PI * 0.25f;
             _reviewPitch = ReviewFraming.IsoPitch;
+            _reviewRoom = null;
+            _reviewSearch = string.Empty;
+            _reviewScroll.Reset();
             RefreshReviewRooms();
-            ReviewBuilding();
+            Vector3 point = _player.Feet + Vector3.UnitZ * 0.3f;
+            int currentRoom = FindRoom(point);
+            ReviewRoom initialRoom = currentRoom >= 0 ? _reviewRooms.Find(room => room.Room == currentRoom)
+                : _reviewRooms.Find(room => room.Zone != null && room.Zone.Contains(point));
+            if (initialRoom != null) { ReviewSelectRoom(initialRoom); }
+            else { ReviewBuilding(); }
             SetPaused(false);
             ShowUi();
             Sound.Play(SoundId.UiClick);
@@ -127,7 +163,7 @@ namespace BimGo.Game
                 string title = RoomLabel(i), level = LevelNameAt(room.BottomZ);
                 _reviewRooms.Add(new ReviewRoom
                 {
-                    Title = title, Detail = level + " · no calc results", Search = title + " " + level, Room = i,
+                    Title = title, Detail = _calc != null ? level + " · no calc results" : level, Search = title + " " + level, Room = i,
                     Bounds = new Aabb(new Vector3(room.Min, room.BottomZ), new Vector3(room.Max, MathF.Max(room.BottomZ + 0.5f, room.TopZ)))
                 });
             }
@@ -170,10 +206,23 @@ namespace BimGo.Game
             ReviewFitCamera();
         }
 
+        /// <summary>Steps through storeys; from all levels, starts at the bottom going up or the top going down.</summary>
+        private void ReviewStepLevel(int direction)
+        {
+            if (Scene.Levels.Length == 0) { return; }
+            int level = _reviewLevel < 0 ? (direction > 0 ? 0 : Scene.Levels.Length - 1)
+                : Math.Clamp(_reviewLevel + direction, 0, Scene.Levels.Length - 1);
+            if (level == _reviewLevel && _reviewRoom == null) { return; }
+            ResetReviewPointer();
+            _reviewLevel = level;
+            ReviewBuilding();
+        }
+
         private void ReviewSelectRoom(ReviewRoom room)
         {
             ResetReviewPointer();
             _reviewRoom = room;
+            _reviewLevel = Scene.Levels.Length > 0 ? LevelIndexAt(room.Bounds.Min.Z) : -1;
             _reviewBounds = room.Bounds;
             _reviewScope = room.Title;
             _reviewPin = false;
@@ -212,12 +261,15 @@ namespace BimGo.Game
             return best;
         }
 
-        /// <summary>Open ceilings for iso / floor plans; open floors for a reflected ceiling plan.</summary>
+        /// <summary>Open ceilings or floors for room / storey views; all levels keeps the whole building.</summary>
         private void ReviewFitCut()
         {
             Vector3 min = _reviewBounds.Min - new Vector3(0.25f), max = _reviewBounds.Max + new Vector3(0.25f);
-            if (_reviewView == 2) { min.Z = _reviewBounds.Min.Z + 0.15f; }
-            else if (_reviewView != 3) { max.Z = MathF.Max(min.Z + SectionCut.MIN_SIZE, _reviewBounds.Max.Z - (_reviewRoom != null ? 0.03f : 0.4f)); }
+            if (_reviewRoom != null || _reviewLevel >= 0)
+            {
+                if (_reviewView == 2) { min.Z = _reviewBounds.Min.Z + 0.15f; }
+                else if (_reviewView != 3) { max.Z = MathF.Max(min.Z + SectionCut.MIN_SIZE, _reviewBounds.Max.Z - (_reviewRoom != null ? 0.03f : 0.4f)); }
+            }
             _section.PlaneOn = false;
             SetBoxLocal(min, max);
             _sectionDrag = _sectionHover = -1;
@@ -335,7 +387,7 @@ namespace BimGo.Game
         private void BuildLightingReviewDock(FontAtlas f, InputState input)
         {
             BeginOverlays(input);
-            DockFrame d = BeginDock("LIGHTING REVIEW", UiTheme.ACCENT, UiTheme.ACCENT, S(UiTheme.DOCK_WIDTH), _reviewScroll, notice: true, fullHeight: true);
+            DockFrame d = BeginDock("MODEL REVIEW", UiTheme.ACCENT, UiTheme.ACCENT, S(UiTheme.DOCK_WIDTH), _reviewScroll, notice: true, fullHeight: true);
             _reviewPanelRect = d.Rect;
             float x = d.Ix, w = d.Iw, half = (w - S(8)) * 0.5f;
             float y = BeginDockBody(d, _reviewScroll, input);
@@ -346,22 +398,26 @@ namespace BimGo.Game
                 : _reviewView == 2 ? "Reflected ceiling plan · north up · floors cut away"
                 : _reviewView == 1 ? "Floor plan · north up · parallel projection" : "Parallel 3D view · drag the ViewCube to rotate", UiTheme.TEXT_MUTED, maxLines: 2);
             y += S(38);
-            if (SmallButton(f, input, x, y, half, S(28), "BUILDING / LEVEL")) { ReviewBuilding(); }
-            if (SmallButton(f, input, x + half + S(8), y, half, S(28), "FIT VIEW")) { ReviewFitCamera(); }
-            y += S(36);
-            if (_reviewView == 0)
-            {
-                if (SmallButton(f, input, x, y, half, S(26), "ROTATE 90°")) { _reviewYaw += MathF.PI * 0.5f; _reviewPitch = ReviewFraming.IsoPitch; ReviewFitCamera(); }
-                if (SmallButton(f, input, x + half + S(8), y, half, S(26), "RESET ISO")) { _reviewYaw = -MathF.PI * 0.25f; _reviewPitch = ReviewFraming.IsoPitch; ReviewFitCamera(); }
-                y += S(34);
-            }
             if (Scene.Levels.Length > 0)
             {
-                _ui.TextWrapped(f.Small, x, y, w, _reviewLevel < 0 ? "All levels" : Scene.Levels[_reviewLevel].Name, UiTheme.TEXT_SOFT, maxLines: 1);
+                _ui.Text(f.Small, x, y, "LEVEL", UiTheme.TEXT_SOFT);
                 y += S(22);
-                if (SmallButton(f, input, x, y, half, S(26), "PREVIOUS LEVEL")) { _reviewLevel = Math.Max(-1, _reviewLevel - 1); ReviewBuilding(); }
-                if (SmallButton(f, input, x + half + S(8), y, half, S(26), "NEXT LEVEL")) { _reviewLevel = Math.Min(Scene.Levels.Length - 1, _reviewLevel + 1); ReviewBuilding(); }
-                y += S(36);
+                float levelWidth = w - S(76);
+                if (DropdownButton(f, input, x, y, levelWidth, S(30), _reviewLevel < 0 ? "All levels" : Scene.Levels[_reviewLevel].Name,
+                    IsDropdownOpen(_reviewScroll, DROP_REVIEW_LEVEL)))
+                {
+                    var levels = new List<string>(Scene.Levels.Length + 1) { "All levels" };
+                    foreach (LevelInfo level in Scene.Levels) { levels.Add(level.Name); }
+                    OpenDropdown(_reviewScroll, DROP_REVIEW_LEVEL, x, y, levelWidth, S(30), levels, _reviewLevel + 1, i =>
+                    {
+                        ResetReviewPointer();
+                        _reviewLevel = i - 1;
+                        ReviewBuilding();
+                    });
+                }
+                if (SmallButton(f, input, x + levelWidth + S(8), y, S(30), S(30), "↓")) { ReviewStepLevel(-1); }
+                if (SmallButton(f, input, x + levelWidth + S(46), y, S(30), S(30), "↑")) { ReviewStepLevel(1); }
+                y += S(38);
             }
             bool sceneLighting = Checkbox(f, input, x, y, w, "Use scene lighting", _reviewSceneLighting);
             if (sceneLighting != _reviewSceneLighting)
@@ -371,19 +427,15 @@ namespace BimGo.Game
                 _renderer.ReleaseReflectionHistory();
             }
             y += S(32);
-            _ui.Text(f.Small, x, y, "RESULT DISPLAY", UiTheme.ACCENT);
-            y += S(22);
-            // WW Tools' existing Points request is the material view with the point overlay too.
-            int currentMode = _calcMode == CalcDisplayMode.Points ? 0 : (int)_calcMode;
-            int mode = Segmented(f, input, x, y, w, REVIEW_RESULTS, currentMode);
-            if (mode != currentMode)
-            {
-                if (_calc == null && _calcNames.Count > 0) { LoadCalc(_calcNames[0], (CalcDisplayMode)mode, update: false); }
-                else { _calcMode = (CalcDisplayMode)mode; RememberCalcView(); }
-            }
-            y += S(40);
             if (_calc != null)
             {
+                _ui.Text(f.Small, x, y, "RESULT DISPLAY", UiTheme.ACCENT);
+                y += S(22);
+                // WW Tools' existing Points request is the material view with the point overlay too.
+                int currentMode = _calcMode == CalcDisplayMode.Points ? 0 : (int)_calcMode;
+                int mode = Segmented(f, input, x, y, w, REVIEW_RESULTS, currentMode);
+                if (mode != currentMode) { _calcMode = (CalcDisplayMode)mode; RememberCalcView(); }
+                y += S(40);
                 _ui.TextWrapped(f.Small, x, y, w, _calc.SetName, UiTheme.TEXT_SOFT, maxLines: 1);
                 y += S(24);
                 UpdateCalcTexts();
@@ -400,9 +452,9 @@ namespace BimGo.Game
                 _calcIsolines = Checkbox(f, input, x + half + S(8), y, half, "Isolux", _calcIsolines);
                 y += S(34);
             }
-            else
+            else if (_calcLoad != null || _calcNames.Count > 0)
             {
-                _ui.TextWrapped(f.Small, x, y, w, _calcLoad != null ? "Loading calculation results…" : "No results loaded. Import or select a set in Pause → LIGHTS.", UiTheme.TEXT_MUTED, maxLines: 2);
+                _ui.TextWrapped(f.Small, x, y, w, _calcLoad != null ? "Loading calculation results…" : "Select calculation results in Pause → LIGHTS.", UiTheme.TEXT_MUTED, maxLines: 2);
                 y += S(40);
             }
             _ui.Text(f.Small, x, y, "SECTION BOX", UiTheme.ACCENT);
@@ -444,7 +496,7 @@ namespace BimGo.Game
             y += S(38);
             Text.Clear().Append(_window.Width).Append(" × ").Append(_window.Height).Append(" px · PNG includes legend and visible values");
             y += _ui.TextWrapped(f.Small, x, y, w, Text.Span, UiTheme.TEXT_FAINT, maxLines: 2) + S(14);
-            _ui.Text(f.Small, x, y, "ROOMS / CALC ZONES", UiTheme.ACCENT);
+            _ui.Text(f.Small, x, y, _calc != null ? "ROOMS / CALC ZONES" : "ROOMS", UiTheme.ACCENT);
             y += S(24);
             if (SmallButton(f, input, x, y, half, S(28), "FIND ROOM…"))
             {
@@ -454,7 +506,8 @@ namespace BimGo.Game
             y += S(36);
             if (_reviewMatches.Count == 0)
             {
-                _ui.TextWrapped(f.Small, x, y, w, "No rooms match. Calc zones and placed Revit rooms appear here.", UiTheme.TEXT_MUTED, maxLines: 2);
+                _ui.TextWrapped(f.Small, x, y, w, _reviewRooms.Count == 0 ? "This model has no rooms. Review the whole building or adjust the section box."
+                    : "No rooms match your search.", UiTheme.TEXT_MUTED, maxLines: 2);
                 y += S(38);
             }
             foreach (ReviewRoom room in _reviewMatches)
@@ -471,7 +524,7 @@ namespace BimGo.Game
             }
             EndDockBody(_reviewScroll, input, y);
             _reviewNotice = _reviewPin ? "Click a visible surface to pin a revision, then enter a comment."
-                : _reviewRoom != null && _reviewRoom.Zone == null ? "This room has no results in the selected calculation set."
+                : _calc != null && _reviewRoom != null && _reviewRoom.Zone == null ? "This room has no results in the selected calculation set."
                 : _reviewView == 3 ? "Left drag pans · middle drag looks · select fly destinations in the room list"
                 : "Left drag pans · middle drag orbits · click and release to select a room";
             bool close = EndDock(d, _reviewNotice, null, closeLabel: "RETURN TO WALK") == DOCK_CLOSE;
@@ -491,7 +544,7 @@ namespace BimGo.Game
             CalcZoneResult zone = _reviewRoom?.Zone;
             bool stats = zone != null && zone.Stats.Count > 0;
             _ui.Panel(x, y, w, S(stats ? 120 : 76), UiTheme.PANEL_STRONG, UiTheme.PANEL_BORDER);
-            _ui.Text(f.Small, x + S(16), y + S(12), "WW TOOLS · LIGHTING REVIEW", UiTheme.ACCENT, S(1));
+            _ui.Text(f.Small, x + S(16), y + S(12), "BIMGO · MODEL REVIEW", UiTheme.ACCENT, S(1));
             _ui.TextWrapped(f.Bold, x + S(16), y + S(36), w - S(32), _reviewScope, UiTheme.TEXT, maxLines: 1);
             if (!stats) { return; }
             CalcStats s = zone.Stats;

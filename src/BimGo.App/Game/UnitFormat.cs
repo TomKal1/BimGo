@@ -14,7 +14,7 @@ namespace BimGo.Game
     internal static class UnitFormat
     {
         /// <summary>Metric or imperial.</summary>
-        public static UnitSystem Current { get; private set; } = UnitSystem.Metric;
+        public static UnitSystem Current { get; private set; } = UnitSystem.Imperial;
 
         /// <summary>Imperial lengths as decimal feet rather than feet-inches.</summary>
         public static bool DecimalFeet { get; private set; }
@@ -30,7 +30,7 @@ namespace BimGo.Game
         /// </summary>
         public static void Set(UnitSystem system, bool decimalFeet)
         {
-            if (!Enum.IsDefined(system)) { system = UnitSystem.Metric; }
+            if (!Enum.IsDefined(system)) { system = UnitSystem.Imperial; }
             if (system == Current && decimalFeet == DecimalFeet) { return; }
             Current = system;
             DecimalFeet = decimalFeet;

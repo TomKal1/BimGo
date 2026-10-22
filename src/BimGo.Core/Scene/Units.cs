@@ -9,10 +9,10 @@ namespace BimGo.Scene
     /// </summary>
     public enum UnitSystem
     {
-        /// <summary>Metres, millimetres and square metres (the default).</summary>
+        /// <summary>Metres, millimetres and square metres.</summary>
         Metric = 0,
 
-        /// <summary>Feet and inches (or decimal feet) and square feet.</summary>
+        /// <summary>Feet and inches (or decimal feet) and square feet (the default).</summary>
         Imperial = 1
     }
 

@@ -449,8 +449,8 @@ namespace BimGo.Scene
         /// <summary>Round X-A: the date and time burned into batch stills.</summary>
         public bool BatchStamp { get; set; }
 
-        /// <summary>Units for lengths and areas on screen (review tools round): metric or imperial (per machine).</summary>
-        public UnitSystem DisplayUnits { get; set; } = UnitSystem.Metric;
+        /// <summary>Units for lengths and areas on screen (review tools round): imperial (default) or metric (per machine).</summary>
+        public UnitSystem DisplayUnits { get; set; } = UnitSystem.Imperial;
 
         /// <summary>Imperial lengths as decimal feet (5.33') instead of feet-inches to 1/8" (5' 4").</summary>
         public bool DecimalFeet { get; set; }
@@ -851,7 +851,7 @@ namespace BimGo.Scene
             MaxStepHeightMm = Math.Clamp(MaxStepHeightMm, 50f, 450f);
             if (!Enum.IsDefined(EyePreset)) { EyePreset = EyePreset.Standing; }
             if (!Enum.IsDefined(VideoSize)) { VideoSize = VideoSize.FullHd; }
-            if (!Enum.IsDefined(DisplayUnits)) { DisplayUnits = UnitSystem.Metric; }
+            if (!Enum.IsDefined(DisplayUnits)) { DisplayUnits = UnitSystem.Imperial; }
             VideoFps = VideoFps >= 45 ? 60 : 30;
             TimeLapseFrom = Math.Clamp(TimeLapseFrom, 0, 1439);
             TimeLapseTo = Math.Clamp(TimeLapseTo, 0, 1439);

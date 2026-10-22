@@ -939,6 +939,12 @@ namespace BimGo.Game
         {
             if (!_window.IsCaptured && input.LeftPressed && _window.IsActive)
             {
+                if (HoverReviewShortcut(input))
+                {
+                    input.ConsumeClicks();
+                    OpenLightingReview();
+                    return;
+                }
                 // A click on the sun icon (cursor free) opens the sun panel instead of capturing the mouse
                 if (HoverSunIcon(input))
                 {

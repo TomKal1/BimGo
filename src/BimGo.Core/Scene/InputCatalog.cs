@@ -458,7 +458,7 @@ namespace BimGo.Scene
             // Pause menu (sky round)
             Add(InputAction.MenuPreview, InputContext.PauseMenu, "Options preview: the scene with the graphics settings only (again or Esc returns)", P, "Tab");
 
-            Add(InputAction.ReviewOrbit, InputContext.LightingReview, "Rotate the lighting review (hold and drag)", H, "MMB");
+            Add(InputAction.ReviewOrbit, InputContext.LightingReview, "Rotate the model review (hold and drag)", H, "MMB");
 
             // Fixed
             Fixed(InputAction.Back, "Pause menu · back · cancel · stop", P, true, InputContext.Fixed, "Esc");
@@ -621,14 +621,14 @@ namespace BimGo.Scene
             InputContext.Clashes => "Clash mode",
             InputContext.PauseMenu => "Pause menu",
             InputContext.PathEditor => "Path editor (Round K)",
-            InputContext.LightingReview => "Lighting model review",
+            InputContext.LightingReview => "Model review",
             _ => "Fixed (not rebindable)"
         };
 
         /// <summary>A group's one-line note (what else is live there), or null.</summary>
         public static string ContextNote(InputContext context) => context switch
         {
-            InputContext.LightingReview => "In LIGHTS → REVIEW MODEL: left drag pans; click and release selects a room; middle drag orbits (looks in fly mode). Right drag still looks; Shift + right drag pans.",
+            InputContext.LightingReview => "In ISO VIEW: left drag pans; click and release selects a room; middle drag orbits (looks in fly mode). Right drag still looks; Shift + right drag pans.",
             InputContext.ScanGun or InputContext.MeasureGun or InputContext.CommentGun or InputContext.DemolishGun or InputContext.GizmoGuns
                 => "While the gun is selected (walking keys still work).",
             InputContext.Holding => "While the Gizmo, Clone or Place gun holds an element: the move keys move it (left / right turn it in rotate mode), gun secondary commits, Esc cancels.",
@@ -669,7 +669,7 @@ namespace BimGo.Scene
         public const string SIT_PAUSE = "Pause menu and panels";
         public const string SIT_PATH = "Path editor (Round K)";
         public const string SIT_FIXTURE = "Fixture light profile";
-        public const string SIT_LIGHTING_REVIEW = "Lighting model review";
+        public const string SIT_LIGHTING_REVIEW = "Model review";
 
         /// <summary>
         /// Every state of the app and what can fire in it. Mirrors <c>GameSession.UpdateFrame</c>: change both together.
