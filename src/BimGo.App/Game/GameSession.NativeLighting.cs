@@ -21,7 +21,8 @@ internal sealed partial class GameSession
     private Task<NativeCalculationOutcome> _nativeJob;
     private long _nativeTicket;
     private string _nativeJobSet;
-    private NativeCalculationRun _nativeRun;
+    private NativeCalculationRun _nativeRun, _nativePreviousRun;
+    private string _nativePartialRoomKey;
     private byte[] _nativeOriginalSetup;
     private bool _nativeSetupUnreadable;
     private NativePhysicalState _nativeObserved, _nativeJobState;
@@ -99,15 +100,19 @@ internal sealed partial class GameSession
     }
     private void SelectNativeSet(string id)
     {
+        _nativePickMode = 0;
         _nativeLighting.Selected = id; _nativeArmed = _nativeQueued = false;
         _nativeGate.Advance(); _nativeCancel?.Cancel(); _nativeRun = null;
         if (_nativeShown) { _calc = null; _calcZone = null; }
         _nativeShown = false; _nativeStatus = "Ready · run the selected BimGo set";
         NativeSetupChanged(physical:false);
     }
-    private void RunNativeCalculation()
+    private void RunNativeCalculation(string zoneKey = null)
     {
         if (NativeSet == null) { CreateNativeSet(); if (NativeSet == null) return; }
+        if (zoneKey != null && (_nativePreviousRun == null || _nativePreviousRun.Input.Set.Id != NativeSet.Id))
+        { _nativeStatus = "Run this entire set once before rerunning a room."; return; }
+        _nativePartialRoomKey = zoneKey;
         _nativeShown = _nativeArmed = true;
         // An in-flight imported-file read can never overwrite a newly selected native run.
         _calcLoad = null;
@@ -176,15 +181,18 @@ internal sealed partial class GameSession
             // Copy the profile document before a background thread reads its mutable choice caches.
             var profiles = System.Text.Json.JsonSerializer.Deserialize<LightProfileDocument>(System.Text.Json.JsonSerializer.Serialize(_lightProfileDoc));
             SceneData scene = Scene; Vector3 origin = scene.OriginOffset;
+            var previous = _nativePreviousRun;
+            string[] zoneKeys = _nativePartialRoomKey == null ? null : new[] { _nativePartialRoomKey };
+            _nativePartialRoomKey = null;
             // Execute even if cancellation arrives before scheduling, so it also returns a handled outcome.
             _nativeJob = Task.Run(() => NativeCalculationJob.Execute(scene,definition,edits,profiles,origin,
-                stage => Volatile.Write(ref _nativeProgress,stage),cancel));
+                stage => Volatile.Write(ref _nativeProgress,stage),cancel,previous,zoneKeys));
         }
     }
 
     private void PublishNativeCalculation(NativeCalculationRun run)
     {
-        _nativeRun = run;
+        _nativeRun = _nativePreviousRun = run;
         _calc = run.Display; _calcName = "BimGo_native_"+run.Input.Set.Id;
         _calcMode = CalcDisplayMode.Illuminance; _calcZone = null;
         _calcBuildKey = _calcTextKey = int.MinValue;

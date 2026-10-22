@@ -29,9 +29,16 @@ public sealed class NativeLightingSet
     public int Quality { get; set; } = 1;
     public bool Interreflection { get; set; } = true;
     public bool AllowEstimatedPhotometry { get; set; }
-    public bool CorrectRecessedSources { get; set; } = true;
+    public bool CorrectRecessedSources { get; set; }
     public bool WalkingSurfaces { get; set; }
     public bool Automatic { get; set; } = true;
+
+    public bool EmergencyOnly { get; set; }
+    public bool AutoExcludeFurniture { get; set; } = true;
+    public NativeLuminaireSetting[] Luminaires { get; set; } = Array.Empty<NativeLuminaireSetting>();
+    public string[] ExcludedElements { get; set; } = Array.Empty<string>();
+    public string[] ExcludedCategories { get; set; } = Array.Empty<string>();
+    public NativeExcludedPoint[] ExcludedPoints { get; set; } = Array.Empty<NativeExcludedPoint>();
 
     public void Validate()
     {
@@ -44,10 +51,38 @@ public sealed class NativeLightingSet
         Range(Workplane, 0, 30, "workplane"); Range(Spacing, .25, 50, "spacing"); Range(BoundaryOffset, 0, 20, "boundary offset");
         Range(Margin, 0, 100, "domain margin"); Range(Ceiling, 0, .95, "ceiling reflectance"); Range(Wall, 0, .95, "wall reflectance");
         Range(Floor, 0, .95, "floor reflectance"); Range(Furniture, 0, .95, "furniture reflectance"); Range(LightLossFactor, 0, 1, "LLF");
+        if (Luminaires == null || ExcludedElements == null || ExcludedCategories == null || ExcludedPoints == null
+            || Luminaires.Length > 10000 || ExcludedElements.Length > 100000 || ExcludedPoints.Length > 100000)
+            throw new InvalidDataException("Invalid calculation selections.");
+        foreach (var lum in Luminaires)
+        {
+            if (lum == null || string.IsNullOrWhiteSpace(lum.Key)) throw new InvalidDataException("Missing fixture identity.");
+            Range(lum.EmergencyOutput, 0, 1, "emergency output"); Range(lum.HeightOffset, -100, 100, "source height offset");
+        }
+        if (Luminaires.Select(l => l.Key).Distinct().Count() != Luminaires.Length) throw new InvalidDataException("Duplicate fixture settings.");
+        foreach (var point in ExcludedPoints)
+            if (point == null || string.IsNullOrWhiteSpace(point.ZoneKey) || point.Position == null || point.Position.Length != 3 || point.Position.Any(v => !double.IsFinite(v)))
+                throw new InvalidDataException("Invalid excluded calculation point.");
+        if (ExcludedElements.Any(string.IsNullOrWhiteSpace) || ExcludedCategories.Any(string.IsNullOrWhiteSpace)) throw new InvalidDataException("Invalid geometry exclusion.");
         if (Quality < 0 || Quality > 2) throw new InvalidDataException("Unsupported calculation quality.");
     }
     private static void Range(double v, double min, double max, string name)
     { if (!double.IsFinite(v) || v < min || v > max) throw new InvalidDataException($"Invalid {name}: expected {min}–{max}."); }
+}
+
+/// <summary>Instance-specific emergency participation and output, independent of type/preview choices.</summary>
+public sealed class NativeLuminaireSetting
+{
+    public string Key { get; set; }
+    public bool Emergency { get; set; }
+    public double EmergencyOutput { get; set; } = 1;
+    public double HeightOffset { get; set; }
+    public bool UsePreviewLensPosition { get; set; }
+}
+public sealed class NativeExcludedPoint
+{
+    public string ZoneKey { get; set; }
+    public double[] Position { get; set; }
 }
 
 public static class NativeLightingFiles

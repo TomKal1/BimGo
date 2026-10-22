@@ -17,7 +17,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BimGo.Tests;
 
 [TestClass]
-public sealed class NativeLightingTests
+public sealed partial class NativeLightingTests
 {
     static readonly CalculationEdits NoEdits = new();
     static NativeLightingSet Set() => new() { Name="Native office",Rooms=new[]{0},LightLossFactor=.8,CorrectRecessedSources=false };

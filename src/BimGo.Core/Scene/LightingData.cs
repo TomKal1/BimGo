@@ -110,6 +110,9 @@ namespace BimGo.Scene
         /// <summary>Where the light emits from (scene-local metres).</summary>
         public Vector3 Position { get; init; }
 
+        /// <summary>Family/nested source origin for calculations, independent of the visual lens offset; absent in older exports.</summary>
+        public Vector3? CalculationOrigin { get; init; }
+
         /// <summary>Luminous flux (lumens): from the fixture's parameters when readable, else an estimate.</summary>
         public float Lumens { get; init; } = 1000f;
 

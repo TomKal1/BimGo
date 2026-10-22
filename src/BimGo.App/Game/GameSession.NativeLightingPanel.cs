@@ -91,6 +91,19 @@ internal sealed partial class GameSession
             }
             y += S(34);
             y += _ui.TextWrapped(f.Small, x, y, w, string.Join(" · ", set.Rooms.Where(i => i < Scene.Rooms.Length).Select(RoomLabel)), UiTheme.TEXT_MUTED, maxLines: 3) + S(6);
+            if (SmallButton(f, input, x, y, w, S(26), "RERUN CURRENT / REVIEW ROOM ONLY"))
+            {
+                int room = NativeCurrentRoom();
+                if (room < 0 || !set.Rooms.Contains(room)) _nativeStatus = "Choose a current/review room belonging to this set.";
+                else RunNativeCalculation(ExportedSceneInput.RoomKey(Scene, room));
+            }
+            y += S(34);
+            if (SmallButton(f, input, x, y, w, S(26), "PICK POINTS TO EXCLUDE IN ISO"))
+            { _nativePickMode = 1; _nativeStatus = "In ISO review, click a calculation dot/value to exclude it. Use Cancel picking to finish."; }
+            y += S(32);
+            if (SmallButton(f, input, x, y, w, S(26), $"RESTORE MANUAL POINTS ({set.ExcludedPoints.Length})"))
+            { set.ExcludedPoints = Array.Empty<NativeExcludedPoint>(); NativeSetupChanged(); }
+            y += S(32);
             y = NativeNumberRow(f, input, x, y, w, "Workplane", set.Workplane, 0, 30, v => set.Workplane = v, length: true);
             y = NativeNumberRow(f, input, x, y, w, "Grid spacing", set.Spacing, .25, 50, v => set.Spacing = v, length: true);
             y = NativeNumberRow(f, input, x, y, w, "Boundary offset", set.BoundaryOffset, 0, 20, v => set.BoundaryOffset = v, length: true);
@@ -119,6 +132,9 @@ internal sealed partial class GameSession
             if (estimates != set.AllowEstimatedPhotometry) { set.AllowEstimatedPhotometry = estimates; NativeSetupChanged(); }
             bool correction = Checkbox(f, input, x, y, w, "Correct recessed sources", set.CorrectRecessedSources); y += S(27);
             if (correction != set.CorrectRecessedSources) { set.CorrectRecessedSources = correction; NativeSetupChanged(); }
+            bool excludeFurniture = Checkbox(f, input, x, y, w, "Exclude points under furniture", set.AutoExcludeFurniture); y += S(27);
+            if (excludeFurniture != set.AutoExcludeFurniture) { set.AutoExcludeFurniture = excludeFurniture; NativeSetupChanged(); }
+            y = BuildNativeCalculationSelection(f, input, x, y, w);
             bool automatic = Checkbox(f, input, x, y, w, "Auto recalculate after edits", set.Automatic); y += S(33);
             if (automatic != set.Automatic) { set.Automatic = automatic; NativeSetupChanged(physical: false); if (!automatic) _nativeQueued = false; }
         }
@@ -126,6 +142,11 @@ internal sealed partial class GameSession
         {
             foreach (string warning in _nativeRun?.Input.Warnings ?? new List<string> { "Uses exported model geometry, including any proxies/omissions. ISO cutaways and display hiding do not remove physical surfaces.", "Electric light only. Scalar diffuse reflection; no daylight, glossy or glass transport. Not certified as identical to WWTools extraction.", "Missing IES is an error unless estimated photometry is explicitly enabled. Use the FIXTURES tab to import full IES data." })
                 y += _ui.TextWrapped(f.Small, x, y, w, warning, UiTheme.TEXT_MUTED, maxLines: 6) + S(6);
+        }
+        if (_nativePickMode != 0)
+        {
+            if (SmallButton(f, input, x, y, w, S(26), "FINISH EXCLUDING")) _nativePickMode = 0;
+            y += S(32);
         }
         return y + S(14);
     }

@@ -131,6 +131,7 @@ namespace BimGo.Game
         /// <summary>Only a released, stationary click selects; fly destinations are chosen explicitly from the list.</summary>
         private void ReviewPickAt(Vector2 mouse)
         {
+            if (TryNativeCalculationPick(mouse)) return;
             if (_reviewView == 3 && !_reviewPin) { return; }
             ScreenRay(mouse, out Vector3 origin, out Vector3 direction);
             if (!Pick(origin, direction, FpsCamera.FAR, out var hit)) { return; }

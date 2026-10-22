@@ -455,6 +455,7 @@ namespace BimGo.Format
                 {
                     Element = light.Element,
                     Position = p,
+                    CalculationOrigin = light.CalculationOrigin is Vector3 sourceOrigin && float.IsFinite(sourceOrigin.X) && float.IsFinite(sourceOrigin.Y) && float.IsFinite(sourceOrigin.Z) ? sourceOrigin : null,
                     Lumens = float.IsFinite(light.Lumens) ? Math.Clamp(light.Lumens, 10f, 100000f) : 1000f,
                     Kelvin = float.IsFinite(light.Kelvin) ? Math.Clamp(light.Kelvin, 1000f, 15000f) : 3500f,
                     Downward = float.IsFinite(light.Downward) ? Math.Clamp(light.Downward, 0f, 1f) : 0.7f,

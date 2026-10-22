@@ -31,6 +31,8 @@ public static class ExportedSceneInput
         input.Warnings.Add("Scalar diffuse, electric light only; no daylight, colored bounce, specular or glass transport. Class reflectances are explicit calculation assumptions.");
         input.Warnings.Add("Exported room plan coordinates are rounded to 0.00001 ft for grid layout, preventing float unit-conversion noise from dropping a complete grid row. Physical transport triangles retain their exported positions.");
         input.Warnings.Add("Transparent exported faces are treated as openings. Fixture housing geometry is excluded. Source candela uses full IES output times the chosen LLF, without preview brightness or lumen rescaling.");
+        input.Warnings.Add(set.EmergencyOnly ? "Emergency calculation: only selected fixture instances contribute, at their individual emergency output fractions times LLF." : "Normal calculation: emergency participation/output overrides do not dim normal operation.");
+        input.Warnings.Add($"Calculation-only exclusions: {set.ExcludedElements.Length} elements, {set.ExcludedCategories.Length} categories, {set.ExcludedPoints.Length} manual points. Display visibility is independent.");
         Aabb domain = Aabb.Empty;
         for (int j = 0; j < set.Rooms.Length; j++)
         {
@@ -62,6 +64,7 @@ public static class ExportedSceneInput
         }
         if (proxies > 0) input.Warnings.Add($"{proxies} included element instance(s) use exported proxy geometry.");
         if (transparent) input.Warnings.Add("This domain includes transparent faces, omitted from the opaque transport mesh.");
+        if (input.Emitters.Count == 0 && set.EmergencyOnly) throw new InvalidDataException("No selected emergency fixtures with nonzero output are in this calculation domain.");
         if (input.Emitters.Count == 0) throw new InvalidDataException("No exported light sources are in this calculation domain. Include lighting fixtures/links in the BimGo export.");
         var missing = input.Emitters.Where(e => e.Estimated).ToArray();
         if (missing.Length > 0 && !set.AllowEstimatedPhotometry)
@@ -78,13 +81,17 @@ public static class ExportedSceneInput
             var category = element.CategoryIndex >= 0 && element.CategoryIndex < CategoryCatalog.All.Count ? CategoryCatalog.All[element.CategoryIndex].Key : "other";
             string identity = LightProfileDocument.InstanceKeyOf(scene, index) ?? "element:" + index;
             if (instance != 0) identity += "/instance:" + instance;
+            if (set.ExcludedElements.Contains(identity) || set.ExcludedCategories.Contains(category)) return;
+            var fixture = set.Luminaires.FirstOrDefault(l => l.Key == identity);
+            double output = set.EmergencyOnly ? (fixture?.Emergency == true ? fixture.EmergencyOutput : 0) : 1;
             var bounds = TransformBounds(element.Bounds, transform);
-            if (category == "lightfixtures" && bounds.Overlaps(domain) && !lightsByElement[index].Any())
+            if (output > 0 && category == "lightfixtures" && bounds.Overlaps(domain) && !lightsByElement[index].Any())
                 throw new InvalidDataException($"{element.FamilyType}: this fixture has no exported light source. Re-export it with lighting data before calculating.");
             foreach (var light in lightsByElement[index])
             {
+                if (output <= 0) continue;
                 var source = light.Light;
-                Vector3 p = Vector3.Transform(source.Position, transform);
+                Vector3 p = Vector3.Transform(fixture?.UsePreviewLensPosition == true ? source.Position : source.CalculationOrigin ?? source.Position, transform) + Vector3.UnitZ * (float)((fixture?.HeightOffset ?? 0) * Feet);
                 if (!Inside(domain, p)) continue;
                 string revitKey = source.Ies != null ? LightProfiles.FILE_PREFIX + source.Ies : source.Distribution;
                 string chosen = LightProfileDocument.KeyFor(profiles?.ResolveChoice(LightProfileDocument.InstanceKeyOf(scene, index), element.FamilyType), revitKey);
@@ -93,15 +100,17 @@ public static class ExportedSceneInput
                 if (chosen != null && hash == null && !LightProfiles.IsGeneratedKey(chosen))
                     throw new InvalidDataException($"{element.FamilyType}: the selected preview preset has no full calculation photometry. Select Revit/default or import a full IES file.");
                 if (hash != null && string.IsNullOrWhiteSpace(ies)) throw new InvalidDataException($"Full IES data is missing for {element.FamilyType}. Import it again in LIGHTS.");
+                if (source.CalculationOrigin == null && fixture?.UsePreviewLensPosition != true)
+                    input.Warnings.Add("An older export lacks source-origin metadata; its exported position is retained. Re-export from the updated add-in to use the family/light-source origin.");
                 string provenance = ies == null ? "Explicit analytic estimate from exported output/downward share" : "Full exported/imported IES candela; no preview normalization";
                 // Analytic spot is retained as parameters in provenance and resolved to full IES before solving.
                 if (ies == null && TrySpot(chosen, out int beam, out int field))
                     provenance = $"Explicit analytic spot estimate; beam={beam}; field={field}";
-                input.Emitters.Add(new CalculationEmitter { Key = identity + "/source:" + light.Index, Type = element.FamilyType,
+                input.Emitters.Add(new CalculationEmitter { Key = identity + "/source:" + light.Index, FixtureKey = identity, Type = element.FamilyType,
                     Position = World(p), Nadir = Vector(Vector3.Normalize(Vector3.TransformNormal(source.Aim, transform))),
                     Axis0 = Vector(Vector3.Normalize(Vector3.TransformNormal(source.Across, transform))),
                     Ies = ies, Estimated = ies == null, Provenance = provenance + (source.Estimated ? "; source placement/output marked estimated by exporter" : ""),
-                    Lumens = source.Lumens, Downward = chosen == LightProfiles.HEMISPHERICAL ? 1 : source.Downward, Multiplier = set.LightLossFactor });
+                    Lumens = source.Lumens, Downward = chosen == LightProfiles.HEMISPHERICAL ? 1 : source.Downward, Multiplier = set.LightLossFactor * output });
             }
             if (category == "lightfixtures" || lightsByElement[index].Any()) return;
             bool stair = category is "stairs" or "ramps";

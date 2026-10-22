@@ -298,6 +298,7 @@ namespace BimGo.Format
                 {
                     Element = light.Element,
                     Position = light.Position,
+                    CalculationOrigin = light.CalculationOrigin,
                     Lumens = light.Lumens,
                     Kelvin = light.Kelvin,
                     Downward = light.Downward,

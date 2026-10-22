@@ -25,6 +25,7 @@ public sealed class NativeCalculationRun
     public string ReportHtml { get; init; }
     public byte[] StructuredResults { get; init; }
     public IReadOnlyList<CalcZone> Zones { get; init; }
+    public IReadOnlyDictionary<string, string> ZoneRevisions { get; init; }
     public IReadOnlyList<SolveStats> Statistics { get; init; }
     internal LightingReportData ReportData { get; init; }
     public string HtmlReport(double scaleMax, bool lux = false) => NativeLightingReport.Html(ReportData,Statistics,scaleMax,lux,Input.Emitters);
@@ -33,12 +34,23 @@ public sealed class NativeCalculationRun
 /// <summary>Runs the pinned diffuse kernel entirely offline. Call on a worker with owned immutable input.</summary>
 public static class NativeCalculator
 {
-    public static NativeCalculationRun Run(CalculationInput request, Vector3 displayOrigin, Action<string> progress = null, CancellationToken cancel = default)
+    public static NativeCalculationRun Run(CalculationInput request, Vector3 displayOrigin, Action<string> progress = null, CancellationToken cancel = default, NativeCalculationRun previous = null, IReadOnlyCollection<string> zoneKeys = null)
     {
         // Own every mutable input used by the kernel; callers cannot change an in-flight revision.
         if(request==null)throw new InvalidDataException("Missing calculation input.");
         request.Validate();
         var input = CalculationInput.Parse(request.Serialize());
+        if (zoneKeys != null)
+        {
+            if (previous == null || previous.Input.Set.Id != input.Set.Id || zoneKeys.Count == 0 || zoneKeys.Any(k => !input.Zones.Any(z => z.Key == k)))
+                throw new InvalidDataException("Run the complete set before rerunning selected rooms, and select rooms belonging to that set.");
+            input.PreservedZones = input.Zones.Where(z => !zoneKeys.Contains(z.Key)).Select(room =>
+            {
+                int old = previous.Zones.ToList().FindIndex(z => z.Key == room.Key);
+                if (old < 0) throw new InvalidDataException("An unselected room has no cached result; run the complete set first.");
+                return PreservedCalculationZone.From(previous, old);
+            }).ToList();
+        }
         cancel.ThrowIfCancellationRequested(); progress?.Invoke("Preparing physical geometry and photometry");
         var triangles = input.Triangles.Select(t => new SceneTriangle(V(t.Vertices,0),V(t.Vertices,3),V(t.Vertices,6),(SurfaceClass)t.Class,t.Reflectance,t.Tag)).ToList();
         var options = input.Solver.ToOptions();
@@ -93,11 +105,27 @@ public static class NativeCalculator
         input.SourcesResolved=true;
         input.Warnings=input.Warnings.Distinct(StringComparer.Ordinal).ToList();
         input.Validate(); string hash=input.ContentHash(); byte[] sceneBytes=input.Serialize();
+        if (sceneBytes.Length > 64 * 1024 * 1024) throw new InvalidDataException("The retained calculation input exceeds 64 MB. Run the complete set or reduce the selected domain.");
         var zones=new List<CalcZone>(); var stats=new List<SolveStats>(); bool complete=true; int pointBudget=0;
         TriangleScene walking=input.Set.WalkingSurfaces?new TriangleScene(triangles):null;
         var walkable=input.Triangles.Where(t=>t.Walkable).Select(t=>t.Tag).ToHashSet(); var stairs=input.Triangles.Where(t=>t.Stair).Select(t=>t.Tag).ToHashSet();
+        var runNotes = new List<string>();
+        var zoneRevisions = new Dictionary<string, string>();
+        if (input.PreservedZones.Count > 0)
+        {
+            runNotes.Add("Partial rerun: unselected rooms retain previously calculated values and their own input revision hashes. Rerun the entire set after shared changes affecting other rooms.");
+            complete = input.PreservedZones.All(p => p.Complete);
+        }
         foreach (var room in input.Zones)
         {
+            var preserved = input.PreservedZones.FirstOrDefault(p => p.Definition.Key == room.Key);
+            if (preserved != null)
+            {
+                pointBudget += preserved.Points.Length;
+                if (pointBudget > 100000) throw new InvalidDataException("The combined calculation exceeds 100,000 points. Adjust grid spacing or room selection.");
+                zones.Add(preserved.Restore()); stats.Add(preserved.Diagnostics); zoneRevisions[room.Key] = preserved.InputRevision;
+                continue;
+            }
             cancel.ThrowIfCancellationRequested();
             var zone=new CalcZone { Key=room.Key,Name=room.Name??"",Number=room.Number??"",LevelName=room.Level??"",Kind="Room",
                 BottomZ=room.Bottom,TopZ=room.Top,WorkplaneHeight=input.Set.Workplane,
@@ -110,6 +138,10 @@ public static class NativeCalculator
                 if (room.Bottom+input.Set.Workplane>=room.Top) throw new InvalidDataException($"Workplane lies above {zone.DisplayName}.");
                 zone.GenerateGrid(input.Set.Spacing,input.Set.BoundaryOffset);
             }
+            int excluded = CalculationSelection.ExcludePoints(zone, triangles, input.Set.AutoExcludeFurniture,
+                input.Set.ExcludedPoints.Where(p => p.ZoneKey == room.Key).Select(p => V(p.Position, 0)));
+            if (excluded > 0) runNotes.Add($"{zone.DisplayName}: {excluded} point(s) excluded manually or under furniture; retained workplane heights are unchanged.");
+            zoneRevisions[room.Key] = hash;
             pointBudget+=zone.Points.Count;
             if(zone.Points.Count==0 || pointBudget>100000) throw new InvalidDataException("The calculation grid is empty or exceeds 100,000 points. Adjust spacing, offset, or room selection.");
             foreach(var lum in luminaires)
@@ -128,16 +160,17 @@ public static class NativeCalculator
             RunUtc=utc,Quality=((CalcQuality)input.Set.Quality).ToString(),Interreflection=input.Set.Interreflection },zones,luminaires);
         if(adaptive.Length>0)data.Notes.Add("Patch-size adjustment was required by the domain budget; actual patch sizes are retained in result diagnostics.");
         var header=JsonNode.Parse(data.Json).AsObject();
+        header["zoneRevisions"]=JsonSerializer.SerializeToNode(zoneRevisions);
         header["scenarioHash"]=hash;header["engineVersion"]=EngineIdentity.Version;header["physicalModel"]=EngineIdentity.PhysicalModel;
         header["calculationStatus"]=complete?"Complete (iteration criterion)":"Incomplete (iteration cap)";
         header["inputBasis"]=input.GeometryBasis;
         byte[] headerBytes=Encoding.UTF8.GetBytes(header.ToJsonString());
         var display=LightingCalcFiles.Parse(headerBytes,data.Body,"native_"+input.Set.Id,displayOrigin,utc,out string error)
             ??throw new InvalidDataException("Native result conversion failed: "+error);
-        foreach(var warning in input.Warnings.Concat(data.Notes))display.Warnings.Add(warning);
+        foreach(var warning in input.Warnings.Concat(runNotes).Concat(data.Notes))display.Warnings.Add(warning);
         var report=new LightingReportData { ProjectName="BimGo calculation · "+input.Model,CalcSetName=input.Set.Name,RunAt=utc,Interreflection=input.Set.Interreflection,RoomPages=false,
             Method="Pinned CPU scalar diffuse photometry/interreflection; exported model geometry" };
-        report.Zones.AddRange(zones);report.Warnings.AddRange(input.Warnings);report.Warnings.AddRange(data.Notes);
+        report.Zones.AddRange(zones);report.Warnings.AddRange(input.Warnings);report.Warnings.AddRange(runNotes);report.Warnings.AddRange(data.Notes);
         report.LuminairePositions.AddRange(luminaires.Select(l=>l.Position));
         foreach (var group in Enumerable.Range(0,input.Emitters.Count).GroupBy(i=>new {
             input.Emitters[i].Type,input.Emitters[i].Ies,input.Emitters[i].Multiplier,input.Emitters[i].Estimated,input.Emitters[i].Provenance }))
@@ -152,15 +185,16 @@ public static class NativeCalculator
         report.Settings.Add(new("Status",header["calculationStatus"].ToString()));
         report.Settings.Add(new("Grid / workplane (ft)",$"{input.Set.Spacing:R} / {input.Set.Workplane:R}"));
         report.Settings.Add(new("Reflectance C/W/F/furniture",$"{input.Set.Ceiling:R}/{input.Set.Wall:R}/{input.Set.Floor:R}/{input.Set.Furniture:R}"));
+        report.Settings.Add(new("Zone input revisions", string.Join("; ", zoneRevisions.Select(p => p.Key + ": " + p.Value))));
         report.Settings.Add(new("LLF",input.Set.LightLossFactor.ToString("R",CultureInfo.InvariantCulture)));
         report.Settings.Add(new("Quality",$"{options.PatchSize:R} ft patches; {options.PatchRays} patch rays; {options.GatherRays} gather rays; stop {options.Convergence:R}; max {options.MaxIterations} iterations"));
         var structured=JsonSerializer.SerializeToUtf8Bytes(new { Format="bimgo-calculation-results",Version=1,ScenarioHash=hash,EngineVersion=EngineIdentity.Version,EngineIdentity.PhysicalModel,EngineIdentity.UpstreamCommit,
             RunUtc=utc,Complete=complete,InputBasis=input.GeometryBasis,Warnings=report.Warnings,
-            Zones=zones.Select(z=>new { z.Key,z.Name,z.Number,Points=z.Points.Select((p,i)=>new {Position=new[]{p.X,p.Y,p.Z},Fc=Finite(z.Illuminance[i]),DirectFc=Finite(z.Direct[i])}),
+            Zones=zones.Select(z=>new { z.Key,z.Name,z.Number,InputRevision=zoneRevisions[z.Key],Points=z.Points.Select((p,i)=>new {Position=new[]{p.X,p.Y,p.Z},Fc=Finite(z.Illuminance[i]),DirectFc=Finite(z.Direct[i])}),
                 Patches=z.Surfaces.Select(p=>new { A=new[]{p.A.X,p.A.Y,p.A.Z},B=new[]{p.B.X,p.B.Y,p.B.Z},C=new[]{p.C.X,p.C.Y,p.C.Z},Normal=new[]{p.Normal.X,p.Normal.Y,p.Normal.Z},p.Reflectance,p.Illuminance,LuminanceCdM2=p.Exitance*10.763910/Math.PI,p.Covered }),
                 Statistics=new {z.Statistics.Count,z.Statistics.Average,z.Statistics.Minimum,z.Statistics.Maximum} }),Diagnostics=stats },CalculationInput.Json);
         return new NativeCalculationRun { ScenarioHash=hash,Complete=complete,RunUtc=utc,Input=input,Display=display,Header=headerBytes,Body=data.Body,SceneBytes=sceneBytes,
-            Zones=zones,Statistics=stats,PointCsv=PointCsv(zones,hash),ReportData=report,
+            Zones=zones,Statistics=stats,ZoneRevisions=zoneRevisions,PointCsv=PointCsv(zones,hash),ReportData=report,
             ReportHtml=NativeLightingReport.Html(report,stats,display.ScaleMax,sources:input.Emitters),StructuredResults=structured };
     }
     static double? Finite(double v)=>double.IsFinite(v)?v:null;
