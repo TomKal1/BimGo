@@ -163,7 +163,9 @@ namespace BimGo.Format
                     ReadFormatVersion = manifest.FormatVersion,
                     Thumbnail = ReadThumbnail(zip),
                     Clashes = ReadBytes(zip, BimGoFormat.ENTRY_CLASHES),
-                    LightingCalcs = ReadLightingCalcs(zip) // fork build LC-B
+                    LightingCalcs = ReadLightingCalcs(zip), // fork build LC-B
+                    NativeLighting = ReadBytes(zip, NativeLightingFiles.Entry),
+                    LightingScenes = ReadNativeLightingScenes(zip)
                 };
             }
             catch (Exception ex)
@@ -579,6 +581,21 @@ namespace BimGo.Format
         /// Fork build LC-B: the lighting calc results entries (<c>lighting-calcs/*.json</c> + <c>.bin</c>) as raw bytes, up to
         /// <see cref="LightingCalcFiles.MAX_EMBED_BYTES"/> together; null when there are none. Parsed when the CALCS view needs them.
         /// </summary>
+        private static Dictionary<string, byte[]> ReadNativeLightingScenes(ZipArchive zip)
+        {
+            var scenes = new Dictionary<string, byte[]>();
+            long total = 0;
+            foreach (var entry in zip.Entries)
+            {
+                if (!NativeLightingFiles.IsSceneEntry(entry.FullName)) continue;
+                if (entry.Length > 64L * 1024 * 1024) throw new InvalidDataException("Native calculation input exceeds 64 MB.");
+                total += entry.Length;
+                if (total > 256L * 1024 * 1024) throw new InvalidDataException("Native calculation inputs exceed 256 MB.");
+                scenes[entry.FullName] = ReadBytes(zip, entry.FullName);
+            }
+            return scenes;
+        }
+
         private static Dictionary<string, byte[]> ReadLightingCalcs(ZipArchive zip)
         {
             Dictionary<string, byte[]> entries = null;

@@ -196,6 +196,10 @@ namespace BimGo.Format
                 DateTime.TryParse(Str(run, "utc"), CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out DateTime runUtc);
                 var result = new LightingCalcResult
                 {
+                    ScenarioHash = Str(root, "scenarioHash", null),
+                    EngineVersion = Str(root, "engineVersion", null),
+                    PhysicalModel = Str(root, "physicalModel", null),
+                    CalculationStatus = Str(root, "calculationStatus", null),
                     SetId = Str(set, "id"),
                     SetName = Str(set, "name", System.IO.Path.GetFileNameWithoutExtension(source ?? string.Empty)),
                     Tool = Str(root, "tool"),
@@ -236,12 +240,15 @@ namespace BimGo.Format
             ReadOnlySpan<byte> body = bin;
             var points = new Vector3[pointCount];
             var values = new float[pointCount];
+            var direct = new float[pointCount];
             for (int i = 0; i < pointCount; i++)
             {
                 int at = (int)(pointOffset + (long)i * POINT_FLOATS * 4);
                 points[i] = LightingCalcs.ToScene(F(body, at), F(body, at + 4), F(body, at + 8), origin);
                 float e = F(body, at + 12);
                 values[i] = float.IsFinite(e) ? e : float.NaN;
+                float d = F(body, at + 16);
+                direct[i] = float.IsFinite(d) ? d : float.NaN;
             }
 
             var patches = new CalcPatch[patchCount];
@@ -340,6 +347,7 @@ namespace BimGo.Format
                 Loops = loops.ToArray(),
                 Points = points,
                 PointValues = values,
+                DirectValues = direct,
                 Patches = patches,
                 Isolines = isolines.ToArray()
             };

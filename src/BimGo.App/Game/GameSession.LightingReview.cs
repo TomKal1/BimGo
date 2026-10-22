@@ -427,6 +427,19 @@ namespace BimGo.Game
                 _renderer.ReleaseReflectionHistory();
             }
             y += S(32);
+            if (SmallButton(f, input, x, y, w, S(30), "CALCULATE THIS ROOM IN BIMGO"))
+            {
+                int selectedRoom = _reviewRoom?.Room ?? -1;
+                if (selectedRoom >= 0)
+                {
+                    if (NativeSet == null) CreateNativeSet();
+                    if (NativeSet != null) { SetNativeRooms(NativeSet, new[] { selectedRoom }); NativeSetupChanged(); RunNativeCalculation(); }
+                }
+                else { _reviewNotice = "Select an exported model room first, or open the lighting workspace."; }
+            }
+            y += S(38);
+            if(SmallButton(f,input,x,y,w,S(30),"LIGHTING WORKSPACE…"))OpenLightingWorkspace();
+            y+=S(38);
             if (_calc != null)
             {
                 _ui.Text(f.Small, x, y, "RESULT DISPLAY", UiTheme.ACCENT);

@@ -1360,6 +1360,7 @@ namespace BimGo.Game
         /// </summary>
         public void Dispose()
         {
+            DisposeNativeLighting();
             try { AbortVideo(); } catch (Exception ex) { Utilities.Log_Utils.Write($"Video stop failed: {ex.Message}"); }
             EndFrameLimit();
             if (_tourActive) { try { StopTour(finished: false); } catch (Exception ex) { Utilities.Log_Utils.Write($"Tour stop failed: {ex.Message}"); } }

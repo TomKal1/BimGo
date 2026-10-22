@@ -125,6 +125,9 @@ namespace BimGo.Scene
         /// <summary>Total illuminance per point (fc; NaN = inside an obstruction, skipped).</summary>
         public float[] PointValues { get; init; } = Array.Empty<float>();
 
+        /// <summary>Direct illuminance from the same result revision, in footcandles.</summary>
+        public float[] DirectValues { get; init; } = Array.Empty<float>();
+
         public CalcPatch[] Patches { get; init; } = Array.Empty<CalcPatch>();
 
         public CalcIsoline[] Isolines { get; init; } = Array.Empty<CalcIsoline>();
@@ -165,6 +168,12 @@ namespace BimGo.Scene
 
         /// <summary>The tool that wrote it ("WW Tools 1.0.0.0").</summary>
         public string Tool { get; init; } = string.Empty;
+
+        public string ScenarioHash { get; init; }
+        public string EngineVersion { get; init; }
+        public string PhysicalModel { get; init; }
+        public string CalculationStatus { get; init; }
+        public bool IsNative => !string.IsNullOrEmpty(ScenarioHash) && Tool.StartsWith("BimGo calculation", StringComparison.Ordinal);
 
         public string ModelTitle { get; init; } = string.Empty;
 

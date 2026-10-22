@@ -1,0 +1,232 @@
+{
+  "inspectedDate": "2026-10-21 (America/New_York)",
+  "repository": "TomKal1/WWTools",
+  "defaultBranch": "main",
+  "defaultCommit": "a6d723e32541faf580d44c85d008001f7c48a141",
+  "branchCount": 44,
+  "integrationBranch": "claude/zealous-brahmagupta-n6ies6",
+  "integrationCommit": "7c307ebed155dacba0a567e23ee639b2b793c54d",
+  "method": "GitHub connector branch listing and recursive trees for all 44 branch heads; full file reads pinned to integration commit.",
+  "branches": [
+    {
+      "name": "Add-QuickerPlaces-Handler",
+      "commit": "2b6dcbadd98e33584e13a4a5b4fc3af6505a152c",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "Clean-and-add-progress-to-PDF-export",
+      "commit": "413f91a3a286e45c371fe670274f164023073628",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "Leader-end-manager-added",
+      "commit": "d6208368a11b9a2e73369a91f1a7fcb853e435ab",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "Other-session-changes",
+      "commit": "b711e711f8eb6509134cb540d8a875e224fe0b5a",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "Round-Elevation-Select-Titleblock-Origin-Mark-Added",
+      "commit": "10f92feabf340a3dc7387f00e06899ea0318f1e3",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "Slope-Sanitary-Changes",
+      "commit": "3d599d7862b3947d1be5deb770d26ba3ca307425",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "Slope-Sanitary-Fittings",
+      "commit": "8595ecb1646cb2c2f5bef1c7b5f6091b0a68bbe3",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "airflow-spike-snowdon-towers",
+      "commit": "991e76c3715ad60f51658f6e97e6bb3ae14b5f79",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "ccr-0ce19ac2-mbslen",
+      "commit": "0fed3e2bada39f32ac1560ea6ea95758ffc942d0",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "ccr-5a67e152-er5hgg",
+      "commit": "0b6a6496b8e1b614f66ead7eee59ac98d2b1ceab",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "ccr-8b9b0a08-snjedi",
+      "commit": "a644c281e8e1e2224cec01670a48b4b8feb0d561",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "ccr-44b5d8be-x3uuq7",
+      "commit": "0da4612b0a47903a61cafc0dd567e68327f6154f",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "ccr-66c2ae89-pxc5k8",
+      "commit": "87da3e75870d1edfe62e928970127aca36014a34",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "ccr-72da2946-wyloh7",
+      "commit": "1d8d7a157dde7041ed29d88d63494808991ff356",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "ccr-445b79bb-lj1ha8",
+      "commit": "41289a2a3544a3f528ff8225160b8893b658ea70",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "ccr-a67d61c3-pqiu1q",
+      "commit": "c870d5ff1424e06df202469532d94b55b342fb16",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "claude/batch-export-dwg-pdf-t27n4u",
+      "commit": "ed9517e3a5e27c8d69e4a7969f00f1b9c5c76c97",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "claude/damper-air-terminal-targeting-jnoa5y",
+      "commit": "3266030c38c97d57ce3fc4446b979b77a56fb57a",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "claude/duct-endcap-tool-n98d7y",
+      "commit": "32a47cdbd431c85189550510826f2c29f4a557a9",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "claude/filter-creator-ctrl-click-visibility-kj97sx",
+      "commit": "06974f08ab52064dc67f3774f49a915c05ae74c5",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "claude/fitting-rotation-tool-kd7avu",
+      "commit": "814a258871316eb69ce3457ee0c5bbd8196c9d6e",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "claude/linked-rooms-filled-region-gssyof",
+      "commit": "7acfb7ebb14d14294bd93bbe39bcfce6d0ac9fb0",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "claude/model-group-phase-params-u0pclo",
+      "commit": "d85f02f7bb502dc81058d19eed73d3607867bf92",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "claude/optimistic-cori-g3qor9",
+      "commit": "1a995a55160be2a04afd193248e343c67410e389",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "claude/optimistic-hugle",
+      "commit": "49f8b3766023d3f3d8ae8510e3b51742faa8d29d",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "claude/stoic-knuth-pkvqzo",
+      "commit": "3b0ee034cdb59fa8e87c4ce7376e0396c4c32579",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "claude/upbeat-tesla-4oqd6g",
+      "commit": "a4e5c1376c11c80d848b76765fcc7eb4ad3ac8e0",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "claude/vibrant-einstein-0wbelo",
+      "commit": "06fd1170acc9696822ea4331676cb171d9560679",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "claude/wonderful-hugle",
+      "commit": "e248eaea046de831eb58d6c79343d6e855795e97",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "claude/zealous-brahmagupta-n6ies6",
+      "commit": "7c307ebed155dacba0a567e23ee639b2b793c54d",
+      "hasResultsProducer": true
+    },
+    {
+      "name": "claude/zen-bardeen-4yisdx",
+      "commit": "9f8bd99cf9b2a72302547837d9af0a1ebd81996f",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "codex/add-functionality-to-edit-family-parameters",
+      "commit": "86e033afb24601da0b15664cafb3a019b94edb75",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "codex/behavior-preserving-cleanup",
+      "commit": "5bfdb10b8acfbac309bcd9fbed9d245aae31cbdb",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "codex/clarify-import/export-csv-purpose",
+      "commit": "d57e8ecdad9e927a9bb98983fde298e1ad7ffc99",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "codex/evaluate-wwtools-parameter-template-system",
+      "commit": "81a9efa55aaf76273459a0d2ec3c59ec717f1ef4",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "codex/evaluate-wwtools-parameter-template-system-tbfrq9",
+      "commit": "559c3449595cf8fd3c4700f2a6e61c521f2b99bb",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "codex/find-method-to-push-excel-parameters-to-revit",
+      "commit": "b7039f55f9b1c0f676f6967ba649422a035bd8a8",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "codex/find-method-to-push-excel-parameters-to-revit-pvjfi7",
+      "commit": "7559dd945278023726961df6b3a646013a4ccddb",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "codex/fix-load-button-error",
+      "commit": "7889b442702eaab57c4b0be6e3183177592d69da",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "codex/move-tools-to-parameters-panel-and-rename-buttons",
+      "commit": "f40fb2941a40e3e3184c0d9844ac1a5c3ed4065c",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "codex/work-on-phase-6-of-parameter-manager",
+      "commit": "a757860fa58dba201800543dcbe33e71257c4aac",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "main",
+      "commit": "a6d723e32541faf580d44c85d008001f7c48a141",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "revit-2027-support",
+      "commit": "178e72a4bf10fad331e307174d2a00dfde7c82da",
+      "hasResultsProducer": false
+    },
+    {
+      "name": "titleblock-drawing-area",
+      "commit": "dbde42c55fc44a69c65c8459bb74ccef8b11b3e9",
+      "hasResultsProducer": false
+    }
+  ]
+}

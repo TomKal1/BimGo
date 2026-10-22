@@ -1,0 +1,194 @@
+{
+  "repository": "TomKal1/WWTools",
+  "branch": "claude/zealous-brahmagupta-n6ies6",
+  "commit": "7c307ebed155dacba0a567e23ee639b2b793c54d",
+  "physicalModel": "wwtools-diffuse-v1",
+  "sourcePolicy": "Upstream snapshot; no local solver edits. Relocate maintenance to a shared release before dual-product adoption.",
+  "files": [
+    {
+      "path": "src/WWTools/Calcs/Engine/CalcLog.cs",
+      "local": "Upstream/Calcs/Engine/CalcLog.cs",
+      "gitBlob": "f3a20c3d115c32baf3f96da4568c6ea7587d9129"
+    },
+    {
+      "path": "src/WWTools/Calcs/Engine/NaturalComparer.cs",
+      "local": "Upstream/Calcs/Engine/NaturalComparer.cs",
+      "gitBlob": "fe4a22a9629f5ae84f1bdf0f3654d0f88d7115ab"
+    },
+    {
+      "path": "src/WWTools/Calcs/Engine/PngImage.cs",
+      "local": "Upstream/Calcs/Engine/PngImage.cs",
+      "gitBlob": "94115316de6e048254717a786de0de6177dc80be"
+    },
+    {
+      "path": "src/WWTools/Calcs/Engine/Polygon.cs",
+      "local": "Upstream/Calcs/Engine/Polygon.cs",
+      "gitBlob": "062e913b5fbf16fdbc0d93140faebaf86b8e3226"
+    },
+    {
+      "path": "src/WWTools/Calcs/Engine/ReportHtml.cs",
+      "local": "Upstream/Calcs/Engine/ReportHtml.cs",
+      "gitBlob": "812593b71696d92e2bf20b0bb11a49a11aaea426"
+    },
+    {
+      "path": "src/WWTools/Calcs/Engine/Vec3.cs",
+      "local": "Upstream/Calcs/Engine/Vec3.cs",
+      "gitBlob": "4904cd0cd455554fd2a6f4a2999b2c8b1acf1704"
+    },
+    {
+      "path": "src/WWTools/Calcs/Engine/ZoneFootprint.cs",
+      "local": "Upstream/Calcs/Engine/ZoneFootprint.cs",
+      "gitBlob": "8d516905ce3f33c930690d9402dfbaf6ff51f9f6"
+    },
+    {
+      "path": "src/WWTools/Calcs/Engine/ZoneStatistics.cs",
+      "local": "Upstream/Calcs/Engine/ZoneStatistics.cs",
+      "gitBlob": "1fd0a8d88fceba71a22c331ae4630471db3988f4"
+    },
+    {
+      "path": "src/WWTools/Calcs/ICalcSet.cs",
+      "local": "Upstream/Calcs/ICalcSet.cs",
+      "gitBlob": "a0ea892a6aa8fe86a774c369d466a48db01dbc32"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/BimGoFolders.cs",
+      "local": "Upstream/Lighting/Engine/BimGoFolders.cs",
+      "gitBlob": "57adde21d769af1579229c6d7f10328f5fa1dda8"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/CalcResultsFile.cs",
+      "local": "Upstream/Lighting/Engine/CalcResultsFile.cs",
+      "gitBlob": "9a40c1a0345a9d1d8e8d64719ca1ec98acd82746"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/CalcZone.cs",
+      "local": "Upstream/Lighting/Engine/CalcZone.cs",
+      "gitBlob": "37bcd376668768d6f86bb5918386b4f3e0126a61"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/CeilingGrid.cs",
+      "local": "Upstream/Lighting/Engine/CeilingGrid.cs",
+      "gitBlob": "8848ce81dc1bd880c7ead0cc6013d244bca6977d"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/EmbeddedIesDecoder.cs",
+      "local": "Upstream/Lighting/Engine/EmbeddedIesDecoder.cs",
+      "gitBlob": "d874020f0200313d80eb797871b0d5b39c7315d4"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/IesFileIndex.cs",
+      "local": "Upstream/Lighting/Engine/IesFileIndex.cs",
+      "gitBlob": "2845ee1eed005eafe53f96e5aabae0141d9d2b3b"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/IesPhotometry.cs",
+      "local": "Upstream/Lighting/Engine/IesPhotometry.cs",
+      "gitBlob": "0fc773587baaae66257bdb7570a4a99dd089f0c3"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/Isolux.cs",
+      "local": "Upstream/Lighting/Engine/Isolux.cs",
+      "gitBlob": "ebea274d76c54c76d87882a54cb0842ce1fa9016"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/LayoutArea.cs",
+      "local": "Upstream/Lighting/Engine/LayoutArea.cs",
+      "gitBlob": "89544f1a607bb46fa897d91034d3955f614fa7f1"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/LayoutEstimate.cs",
+      "local": "Upstream/Lighting/Engine/LayoutEstimate.cs",
+      "gitBlob": "5094a062304a21f220fc1056f5f7b3120552188d"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/LayoutGenerator.cs",
+      "local": "Upstream/Lighting/Engine/LayoutGenerator.cs",
+      "gitBlob": "1f1a6d8de068d9af8648692c78cde7cac4664259"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/LayoutSession.cs",
+      "local": "Upstream/Lighting/Engine/LayoutSession.cs",
+      "gitBlob": "9ed3d54dfbf9896a896730f15f2a29a023a64c35"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/LightingReport.cs",
+      "local": "Upstream/Lighting/Engine/LightingReport.cs",
+      "gitBlob": "0103606c50781f6d5b469a270bf8ec9172e29fbc"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/LightingSolver.cs",
+      "local": "Upstream/Lighting/Engine/LightingSolver.cs",
+      "gitBlob": "e97f2a166bb28823e070a24c4653a64616316614"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/LightingTarget.cs",
+      "local": "Upstream/Lighting/Engine/LightingTarget.cs",
+      "gitBlob": "95e10fc57354cdf3212c3503feb7f50ece2d43c3"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/Luminaire.cs",
+      "local": "Upstream/Lighting/Engine/Luminaire.cs",
+      "gitBlob": "ca8fe7fec6437813447534ef9bc6360ae22aab22"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/LuminairePlacement.cs",
+      "local": "Upstream/Lighting/Engine/LuminairePlacement.cs",
+      "gitBlob": "ef764494ab028411e9f2f357823149261fe36645"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/PlanLabels.cs",
+      "local": "Upstream/Lighting/Engine/PlanLabels.cs",
+      "gitBlob": "178ba0f961f4da4aac7a538b2529da48b77db0de"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/PointColors.cs",
+      "local": "Upstream/Lighting/Engine/PointColors.cs",
+      "gitBlob": "260ce90c4cdf2a7a6ecf27aa3345c50366ece66f"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/ResultsTable.cs",
+      "local": "Upstream/Lighting/Engine/ResultsTable.cs",
+      "gitBlob": "2e9a2ae03df50809a12263ba4fc4e099dd206aaf"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/RoomRender.cs",
+      "local": "Upstream/Lighting/Engine/RoomRender.cs",
+      "gitBlob": "75b2433cc10e7ecd2370047c06e960d150eca04b"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/RoomReport.cs",
+      "local": "Upstream/Lighting/Engine/RoomReport.cs",
+      "gitBlob": "4af2abfbcfd062b3db8be0347ec9a37631f0808b"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/RoomStatistics.cs",
+      "local": "Upstream/Lighting/Engine/RoomStatistics.cs",
+      "gitBlob": "5aaa34c2350a32529663d91e1ecb50331d549c98"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/SurfacePatch.cs",
+      "local": "Upstream/Lighting/Engine/SurfacePatch.cs",
+      "gitBlob": "d8274fcc6fcd758d68307b391e32eea2be4fb02c"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/TriangleScene.cs",
+      "local": "Upstream/Lighting/Engine/TriangleScene.cs",
+      "gitBlob": "c1dc9bf5c2e7257d47cef09f7ee2732fdd1944e8"
+    },
+    {
+      "path": "src/WWTools/Lighting/Engine/WalkingSurfaces.cs",
+      "local": "Upstream/Lighting/Engine/WalkingSurfaces.cs",
+      "gitBlob": "4218b97641e76ab2861e6dadda473bd85938fcb6"
+    },
+    {
+      "path": "src/WWTools/Lighting/LightingSettings.cs",
+      "local": "Upstream/Lighting/LightingSettings.cs",
+      "gitBlob": "ff8e8783114f311d5d2cf2c75260e55d6534bf81"
+    },
+    {
+      "path": "src/WWTools/Lighting/StoredPhotometry.cs",
+      "local": "Upstream/Lighting/StoredPhotometry.cs",
+      "gitBlob": "b756b5270b610ef47f6b637dd7d27d8910ae2997"
+    }
+  ]
+}

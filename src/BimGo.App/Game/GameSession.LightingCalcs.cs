@@ -13,7 +13,7 @@ namespace BimGo.Game
     /// <list type="bullet">
     /// <item>WW Tools' Lighting Calc writes each calc set's solved results (format "lighting-calc-results",
     /// <see cref="LightingCalcFiles"/>) into this model's folder (<c>lighting-calcs\</c>), and a .bimgo carries them as
-    /// optional entries. These are the calc's own numbers, the same as its report and sheets: BimGo doesn't calculate.</item>
+    /// optional entries. Imported runs retain the producer's saved values; BimGo's native calculator creates separate runs.</item>
     /// <item>Views (Shift+J cycles; Pause → LIGHTS → CALCS): off (the default), illuminance (the surfaces in WW Tools' blue → red
     /// false colour on the sheets' scale), luminance (the surfaces shaded grey, ρE/π) and points only; the points, their
     /// values near the eye and the isolux lines on top. The legend sits in the left column with the stats of the zone you
@@ -93,6 +93,7 @@ namespace BimGo.Game
         /// </summary>
         private void InitialiseLightingCalcs()
         {
+            InitialiseNativeLighting();
             if (IsFileMode)
             {
                 _calcEmbedded = _options.Document?.LightingCalcs;
@@ -169,6 +170,7 @@ namespace BimGo.Game
         private void LoadCalc(string name, CalcDisplayMode mode, bool update)
         {
             if (name == null || (_calcLoad != null && !_calcLoad.IsCompleted)) { return; }
+            LeaveNativeCalculation();
             _calcLoadName = name;
             _calcLoadMode = mode;
             _calcLoadIsUpdate = update;
@@ -244,7 +246,7 @@ namespace BimGo.Game
         /// </summary>
         private void PollCalcFolder()
         {
-            if (_calcFolder == null || _clock < _calcNextPoll) { return; }
+            if (_nativeShown || _calcFolder == null || _clock < _calcNextPoll) { return; }
             _calcNextPoll = _clock + CALC_POLL_SECONDS;
             try
             {
@@ -341,9 +343,7 @@ namespace BimGo.Game
                 if (_calcLoad != null) { return; }
                 if (_calcNames.Count == 0)
                 {
-                    Toast(IsFileMode
-                        ? "This file has no lighting calc results (export from a model whose WW Tools Lighting Calc wrote them)"
-                        : "No lighting calc results for this model yet: run a Lighting Calc in WW Tools (Write results for BimGo)", 5f);
+                    Toast("No saved calculation yet. Pause → LIGHTS → BIMGO CALCULATOR → NEW SET → RUN IN BIMGO.", 5f);
                     return;
                 }
                 LoadCalc(_calcNames[0], CalcDisplayMode.Illuminance, update: false);
@@ -385,6 +385,7 @@ namespace BimGo.Game
         {
             if (!photo)
             {
+                TickNativeLighting();
                 FinishCalcLoad();
                 PollCalcFolder();
             }
@@ -565,7 +566,8 @@ namespace BimGo.Game
             string unit = lux ? "lx" : "fc";
             bool luminance = _calcMode == CalcDisplayMode.Luminance;
             string luminanceUnit = lux ? "cd/m²" : "fL";
-            _calcLegendTitle = (luminance ? $"SURFACE LUMINANCE [{luminanceUnit}]" : $"ILLUMINANCE [{unit}]") + $" · {_calc.SetName.ToUpperInvariant()}";
+            string source = _calc.IsNative ? (_nativeShown ? "BIMGO" : "BIMGO SAVED · UNVERIFIED") : "IMPORTED SAVED RUN";
+            _calcLegendTitle = (luminance ? $"SURFACE LUMINANCE [{luminanceUnit}]" : $"ILLUMINANCE [{unit}]") + $" · {source} · {_calc.SetName.ToUpperInvariant()}";
             _calcSurfaceCaption = luminance
                 ? (lux ? "Surfaces: luminance · candelas/m² (cd/m²)" : "Surfaces: luminance · foot-lamberts (fL)")
                 : _calcMode == CalcDisplayMode.Illuminance ? $"Surfaces: illuminance [{unit}]" : "Surfaces: material colours";
@@ -622,14 +624,14 @@ namespace BimGo.Game
             _ui.Text(f.Small, ix, y, HINT_CALC_CYCLE.Text, UiTheme.TEXT_FAINT); // its own line: beside the title it runs into it
             y += S(22);
 
-            if (SmallButton(f, input, ix, y, iw, S(32), "REVIEW MODEL · ISO / PLAN / FLY")) { OpenLightingReview(); }
-            y += S(42);
+            _ui.Text(f.Small, ix, y, "SAVED / IMPORTED RESULTS", UiTheme.ACCENT);
+            y += S(24);
 
             if (_calcNames.Count == 0)
             {
                 y += _ui.TextWrapped(f.Small, ix, y, iw, IsFileMode
-                    ? "This file has no lighting calc results. Export it again from a model whose WW Tools Lighting Calc wrote them, or IMPORT… a results file."
-                    : "No results for this model yet. In WW Tools, run a Lighting Calc with “Write results for BimGo” ticked: it shows up here within seconds. Or IMPORT… a results file (… - Results.json beside the report).",
+                    ? "No saved results. Choose a native set and RUN IN BIMGO, or IMPORT… a saved results file."
+                    : "Choose a native set and RUN IN BIMGO. WWTools saved runs can also be imported or reloaded from this model's results folder.",
                     UiTheme.TEXT_FAINT, maxLines: 5) + S(6);
                 if (SmallButton(f, input, ix, y, S(110), S(26), "IMPORT…")) { ImportCalc(); }
                 y += S(34);
@@ -637,33 +639,13 @@ namespace BimGo.Game
                 return y + S(14);
             }
 
-            // The sets: one row each (the shown one lit)
-            for (int i = 0; i < _calcNames.Count; i++)
+            if(DropdownButton(f,input,ix,y,iw,S(32),_calcLoad!=null?"Loading…":_calc?.SetName??"Select saved results",IsDropdownOpen(this,DROP_NATIVE_SET)))
             {
-                string name = _calcNames[i];
-                bool shown = name == _calcName && _calc != null;
-                bool loading = _calcLoad != null && _calcLoadName == name;
-                bool hover = Hover(input, ix, y - S(2), iw, S(22));
-                if (shown || hover) { _ui.Rect(ix - S(4), y - S(3), iw + S(8), S(24), shown ? Rgba.WithAlpha(UiTheme.ACCENT, 0.16f) : UiTheme.HOVER); }
-                string label = shown ? _calc.SetName : DisplayCalcName(name);
-                _ui.TextWrapped(f.Body, ix, y, iw - S(150), label, shown ? UiTheme.ACCENT : UiTheme.TEXT, maxLines: 1);
-                Text.Clear();
-                if (loading) { Text.Append("loading…"); }
-                else if (shown)
-                {
-                    Text.AppendGrouped(_calc.Zones.Length).Append(_calc.Zones.Length == 1 ? " zone" : " zones");
-                    if (_calc.RunUtc > DateTime.MinValue) { Text.Append(" · ").Append(_calc.RunUtc.ToLocalTime().ToString("d MMM HH:mm", System.Globalization.CultureInfo.CurrentCulture)); }
-                }
-                else if (_calcTimes[i] > DateTime.MinValue) { Text.Append(_calcTimes[i].ToLocalTime().ToString("d MMM HH:mm", System.Globalization.CultureInfo.CurrentCulture)); }
-                _ui.TextRight(f.Small, ix + iw, y + S(2), Text.Span, UiTheme.TEXT_MUTED);
-                if (hover && input.LeftPressed && !shown && !loading)
-                {
-                    Sound.Play(SoundId.UiClick);
-                    LoadCalc(name, _calcMode == CalcDisplayMode.Off ? CalcDisplayMode.Illuminance : _calcMode, update: false);
-                }
-                y += S(24);
+                var names=_calcNames.ToArray();
+                OpenDropdown(this,DROP_NATIVE_SET,ix,y,iw,S(32),names.Select(DisplayCalcName).ToArray(),Array.IndexOf(names,_calcName),
+                    i=>{if(names[i]!=_calcName||_calc==null)LoadCalc(names[i],_calcMode==CalcDisplayMode.Off?CalcDisplayMode.Illuminance:_calcMode,update:false);});
             }
-            y += S(6);
+            y += S(42);
 
             // The view
             int mode = Segmented(f, input, ix, y, iw, CALC_MODE_OPTIONS, (int)_calcMode);
@@ -719,10 +701,11 @@ namespace BimGo.Game
             string about = _calc == null ? null
                 : $"{_calc.Tool} · {(_calc.Interreflections ? "with interreflections" : "direct light only")} · " +
                   $"{_calc.PointCount:N0} points, {_calc.PatchCount:N0} surface patches · the scale is the sheets' ({LightingCalcs.Display(_calc.ScaleMax, CalcInLux):0.#} {(CalcInLux ? "lx" : "fc")} at 100 %)";
-            if (about != null) { y += _ui.TextWrapped(f.Small, ix, y, iw, about, UiTheme.TEXT_FAINT, maxLines: 3) + S(4); }
+            if (_calc?.IsNative == true) about = $"{(_nativeShown ? "BimGo calculation" : "Saved BimGo calculation · inputs not reverified")} · revision {_calc.ScenarioHash[..Math.Min(8,_calc.ScenarioHash.Length)]} · {_calc.CalculationStatus} · {_calc.PointCount:N0} points";
+            if (about != null) { y += _ui.TextWrapped(f.Small, ix, y, iw, about, UiTheme.TEXT_FAINT, maxLines: 4) + S(4); }
             if (_calcNotice != null) { y += _ui.TextWrapped(f.Small, ix, y, iw, _calcNotice, UiTheme.MEASURE_LABEL, maxLines: 3) + S(4); }
             y += _ui.TextWrapped(f.Small, ix, y, iw,
-                "These are the calc's own results (the same as its report and sheets). Switch the calc off to see BimGo's lights, shaped by each fixture's IES file.",
+                "Analysis overlays show the selected saved or native run. The live fixture preview is separate. Luminance gray is normalized analysis, not calculated material appearance.",
                 UiTheme.TEXT_FAINT, maxLines: 3);
 
             // A divider before the fixture types

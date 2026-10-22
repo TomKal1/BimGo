@@ -43,6 +43,12 @@ namespace BimGo.Format
         /// </summary>
         public Dictionary<string, byte[]> LightingCalcs { get; set; }
 
+        /// <summary>Native calculator definitions, independent of imported results.</summary>
+        public byte[] NativeLighting { get; set; }
+
+        /// <summary>Canonical native input revisions, keyed by lighting-scenes/&lt;set id&gt;.json.</summary>
+        public Dictionary<string, byte[]> LightingScenes { get; set; }
+
         /// <summary>The sun / shadow state, or null if the file has none (defaults then come from the site).</summary>
         public SunSettings Sun { get; init; }
 

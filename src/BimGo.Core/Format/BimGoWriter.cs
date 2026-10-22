@@ -39,6 +39,10 @@ namespace BimGo.Format
             try
             {
                 if (document?.Scene == null) { throw new ArgumentException("There is no model to save."); }
+                if (document.NativeLighting?.Length > NativeLightingFiles.MaxBytes) throw new InvalidDataException("Native calculator setup exceeds 4 MB.");
+                if (document.LightingScenes != null && (document.LightingScenes.Values.Any(b => b?.LongLength > 64L*1024*1024)
+                    || document.LightingScenes.Values.Sum(b => b?.LongLength ?? 0) > 256L*1024*1024))
+                    throw new InvalidDataException("Native calculation inputs exceed the 64 MB per scene / 256 MB total limit.");
 
                 string folder = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path));
                 if (!string.IsNullOrEmpty(folder)) { Directory.CreateDirectory(folder); }
@@ -94,6 +98,20 @@ namespace BimGo.Format
                     if (document.Measurements != null && !document.Measurements.IsEmpty) // Round Y-A
                     {
                         WriteJson(zip, BimGoFormat.ENTRY_MEASUREMENTS, document.Measurements, BimGoFormat.JSON_INDENTED);
+                    }
+                    if (document.NativeLighting != null && document.NativeLighting.Length <= NativeLightingFiles.MaxBytes)
+                    {
+                        using Stream native = zip.CreateEntry(NativeLightingFiles.Entry, CompressionLevel.Fastest).Open();
+                        native.Write(document.NativeLighting);
+                    }
+                    if (document.LightingScenes != null)
+                    {
+                        foreach (var entry in document.LightingScenes)
+                        {
+                            if (!NativeLightingFiles.IsSceneEntry(entry.Key) || entry.Value == null) continue;
+                            using Stream nativeScene = zip.CreateEntry(entry.Key, CompressionLevel.Fastest).Open();
+                            nativeScene.Write(entry.Value);
+                        }
                     }
                     if (document.LightingCalcs != null) // fork build LC-B: lighting calc results, written as held
                     {

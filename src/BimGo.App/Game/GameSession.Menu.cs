@@ -409,6 +409,7 @@ namespace BimGo.Game
         /// </summary>
         private void BuildPauseMenu()
         {
+            if (_lightingOpen) { BuildLightingWorkspace(); return; }
             // The markup editor, the push report and the comment list take over the whole menu while open
             if (IsMarkupOpen)
             {
@@ -526,7 +527,7 @@ namespace BimGo.Game
             bool libraryButton = HasLibrary;
             bool roomsButton = Scene.Rooms.Length > 0;
             int sessionButtons = 4 + (IsFileMode ? 3 : 1) + (_live != null ? 2 : 0); // + CONTROLS (input round B2), + Revit views (X-E)
-            int reviewButtons = 8 + (hiddenThings > 0 ? 1 : 0) + (texturesButton ? 1 : 0) + (libraryButton ? 1 : 0) + (roomsButton ? 1 : 0);
+            int reviewButtons = 9 + (hiddenThings > 0 ? 1 : 0) + (texturesButton ? 1 : 0) + (libraryButton ? 1 : 0) + (roomsButton ? 1 : 0);
             int rows = twoStacks ? Math.Max(sessionButtons, reviewButtons) : sessionButtons + reviewButtons;
             float step = Math.Clamp((endY - S(12) - buttonsTop) / rows, S(32), S(44));
             float buttonH = step - S(6);
@@ -578,6 +579,8 @@ namespace BimGo.Game
                 y = buttonsTop;
             }
             if (MenuButton(f, x, y, stackW, "ISO VIEW", false, false, height: buttonH, compact: true)) { OpenLightingReview(); return; }
+            y += step;
+            if (MenuButton(f, x, y, stackW, "LIGHTING", false, false, height: buttonH, compact: true)) { OpenLightingWorkspace(); return; }
             y += step;
             if (MenuButton(f, x, y, stackW, CommentsMenuLabel(), false, false, height: buttonH, compact: true)) { OpenComments(); return; }
             y += step;
@@ -862,7 +865,10 @@ namespace BimGo.Game
             {
                 case 1: BuildReflectionsTab(f, input, ix, y, iw); break;
                 case 2: BuildAppearanceTab(f, input, ix, y, iw); break;
-                case 3: bottom = MathF.Max(bottom, BuildLightsTab(f, input, ix, BuildLightingCalcsSection(f, input, ix, y, iw), iw) + S(12)); break; // X-D1: a list, so it can run long; LC-B: CALCS first
+                case 3:
+                    _ui.TextWrapped(f.Body,ix,y,iw,"Calculation setup, results, reports and fixture photometry have their own lighting workspace.",UiTheme.TEXT_SOFT,maxLines:4);
+                    if(SmallButton(f,input,ix,y+S(90),iw,S(36),"OPEN LIGHTING WORKSPACE"))OpenLightingWorkspace();
+                    break;
                 default: bottom = MathF.Max(bottom, BuildDisplayTab(f, input, ix, y, iw) + S(12)); break; // Y-D1: it can run long
             }
             EndScroll(_settingsScroll, input, bottom);
