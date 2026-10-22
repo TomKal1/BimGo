@@ -591,7 +591,8 @@ namespace BimGo.Game
         {
             if (!input.LeftDown && (_activeSlider == SLIDER_CALC_OPACITY || _activeSlider == SLIDER_CALC_SCALE)) { _activeSlider = -1; }
             _ui.Text(f.Small, ix, y, "LIGHTING CALCS", UiTheme.ACCENT, S(0.5f));
-            _ui.TextRight(f.Small, ix + iw, y, HINT_CALC_CYCLE.Text, UiTheme.TEXT_FAINT);
+            y += S(20);
+            _ui.Text(f.Small, ix, y, HINT_CALC_CYCLE.Text, UiTheme.TEXT_FAINT); // its own line: beside the title it runs into it
             y += S(22);
 
             if (_calcNames.Count == 0)

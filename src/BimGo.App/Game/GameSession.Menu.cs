@@ -1203,7 +1203,8 @@ namespace BimGo.Game
                 bool hover = Hover(input, sx, y, segment, h);
                 _ui.Rect(sx, y, segment, h, on ? UiTheme.ACCENT : hover ? Rgba.Hex(0xFFFFFF, 0.08f) : UiTheme.CONTROL);
                 _ui.Outline(sx, y, segment, h, MathF.Max(1f, UiScale), UiTheme.CONTROL_BORDER);
-                _ui.TextCentred(f.Body, sx + segment * 0.5f, y + h * 0.5f - f.Body.LineHeight * 0.5f, options[i], on ? Rgba.Hex(0x06232A) : UiTheme.TEXT);
+                var font = UiBatch.Measure(f.Body, options[i]) > segment - S(8) ? f.Small : f.Body; // a long label steps down rather than spill into its neighbours
+                _ui.TextCentred(font, sx + segment * 0.5f, y + h * 0.5f - font.LineHeight * 0.5f, options[i], on ? Rgba.Hex(0x06232A) : UiTheme.TEXT);
                 if (hover && input.LeftPressed && !on)
                 {
                     selected = i;
