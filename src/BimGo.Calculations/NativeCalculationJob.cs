@@ -19,13 +19,13 @@ public static class NativeCalculationJob
     /// <summary>Handle failures inside user code, before they escape into Task infrastructure.</summary>
     public static NativeCalculationOutcome Execute(SceneData scene, NativeLightingSet definition,
         CalculationEdits edits, LightProfileDocument profiles, Vector3 origin,
-        Action<string> progress = null, CancellationToken cancel = default)
+        Action<string> progress = null, CancellationToken cancel = default, NativeCalculationRun previous = null, IReadOnlyCollection<string> zoneKeys = null)
     {
         try
         {
             cancel.ThrowIfCancellationRequested();
             var input = ExportedSceneInput.Build(scene, definition, edits, profiles, cancel);
-            return new() { Run = NativeCalculator.Run(input, origin, progress, cancel) };
+            return new() { Run = NativeCalculator.Run(input, origin, progress, cancel, previous, zoneKeys) };
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested)
         {

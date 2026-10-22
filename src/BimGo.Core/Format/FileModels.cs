@@ -347,6 +347,8 @@ namespace BimGo.Format
         /// <summary>Position (scene-local metres).</summary>
         public Vector3 Position { get; set; }
 
+        public Vector3? CalculationOrigin { get; set; }
+
         /// <summary>Luminous flux (lm).</summary>
         public float Lumens { get; set; } = 1000f;
 

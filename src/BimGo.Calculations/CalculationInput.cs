@@ -24,6 +24,7 @@ public sealed class CalculationInput
     public List<CalculationEmitter> Emitters { get; set; } = new();
     public List<string> Warnings { get; set; } = new();
     public bool SourcesResolved { get; set; }
+    public List<PreservedCalculationZone> PreservedZones { get; set; } = new();
     public static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     public byte[] Serialize() => JsonSerializer.SerializeToUtf8Bytes(this, Json);
     public string ContentHash() => Convert.ToHexString(SHA256.HashData(Serialize())).ToLowerInvariant();
@@ -55,6 +56,14 @@ public sealed class CalculationInput
             if (triangle == null || triangle.Vertices == null || triangle.Vertices.Length != 9 || triangle.Vertices.Any(v => !double.IsFinite(v))
                 || triangle.Class < 0 || triangle.Class > 3 || !double.IsFinite(triangle.Reflectance) || triangle.Reflectance < -1 || triangle.Reflectance > .95)
                 throw new InvalidDataException("Invalid physical triangle.");
+        if (PreservedZones == null || PreservedZones.Count > Zones.Count || PreservedZones.Select(z => z?.Definition?.Key).Distinct().Count() != PreservedZones.Count)
+            throw new InvalidDataException("Invalid retained room list.");
+        foreach (var saved in PreservedZones)
+        {
+            if (saved == null) throw new InvalidDataException("Missing retained room result.");
+            saved.Validate();
+            if (!Zones.Any(z => z.Key == saved.Definition.Key)) throw new InvalidDataException("Retained result is outside the calculation set.");
+        }
         foreach (var emitter in Emitters)
         {
             if (emitter == null || string.IsNullOrWhiteSpace(emitter.Key) || string.IsNullOrWhiteSpace(emitter.Provenance) || !double.IsFinite(emitter.Multiplier) || emitter.Multiplier < 0 || emitter.Multiplier > 1
@@ -118,6 +127,7 @@ public sealed class CalculationEmitter
 {
     public string Key { get; set; }
     public string Type { get; set; }
+    public string FixtureKey { get; set; }
     public double[] Position { get; set; }
     public double[] Nadir { get; set; }
     public double[] Axis0 { get; set; }
