@@ -190,7 +190,8 @@ namespace BimGo.Game
             var settings = new VisibilitySettings
             {
                 GroundOffset = MathF.Abs(groundOffset) > 0.001f ? MathF.Round(groundOffset * 1000f) / 1000f : null,
-                Section = _section.IsActive ? _section.Clone() : null,
+                Section = _reviewOpen ? (_reviewPreviousSection?.IsActive == true ? _reviewPreviousSection.Clone() : null)
+                    : _section.IsActive ? _section.Clone() : null,
                 Grids = GridsForSave(), // grids round A
                 Appearance = AppearanceForSave() // colour round A
             };

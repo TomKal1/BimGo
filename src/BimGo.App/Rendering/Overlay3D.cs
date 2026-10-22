@@ -36,6 +36,8 @@ namespace BimGo.Rendering
 
         private Vector3 _eye;
         private float _pixelScale;
+        private bool _orthographic;
+        private Vector3 _forward;
 
         /// <summary>
         /// Creates GL objects.
@@ -67,6 +69,8 @@ namespace BimGo.Rendering
             _count = 0;
             _eye = camera.Position;
             _pixelScale = camera.PixelScale;
+            _orthographic = camera.IsOrthographic;
+            _forward = camera.Forward;
         }
 
         /// <summary>
@@ -80,14 +84,14 @@ namespace BimGo.Rendering
             dir /= length;
 
             Vector3 mid = (a + b) * 0.5f;
-            Vector3 toEye = _eye - mid;
+            Vector3 toEye = _orthographic ? -_forward : _eye - mid;
             Vector3 side = Vector3.Cross(dir, toEye);
             float sideLength = side.Length();
             if (sideLength < 1e-6f) { return; }
             side /= sideLength;
 
-            float halfA = 0.5f * widthPixels * _pixelScale * MathF.Max(Vector3.Distance(_eye, a), 0.05f);
-            float halfB = 0.5f * widthPixels * _pixelScale * MathF.Max(Vector3.Distance(_eye, b), 0.05f);
+            float halfA = 0.5f * widthPixels * _pixelScale * (_orthographic ? 1f : MathF.Max(Vector3.Distance(_eye, a), 0.05f));
+            float halfB = 0.5f * widthPixels * _pixelScale * (_orthographic ? 1f : MathF.Max(Vector3.Distance(_eye, b), 0.05f));
             Quad(a - side * halfA, a + side * halfA, b + side * halfB, b - side * halfB, colour);
         }
 
@@ -127,14 +131,14 @@ namespace BimGo.Rendering
         /// </summary>
         public void Dot(Vector3 centre, float radiusPixels, uint colour, int segments = 16)
         {
-            Vector3 toEye = _eye - centre;
+            Vector3 toEye = _orthographic ? -_forward : _eye - centre;
             float distance = toEye.Length();
             if (distance < 1e-4f) { return; }
             Vector3 forward = toEye / distance;
             Vector3 up = MathF.Abs(forward.Z) > 0.95f ? Vector3.UnitX : Vector3.UnitZ;
             Vector3 u = Vector3.Normalize(Vector3.Cross(up, forward));
             Vector3 v = Vector3.Cross(forward, u);
-            float r = radiusPixels * _pixelScale * distance;
+            float r = radiusPixels * _pixelScale * (_orthographic ? 1f : distance);
             Disc(centre, u, v, r, r, colour, segments);
         }
 

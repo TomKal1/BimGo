@@ -80,7 +80,7 @@ namespace BimGo.Game
         private CalcZoneResult _calcZone;
         private float _calcNextZoneCheck;
         private int _calcTextKey = int.MinValue;
-        private string _calcLegendTitle, _calcZoneLine, _calcZoneVerdict;
+        private string _calcLegendTitle, _calcZoneLine, _calcZoneVerdict, _calcSurfaceCaption, _calcPointCaption;
         private readonly string[] _calcTicks = new string[5];
 
         #endregion
@@ -230,7 +230,11 @@ namespace BimGo.Game
             if (_calcStartZonePending)
             {
                 _calcStartZonePending = false;
-                StandInCalcZone(_calcOpenRequest?.Zone);
+                OpenLightingReview();
+                foreach (ReviewRoom room in _reviewRooms)
+                {
+                    if (room.Zone != null && room.Zone.Key == _calcOpenRequest?.Zone) { ReviewSelectRoom(room); break; }
+                }
             }
         }
 
@@ -301,7 +305,7 @@ namespace BimGo.Game
                 "points" => CalcDisplayMode.Points,
                 _ => CalcDisplayMode.Illuminance
             };
-            _calcStartZonePending = !string.IsNullOrEmpty(request.Zone);
+            _calcStartZonePending = true; // WW Tools opens the review workspace, optionally on its requested room
             LoadCalc(_calcNames[index], mode, update: false);
             return true;
         }
@@ -359,8 +363,11 @@ namespace BimGo.Game
             _ => "off"
         };
 
+        /// <summary>Materials in review retain point results; Off still disables all results in the walkthrough.</summary>
+        private CalcDisplayMode CalcOverlayMode => _reviewOpen && _calcMode == CalcDisplayMode.Off ? CalcDisplayMode.Points : _calcMode;
+
         /// <summary>True while the calc view shows something.</summary>
-        private bool CalcShowing => _calc != null && _calcMode != CalcDisplayMode.Off;
+        private bool CalcShowing => _calc != null && CalcOverlayMode != CalcDisplayMode.Off;
 
         /// <summary>Show values in lux (metric units) or footcandles.</summary>
         private static bool CalcInLux => !UnitFormat.IsImperial;
@@ -389,9 +396,10 @@ namespace BimGo.Game
             }
 
             float scaleMax = CalcScaleMax;
+            CalcDisplayMode mode = CalcOverlayMode;
             var hash = new HashCode();
             hash.Add(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(_calc));
-            hash.Add((int)_calcMode);
+            hash.Add((int)mode);
             hash.Add(_calcSurfaces);
             hash.Add(_calcPoints);
             hash.Add(_calcIsolines);
@@ -400,9 +408,9 @@ namespace BimGo.Game
             if (key != _calcBuildKey)
             {
                 _calcBuildKey = key;
-                _calcOverlay.Build(_calc, _calcMode, _calcSurfaces, _calcPoints, _calcIsolines && _calcMode != CalcDisplayMode.Luminance, _calc.ScaleMin, scaleMax);
+                _calcOverlay.Build(_calc, mode, _calcSurfaces, _calcPoints, _calcIsolines && mode != CalcDisplayMode.Luminance, _calc.ScaleMin, scaleMax);
             }
-            _calcOverlay.Draw(Camera, _calcMode == CalcDisplayMode.Points ? 1f : _calcOpacity);
+            _calcOverlay.Draw(Camera, mode == CalcDisplayMode.Points ? 1f : _calcOpacity, _sectionPlanes, _sectionCount);
         }
 
         /// <summary>The top of the false colour scale (fc): the sheets' scale × the panel's scale slider.</summary>
@@ -411,11 +419,13 @@ namespace BimGo.Game
         /// <summary>
         /// The values of the points near the eye (within 8 m, on screen and not behind the model), as 2D labels under the rest of
         /// the HUD: the nearer half of the reach first, and a label that would overlap one already drawn is skipped, so a fine
-        /// grid seen at a glance stays readable. At most <see cref="CALC_MAX_LABELS"/> a frame; allocation-free.
+        /// grid seen at a glance stays readable. Review views instead sample across screen-space cells for even coverage.
+        /// At most <see cref="CALC_MAX_LABELS"/> a frame; allocation-free.
         /// </summary>
         private void DrawCalcLabels(FontAtlas f)
         {
             if (!CalcShowing || !_calcValues || !_calcPoints || _uiHidden) { return; }
+            if (_reviewOpen) { DrawReviewCalcLabels(f); return; }
             int drawn = 0;
             float near = CALC_LABEL_DISTANCE * 0.5f;
             drawn = DrawCalcLabelBand(f, 0f, near, drawn);
@@ -436,15 +446,17 @@ namespace BimGo.Game
             uint shadow = Rgba.Hex(0x0C0E12, 0.85f);
             foreach (CalcZoneResult zone in _calc.Zones)
             {
+                if (_reviewOpen && _reviewRoom != null && !ReferenceEquals(zone, _reviewRoom.Zone)) { continue; }
                 // Zones whose plan box is out of reach are skipped whole
                 float dx = MathF.Max(0f, MathF.Max(zone.PlanMin.X - eye.X, eye.X - zone.PlanMax.X));
                 float dy = MathF.Max(0f, MathF.Max(zone.PlanMin.Y - eye.Y, eye.Y - zone.PlanMax.Y));
                 if (dx * dx + dy * dy > to2) { continue; }
-                for (int i = 0; i < zone.Points.Length && drawn < CALC_MAX_LABELS; i++)
+                for (int i = 0; i < zone.Points.Length && i < zone.PointValues.Length && drawn < CALC_MAX_LABELS; i++)
                 {
                     float value = zone.PointValues[i];
                     if (float.IsNaN(value)) { continue; }
                     Vector3 p = zone.Points[i];
+                    if (SectionCut.IsCut(_sectionPlanes, _sectionCount, p)) { continue; }
                     Vector3 offset = p - eye;
                     float d2 = offset.LengthSquared();
                     if (d2 > to2 || d2 <= from2 || d2 < 0.04f) { continue; }
@@ -457,8 +469,10 @@ namespace BimGo.Game
                         crowded = MathF.Abs(_calcLabelSpots[k].X - screen.X) < apartX && MathF.Abs(_calcLabelSpots[k].Y - y) < apartY;
                     }
                     if (crowded) { continue; }
-                    float d = MathF.Sqrt(d2);
-                    if (Pick(eye, offset / d, d - 0.08f, out _)) { continue; } // behind a wall, a desk…
+                    Vector3 origin = Camera.IsOrthographic ? p - Camera.Forward * Vector3.Dot(p - eye, Camera.Forward) : eye;
+                    Vector3 ray = p - origin;
+                    float d = ray.Length();
+                    if (d < 0.08f || Pick(origin, ray / d, d - 0.08f, out _)) { continue; } // behind visible geometry
                     Text.Clear().Append(LightingCalcs.Display(value, lux), lux ? 0 : 1);
                     _ui.TextCentred(f.Small, screen.X + S(1), y + S(1), Text.Span, shadow);
                     _ui.TextCentred(f.Small, screen.X, y, Text.Span, UiTheme.TEXT);
@@ -476,7 +490,7 @@ namespace BimGo.Game
         {
             if (!CalcShowing) { return bottom; }
             UpdateCalcTexts();
-            float w = S(380), full = S(_calcZoneLine != null ? 98 : 78), small = S(UiTheme.LEGEND_COLLAPSED_HEIGHT);
+            float w = S(380), full = CalcLegendHeight, small = S(UiTheme.LEGEND_COLLAPSED_HEIGHT);
             bool open = !collapsed && bottom - top >= full;
             float h = open ? full : small;
             if (bottom - h < top) { return bottom; }
@@ -485,11 +499,14 @@ namespace BimGo.Game
             return y - S(12);
         }
 
+        /// <summary>Full legend height includes the separate point quantity/unit caption in HUDs and exports.</summary>
+        private float CalcLegendHeight => S(_calcZoneLine != null ? 120 : 100);
+
         /// <summary>The legend card at a place (the HUD column, or a screenshot's corner).</summary>
         private void DrawCalcLegendAt(FontAtlas f, float x, float y, float w, float h, bool open)
         {
             _ui.Panel(x, y, w, h, UiTheme.PANEL_STRONG, UiTheme.PANEL_BORDER);
-            _ui.Text(f.Small, x + S(12), open ? y + S(8) : y + MathF.Round((h - f.Small.LineHeight) * 0.5f), _calcLegendTitle, UiTheme.ACCENT, S(0.5f));
+            _ui.TextWrapped(f.Small, x + S(12), open ? y + S(8) : y + MathF.Round((h - f.Small.LineHeight) * 0.5f), w - S(24), _calcLegendTitle, UiTheme.ACCENT, maxLines: 1);
             if (!open) { return; }
 
             float barX = x + S(12), barY = y + S(30), barW = w - S(24), barH = S(14);
@@ -509,9 +526,10 @@ namespace BimGo.Game
                 _ui.Rect(tx - S(0.5f), barY + barH, S(1), S(4), UiTheme.TEXT_SOFT);
                 _ui.TextCentred(f.Small, tx, barY + barH + S(6), _calcTicks[t], UiTheme.TEXT_SOFT);
             }
+            _ui.TextWrapped(f.Small, barX, barY + barH + S(26), barW, _calcPointCaption, UiTheme.TEXT_SOFT, maxLines: 1);
             if (_calcZoneLine != null)
             {
-                float zy = barY + barH + S(26);
+                float zy = barY + barH + S(48);
                 float verdictW = _calcZoneVerdict == null ? 0f : UiBatch.Measure(f.Small, _calcZoneVerdict) + S(8);
                 _ui.TextWrapped(f.Small, barX, zy, barW - verdictW, _calcZoneLine, UiTheme.TEXT, maxLines: 1);
                 if (_calcZoneVerdict != null)
@@ -524,7 +542,11 @@ namespace BimGo.Game
         /// <summary>The legend's title, ticks and the zone line: made again only when the set, view, units, scale or zone change.</summary>
         private void UpdateCalcTexts()
         {
-            if (_clock >= _calcNextZoneCheck)
+            if (_reviewOpen)
+            {
+                _calcZone = _reviewRoom?.Zone;
+            }
+            else if (_clock >= _calcNextZoneCheck)
             {
                 _calcNextZoneCheck = _clock + 0.25f;
                 _calcZone = LightingCalcs.ZoneAt(_calc, _player.Feet + new Vector3(0f, 0f, 0.3f));
@@ -542,14 +564,19 @@ namespace BimGo.Game
             bool lux = CalcInLux;
             string unit = lux ? "lx" : "fc";
             bool luminance = _calcMode == CalcDisplayMode.Luminance;
-            _calcLegendTitle = $"LIGHTING CALC · {_calc.SetName.ToUpperInvariant()} · " + (luminance ? "LUMINANCE [CD/M²]" : $"ILLUMINANCE [{unit.ToUpperInvariant()}]");
+            string luminanceUnit = lux ? "cd/m²" : "fL";
+            _calcLegendTitle = (luminance ? $"SURFACE LUMINANCE [{luminanceUnit}]" : $"ILLUMINANCE [{unit}]") + $" · {_calc.SetName.ToUpperInvariant()}";
+            _calcSurfaceCaption = luminance
+                ? (lux ? "Surfaces: luminance · candelas/m² (cd/m²)" : "Surfaces: luminance · foot-lamberts (fL)")
+                : _calcMode == CalcDisplayMode.Illuminance ? $"Surfaces: illuminance [{unit}]" : "Surfaces: material colours";
+            _calcPointCaption = lux ? "Points / values: illuminance · lux (lx)" : "Points / values: illuminance · foot-candles (fc)";
             for (int t = 0; t < _calcTicks.Length; t++)
             {
                 float f = t / (float)(_calcTicks.Length - 1);
                 if (luminance)
                 {
-                    float l = f * 2f * _calc.LuminanceReference;
-                    _calcTicks[t] = l.ToString(l < 10f ? "0.0" : "0", System.Globalization.CultureInfo.InvariantCulture);
+                    float l = LightingCalcs.DisplayLuminance(f * 2f * _calc.LuminanceReference, metric: lux);
+                    _calcTicks[t] = l.ToString(!lux || l < 10f ? "0.0" : "0", System.Globalization.CultureInfo.InvariantCulture);
                 }
                 else
                 {
@@ -565,7 +592,7 @@ namespace BimGo.Game
                 CalcStats s = _calcZone.Stats;
                 string V(float fc) => LightingCalcs.Display(fc, lux).ToString(lux ? "0" : "0.0", System.Globalization.CultureInfo.InvariantCulture);
                 string ratio = float.IsNaN(s.AverageToMinimum) ? "N/A" : s.AverageToMinimum.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + ":1";
-                _calcZoneLine = $"{_calcZone.DisplayName} · Avg {V(s.Average)} · Max {V(s.Maximum)} · Min {V(s.Minimum)} {unit} · Avg:Min {ratio}";
+                _calcZoneLine = $"{_calcZone.DisplayName} · Illuminance · Avg {V(s.Average)} · Max {V(s.Maximum)} · Min {V(s.Minimum)} {unit} · Avg:Min {ratio}";
                 _calcZoneVerdict = _calcZone.Target?.Result?.ToUpperInvariant();
             }
         }
@@ -575,7 +602,7 @@ namespace BimGo.Game
         {
             if (!CalcShowing) { return; }
             UpdateCalcTexts();
-            float h = S(_calcZoneLine != null ? 98 : 78);
+            float h = CalcLegendHeight;
             DrawCalcLegendAt(_ui.Atlas, S(20), height - S(20) - h, S(380), h, open: true);
         }
 
@@ -594,6 +621,9 @@ namespace BimGo.Game
             y += S(20);
             _ui.Text(f.Small, ix, y, HINT_CALC_CYCLE.Text, UiTheme.TEXT_FAINT); // its own line: beside the title it runs into it
             y += S(22);
+
+            if (SmallButton(f, input, ix, y, iw, S(32), "REVIEW MODEL · ISO / PLAN / FLY")) { OpenLightingReview(); }
+            y += S(42);
 
             if (_calcNames.Count == 0)
             {

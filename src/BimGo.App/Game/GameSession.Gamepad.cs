@@ -21,7 +21,7 @@ namespace BimGo.Game
         {
             if (_tourActive || _video != null || IsCapturingKey || IsMappingPad) { return PadCursorMode.Off; }
             if (_paused || IsEditingComment || _markupOpen) { return PadCursorMode.Menu; }
-            if (_photoOpen || _sectionOpen || _sunHoursOpen || _sunPanelOpen || _clashModeOn || _gridsPanelOpen || _pathEditOn || _fixtureDockOpen) { return PadCursorMode.Editor; }
+            if (_photoOpen || _sectionOpen || _sunHoursOpen || _sunPanelOpen || _clashModeOn || _gridsPanelOpen || _pathEditOn || _fixtureDockOpen || _reviewOpen) { return PadCursorMode.Editor; }
             return PadCursorMode.Off;
         }
 
@@ -35,6 +35,7 @@ namespace BimGo.Game
             if (_video != null) { return InputCatalog.SIT_VIDEO; }
             if (_paused) { return InputCatalog.SIT_PAUSE; }
             if (_markupOpen) { return InputCatalog.SIT_MARKUP; }
+            if (_reviewOpen) { return InputCatalog.SIT_LIGHTING_REVIEW; }
             if (_sunHoursOpen) { return InputCatalog.SIT_STUDY; }
             if (_photoOpen) { return InputCatalog.SIT_PHOTO; }
             if (_sectionOpen) { return InputCatalog.SIT_SECTION; }

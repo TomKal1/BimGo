@@ -101,6 +101,7 @@ namespace BimGo.Game
         /// </summary>
         private void DrawGridNodes()
         {
+            if (_reviewOpen) { return; } // lighting review's optional reference grids omit navigation nodes
             if (!_grids.Nodes || _gridLevels.Count == 0) { return; }
             EnsureGridNodes();
             if (_gridNodes.Length == 0) { return; }

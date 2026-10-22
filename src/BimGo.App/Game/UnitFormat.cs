@@ -8,7 +8,8 @@ namespace BimGo.Game
     /// The app's current display units (review tools round) and allocation-free formatting into a
     /// <see cref="TextBuffer"/>. One walkthrough runs per app, and the choice is per machine, so it lives here rather
     /// than being passed to every gun and panel. Set from the settings when a session starts and when the pause menu
-    /// or the home screen changes it. Lux and daylight % never change with it.
+    /// or the home screen changes it. Daylight-study lux and daylight % never change with it;
+    /// imported lighting calculations display illuminance and luminance in the selected unit system.
     /// </summary>
     internal static class UnitFormat
     {

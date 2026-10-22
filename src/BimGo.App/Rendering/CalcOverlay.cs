@@ -29,7 +29,7 @@ namespace BimGo.Rendering
         private int _capacityOnGpu;
         private uint _vao, _vbo;
         private ShaderProgram _program;
-        private int _viewProj, _alpha;
+        private int _viewProj, _alpha, _sectionPlanes, _sectionCount;
         private bool _uploaded;
 
         // Unit disc corners (made once)
@@ -44,9 +44,11 @@ namespace BimGo.Rendering
         public void Initialise()
         {
             if (_program != null) { return; }
-            _program = ShaderProgram.Create("calc overlay", Shaders.OVERLAY_VS, Shaders.OVERLAY_FS);
+            _program = ShaderProgram.Create("calc overlay", Shaders.CALC_VS, Shaders.CALC_FS);
             _viewProj = _program.Uniform("uViewProj");
             _alpha = _program.Uniform("uAlpha");
+            _sectionPlanes = _program.Uniform("uSectionPlanes[0]");
+            _sectionCount = _program.Uniform("uSectionCount");
 
             _vao = Gl.GenVertexArray();
             Gl.BindVertexArray(_vao);
@@ -198,7 +200,7 @@ namespace BimGo.Rendering
         /// <summary>
         /// Draws the buffer depth-tested against the model (no depth writes), at <paramref name="opacity"/>.
         /// </summary>
-        public void Draw(FpsCamera camera, float opacity)
+        public void Draw(FpsCamera camera, float opacity, Vector4[] sectionPlanes, int sectionCount)
         {
             if (_count == 0 || _program == null) { return; }
             Gl.BindVertexArray(_vao);
@@ -220,6 +222,8 @@ namespace BimGo.Rendering
             _program.Use();
             Gl.UniformMatrix4(_viewProj, camera.ViewProjection);
             Gl.Uniform1(_alpha, Math.Clamp(opacity, 0f, 1f));
+            Gl.Uniform1(_sectionCount, sectionCount);
+            if (sectionCount > 0) { Gl.Uniform4(_sectionPlanes, sectionCount, sectionPlanes); }
 
             Gl.Enable(Gl.BLEND);
             Gl.BlendFunc(Gl.SRC_ALPHA, Gl.ONE_MINUS_SRC_ALPHA);

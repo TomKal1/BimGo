@@ -179,6 +179,24 @@ namespace BimGo.Tests
         }
 
         [TestMethod]
+        public void DisplayLuminance_UsesFootlambertsForImperialAndCandelasForMetric()
+        {
+            // NIST SP 811 B.9: 1 footlambert = 3.426259 cd/m².
+            Assert.AreEqual(1f, LightingCalcs.DisplayLuminance(3.426259f, metric: false), 1e-6f);
+            Assert.AreEqual(10f, LightingCalcs.DisplayLuminance(34.26259f, metric: false), 1e-5f);
+            Assert.AreEqual(34.26259f, LightingCalcs.DisplayLuminance(34.26259f, metric: true));
+            Assert.AreEqual(0f, LightingCalcs.DisplayLuminance(0f, metric: false));
+        }
+
+        [TestMethod]
+        public void DiffuseSurface_AtTenFootcandlesAndHalfReflectance_IsFiveFootlamberts()
+        {
+            CalcPatch patch = new() { Illuminance = 10f, Reflectance = 0.5f };
+            Assert.AreEqual(5f, LightingCalcs.DisplayLuminance(patch.Luminance, metric: false), 1e-5f);
+            Assert.AreEqual(10f, LightingCalcs.Display(patch.Illuminance, lux: false), "point illuminance remains a different quantity");
+        }
+
+        [TestMethod]
         public void Corners_AverageOnTheSamePlaneAndSkipCovered()
         {
             LightingCalcResult r = Parse(new SpecFile(), out string error);

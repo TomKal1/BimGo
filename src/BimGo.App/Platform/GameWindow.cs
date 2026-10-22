@@ -508,11 +508,13 @@ namespace BimGo.Platform
 
                 case Win32.WM_LBUTTONDOWN:
                     Win32.SetCapture(hwnd);
+                    Input.OnMouseMove(Win32.LoWordSigned(lParam), Win32.HiWordSigned(lParam));
                     Input.OnLeft(true);
                     return true;
 
                 case Win32.WM_LBUTTONUP:
-                    Win32.ReleaseCapture();
+                    if (!Input.MiddleDown) { Win32.ReleaseCapture(); }
+                    Input.OnMouseMove(Win32.LoWordSigned(lParam), Win32.HiWordSigned(lParam));
                     Input.OnLeft(false);
                     return true;
 
@@ -526,6 +528,9 @@ namespace BimGo.Platform
 
                 case Win32.WM_MBUTTONDOWN:
                 case Win32.WM_MBUTTONUP:
+                    if (msg == Win32.WM_MBUTTONDOWN) { Win32.SetCapture(hwnd); }
+                    else if (!Input.LeftDown) { Win32.ReleaseCapture(); }
+                    Input.OnMouseMove(Win32.LoWordSigned(lParam), Win32.HiWordSigned(lParam));
                     Input.OnButton(Scene.KeyCodes.MIDDLE_MOUSE, msg == Win32.WM_MBUTTONDOWN);
                     return true;
 

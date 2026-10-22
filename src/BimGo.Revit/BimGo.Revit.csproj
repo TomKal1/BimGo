@@ -153,10 +153,17 @@
 		<ItemGroup>
 			<DeployFiles Include="$(BinAddinDir)**\*.*" Exclude="$(BinAddinDir)**\*.pdb" />
 		</ItemGroup>
-		<Copy SourceFiles="@(DeployFiles)" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true" />
+		<!-- Revit holds loaded DLLs until it exits. Keep the staged build usable and report a deferred install. -->
+		<Copy SourceFiles="@(DeployFiles)" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true"
+			  Retries="0" ContinueOnError="WarnAndContinue">
+			<Output TaskParameter="CopiedFiles" ItemName="InstalledRevitFiles" />
+		</Copy>
+		<Warning Condition="'@(InstalledRevitFiles->Count())' != '@(DeployFiles->Count())'" Code="BIMGO001"
+				 Text="BimGo compiled, but Revit add-in installation is incomplete. Close Revit and rebuild to install the updated DLLs. The compiled files are available in $(BinAddinDir)." />
 
 		<!-- Copy .addin file to addin folder -->
-		<Copy SourceFiles="$(AddinName).addin" DestinationFiles="$(RevitAddinFile)" SkipUnchangedFiles="true" />
+		<Copy SourceFiles="$(AddinName).addin" DestinationFiles="$(RevitAddinFile)" SkipUnchangedFiles="true"
+			  Retries="0" ContinueOnError="WarnAndContinue" />
 	</Target>
 
 </Project>

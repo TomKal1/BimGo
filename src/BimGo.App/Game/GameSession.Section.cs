@@ -71,7 +71,8 @@ namespace BimGo.Game
         {
             _sectionCount = _section.LocalPlanes(Scene.OriginOffset, _sectionPlanes);
             _renderer?.SetSection(_sectionPlanes, _sectionCount, _section.BoxOn);
-            VisibilityChanged();
+            _renderer?.ResetOcclusion();
+            if (!_reviewOpen) { VisibilityChanged(); }
         }
 
         /// <summary>Restores the cut saved with the model (no save is triggered).</summary>
@@ -201,6 +202,7 @@ namespace BimGo.Game
         /// <summary>P: opens the box editor (fitting a box to the current level the first time).</summary>
         private void OpenSectionEditor()
         {
+            CloseLightingReview();
             if (_sectionOpen) { return; }
             if (_paused) { SetPaused(false); }
             CloseSunPanel();
@@ -395,7 +397,7 @@ namespace BimGo.Game
         /// </summary>
         private void DrawSectionGizmo()
         {
-            if (!(_sectionOpen || _clashTool == CLASH_TOOL_BOX) || !_section.IsActive) { return; } // C-C2: GROUP BY BOX… too
+            if (!(_sectionOpen || _clashTool == CLASH_TOOL_BOX || (_reviewOpen && _reviewEditBox)) || !_section.IsActive) { return; }
             if (_sectionOverlay == null)
             {
                 _sectionOverlay = new Overlay3D();

@@ -369,7 +369,7 @@ namespace BimGo.Game
             x = screenW - margin - width;
             top = margin;
             bottom = screenH - margin - S(UiTheme.SUN_ICON_SIZE) - S(10);
-            if (_showMap && !_photoOpen) // Y-B: the minimap hides in photo mode, so its dock starts at the top
+            if (_showMap && !_photoOpen && !_reviewOpen) // photo and lighting review hide the minimap
             {
                 float under = margin + S(UiTheme.MINIMAP_HEIGHT) + S(UiTheme.COLUMN_GAP);
                 if (bottom - under >= S(UiTheme.DOCK_MIN_HEIGHT)) { top = under; }

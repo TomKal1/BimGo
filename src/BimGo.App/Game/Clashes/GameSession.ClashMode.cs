@@ -95,6 +95,7 @@ namespace BimGo.Game
         /// </summary>
         private void EnterClashMode(ClashRecord clash, string testId = null)
         {
+            CloseLightingReview();
             EnsureClashes();
             ExitPathEditor(); // Round K-B: one free-cursor mode at a time
             _clashPickerRule = null;

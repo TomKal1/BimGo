@@ -340,7 +340,9 @@ namespace BimGo.Game
             // capture reads the 3D view before the UI is drawn, so the text box isn't in it)
             string uniqueId = _editElement > 0 && _elementIndexById.TryGetValue(_editElement, out int elementIndex) ? Scene.Elements[elementIndex].UniqueId : null;
             CommentRecord added = Comments.Add(_editPoint, text, _editElement, _editLevel, uniqueId);
-            Comments.SetView(added, _player.Feet, _player.Yaw, _player.Pitch, _player.Flying, section: _section);
+            Comments.SetView(added, _reviewOpen ? Camera.Position - Vector3.UnitZ * _player.Controller.StandEye : _player.Feet,
+                _reviewOpen ? _reviewYaw : _player.Yaw, _reviewOpen ? (_reviewView == 1 ? -1.55f : _reviewView == 2 ? 1.55f : _reviewPitch) : _player.Pitch,
+                _reviewOpen || _player.Flying, section: _section);
             _commentThumbnailFor = added;
             _markupAfterCapture = added; // the markup editor opens once the picture is taken
             Sound.Play(SoundId.CommentPlace);

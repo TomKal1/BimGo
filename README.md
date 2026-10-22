@@ -64,7 +64,6 @@ Every key, mouse button and wheel notch is an **action** in one catalogue (Core 
 The tables below are generated from the defaults by the Core tests (`ControlsTests.Readme_ControlsTablesAreCurrent` rewrites them when the catalogue changes): change `InputCatalog`, not the tables.
 
 <!-- controls:begin (generated from the action map's defaults by tests/BimGo.Core.Tests/ControlsTests.cs: edit InputCatalog, not this table) -->
-
 **General**
 
 | Action | Keys | Gamepad |
@@ -305,6 +304,12 @@ The tables below are generated from the defaults by the Core tests (`ControlsTes
 | Fly faster · drag a handle without snapping (hold) | `Shift` | `LS click` |
 | Undo the last path change | `Ctrl+Z` |  |
 
+**Lighting model review** In LIGHTS → REVIEW MODEL: left drag pans; click and release selects a room; middle drag orbits (looks in fly mode). Right drag still looks; Shift + right drag pans.
+
+| Action | Keys | Gamepad |
+|---|---|---|
+| Rotate the lighting review (hold and drag) | `MMB` |  |
+
 **Fixed (not rebindable)** Text boxes also keep Enter, Tab, Backspace, ↑ / ↓, Ctrl+V and Esc. Gamepad in menus and editors: the look stick moves the cursor, the move stick scrolls (menus) or looks (editors); over menus and docks the D-pad moves the focus ring and LB / RB tapped alone switch tabs; A with LB / RB held is a chord, not a click.
 
 | Action | Keys | Gamepad |
@@ -534,6 +539,18 @@ Envelope: `protocol`, `id`, `seq`, `sessionId`, `type`, `replyTo`, `sentUtc`, `p
 
 ## 8. Known limitations / to verify
 
+**Fork lighting review (2026-10-21):** Pause → LIGHTS → LIGHTING CALCS → **REVIEW MODEL · ISO / PLAN / FLY** opens building/storey and room cutaways with true orthographic ISO, floor plans, reflected ceiling plans, free flight, six-face section controls, calculation statistics, PNG export and revision pins. WW Tools' View in BimGo opens this workspace on its requested zone. App build: 0 errors; Core: 513 tests passed. Interactive verification was stopped by the user's Escape key and remains to be completed. See [review notes](ai/261022d_LightingCalcs_B/2_lighting_review.md) for controls, validation and remaining checks.
+
+**Lighting review follow-up:** light-blue grid/level overlays no longer expand in orthographic views and start hidden; optional reference grids clip to the box. A draggable navigation cube provides face/edge/corner snaps and HOME/FIT controls; orbit works above and below the model. App builds with 0 errors; 516 Core tests pass; headless WebGL2 verifies constant 2-pixel grid width at 10/300 m and section clipping. Revit's post-build installation now warns on locked DLLs and retries on the next build; close Revit before rebuilding to install updates. Details are in the review notes above.
+
+**Mouse and cut-face update:** middle drag rotates (looks in place in fly mode), left drag pans, and released clicks select rooms in parallel views. Fly viewport drags/clicks cannot teleport into rooms; use the room list for destinations. ViewCube hover previews mark the exact corner, edge endpoints or face vertices. Grey section-cap fills start off in lighting review and can be restored with **Show cut caps**. Defaults version 9 adds the rebindable MMB ReviewOrbit action. App builds with 0 errors; 521 Core tests pass, including gesture, pan and preview regressions; the compiled input handler also passes a one-frame drag smoke check. Native interactive verification remains open.
+
+**Overview calculation values:** lighting review samples actual point values across screen-space regions instead of spending its 160-label limit in calculation-file order. Spacing adapts to viewport size; hidden points have bounded alternatives in the same region, and overlapping labels are skipped. PNG exports share the layout. Walkthrough proximity labels retain their existing behaviour. App builds with 0 errors; 531 Core tests pass, including coverage, order independence, occlusion fallbacks, viewport budgets and allocation-free reuse. Visual verification on the Snowdon model remains open.
+
+**Material review update:** the launch HUD's Material colour appearance is now available in review's **Materials** view with calculation points, values and the legend retained in ISO, PLAN, RCP, FLY and PNG exports. Review starts with neutral directional material shading, without sun, fixture accumulation, bloom or distance fog. **Use scene lighting** opts into the model's lit preview using the normal walking fixture budget; review no longer forces hundreds of unshadowed fixtures into the scene. The walkthrough's colour and lighting settings are preserved. Existing WW Tools Points requests map to Materials; no format or enum changes. App builds with 0 errors; 531 Core tests pass and the compiled App passes 32 review/view/mode mesh checks. Native visual verification remains open.
+
+**Lighting review units:** imperial now displays point illuminance in foot-candles (fc) and surface luminance in foot-lamberts (fL); metric displays lux (lx) and cd/m² respectively. Dock captions and the shared HUD/PNG legend distinguish the two quantities, and room statistics explicitly identify illuminance. Luminance tick values convert with the unit preference; shading and saved calculation data remain in their original units. App builds with 0 errors; 533 Core tests pass, plus compiled-App checks for 12 unit/mode transitions and 32 overlay cases. Native visual verification remains open.
+
 Every build up to Y-B is built and confirmed by Gavin; their notes stay in `ai/` (§9 lists the folders). Only the open build is listed here.
 
 **Open build: Y-C2 r2, lighting polish (per-fixture light profiles with Ctrl+K, polar candela plots in LIGHTS; the import button reads IES…)** (`ai/261021d_Lighting_YC2/`): awaiting Gavin's check. Y-D1 r3 (performance details, occlusion culling) and Y-D2 (depth pre-pass, light quality) confirmed 2026-10-22: with the pre-pass every light quality is under 11 ms at the test spot, lights on (~18 ms without it).
@@ -682,6 +699,7 @@ Every round's handoff and build notes live in `ai/<yymmdd>_<round>/`. Same-day f
 | 2026-10-22 | Handoff (`261022b_Handoff`) | Handoff after Scale (Y-D1 r3, Y-D2 confirmed: < 11 ms at the test spot): Round Y so far, next the Revit round-trip (room overlay first, markers with Gavin's .rfa), things to watch |
 | 2026-10-22 | Plan (`261022c_LightingCalcs_Plan`) | Fork only (TomKal1/BimGo): plan for WW Tools' lighting calc results in BimGo |
 | 2026-10-22 | Lighting calcs, fork build LC-B (`261022d_LightingCalcs_B`) | Fork only (TomKal1/BimGo): WW Tools' lighting calc results on the model: `lighting-calcs/` results files (model folder, optional .bimgo entries) read and shown as surfaces in false colour (the sheets' scale) or luminance, points, values near the eye, isolux lines, a legend with the zone's stats and target; Shift+J cycles; Pause → LIGHTS → LIGHTING CALCS; live reload on a re-run; WW Tools' View in BimGo request (`open.json`) picks the set and the zone to start in; DEFAULTS_VERSION 8 |
+| 2026-10-21 | Lighting model review, fork extension (`261022d_LightingCalcs_B/2_lighting_review.md`) | Building/storey and room isometrics, floor and reflected ceiling plans, free flight, six-face clipping of geometry and calculation overlays, room statistics, PNG exports and revision pins. App builds; 513 Core tests pass; interactive verification remains open. |
 
 ## 10. Dependencies
 

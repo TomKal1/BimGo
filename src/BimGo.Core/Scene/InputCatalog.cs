@@ -36,7 +36,10 @@ namespace BimGo.Scene
         PathEditor,
 
         /// <summary>Keys that can't be rebound (Esc, menus and panels' mouse, Alt+F4). Listed for reference and clash checks.</summary>
-        Fixed
+        Fixed,
+
+        /// <summary>Navigation in the lighting model review, separate from walking and its gun wheel.</summary>
+        LightingReview
     }
 
     /// <summary>
@@ -114,7 +117,9 @@ namespace BimGo.Scene
         PathSetKey, PathMoveForward, PathMoveBack, PathMoveLeft, PathMoveRight, PathFlyUp, PathFlyDown, PathFlyFast, PathUndo, // Round K-B
 
         // Fixed (not rebindable)
-        Back, CloseWindow, Click, DragLook, FineAdjust, PhotoZoom, OpenFile, PadClick, PadMenuBack
+        Back, CloseWindow, Click, DragLook, FineAdjust, PhotoZoom, OpenFile, PadClick, PadMenuBack,
+
+        ReviewOrbit
     }
 
     /// <summary>
@@ -453,6 +458,8 @@ namespace BimGo.Scene
             // Pause menu (sky round)
             Add(InputAction.MenuPreview, InputContext.PauseMenu, "Options preview: the scene with the graphics settings only (again or Esc returns)", P, "Tab");
 
+            Add(InputAction.ReviewOrbit, InputContext.LightingReview, "Rotate the lighting review (hold and drag)", H, "MMB");
+
             // Fixed
             Fixed(InputAction.Back, "Pause menu · back · cancel · stop", P, true, InputContext.Fixed, "Esc");
             Fixed(InputAction.CloseWindow, "Close the window", P, true, InputContext.Fixed, "Alt+F4");
@@ -590,7 +597,7 @@ namespace BimGo.Scene
             InputContext.General, InputContext.Movement, InputContext.Guns, InputContext.Tools,
             InputContext.ScanGun, InputContext.MeasureGun, InputContext.CommentGun, InputContext.DemolishGun, InputContext.GizmoGuns,
             InputContext.Holding, InputContext.Markup, InputContext.SectionEditor, InputContext.PhotoMode, InputContext.SunPanel,
-            InputContext.Tour, InputContext.Clashes, InputContext.PauseMenu, InputContext.PathEditor, InputContext.Fixed
+            InputContext.Tour, InputContext.Clashes, InputContext.PauseMenu, InputContext.PathEditor, InputContext.LightingReview, InputContext.Fixed
         };
 
         /// <summary>A group's heading.</summary>
@@ -614,12 +621,14 @@ namespace BimGo.Scene
             InputContext.Clashes => "Clash mode",
             InputContext.PauseMenu => "Pause menu",
             InputContext.PathEditor => "Path editor (Round K)",
+            InputContext.LightingReview => "Lighting model review",
             _ => "Fixed (not rebindable)"
         };
 
         /// <summary>A group's one-line note (what else is live there), or null.</summary>
         public static string ContextNote(InputContext context) => context switch
         {
+            InputContext.LightingReview => "In LIGHTS → REVIEW MODEL: left drag pans; click and release selects a room; middle drag orbits (looks in fly mode). Right drag still looks; Shift + right drag pans.",
             InputContext.ScanGun or InputContext.MeasureGun or InputContext.CommentGun or InputContext.DemolishGun or InputContext.GizmoGuns
                 => "While the gun is selected (walking keys still work).",
             InputContext.Holding => "While the Gizmo, Clone or Place gun holds an element: the move keys move it (left / right turn it in rotate mode), gun secondary commits, Esc cancels.",
@@ -660,6 +669,7 @@ namespace BimGo.Scene
         public const string SIT_PAUSE = "Pause menu and panels";
         public const string SIT_PATH = "Path editor (Round K)";
         public const string SIT_FIXTURE = "Fixture light profile";
+        public const string SIT_LIGHTING_REVIEW = "Lighting model review";
 
         /// <summary>
         /// Every state of the app and what can fire in it. Mirrors <c>GameSession.UpdateFrame</c>: change both together.
@@ -794,6 +804,22 @@ namespace BimGo.Scene
                     H("Save the markup", InputAction.MarkupSave),
                     click
                 }),
+                new InputSituation(SIT_LIGHTING_REVIEW, new[] { InputContext.LightingReview }, Join(padMenu,
+                    InputAction.MoveForward, InputAction.MoveBack, InputAction.MoveLeft, InputAction.MoveRight, InputAction.Run,
+                    InputAction.ClashFlyUp, InputAction.ClashFlyDown, InputAction.SectionBox, InputAction.SectionClear,
+                    InputAction.LightingCalcMode, InputAction.Help, InputAction.Fullscreen, InputAction.Screenshot, InputAction.Click, InputAction.DragLook), new[]
+                {
+                    H("Pan / fly", InputAction.MoveForward, InputAction.MoveLeft, InputAction.MoveBack, InputAction.MoveRight),
+                    H("Orbit / look (drag)", InputAction.DragLook),
+                    H("Rotate model / fly look (hold and drag)", InputAction.ReviewOrbit),
+                    H("Pan with drag / fly faster (hold)", InputAction.Run),
+                    H("Fly up / down", InputAction.ClashFlyUp, InputAction.ClashFlyDown),
+                    H("Show / hide section handles", InputAction.SectionBox),
+                    H("Clear cuts", InputAction.SectionClear),
+                    H("Cycle calculation display", InputAction.LightingCalcMode),
+                    H("Export PNG", InputAction.Screenshot),
+                    click
+                }),
                 new InputSituation(SIT_SECTION, new[] { InputContext.SectionEditor }, Join(padMenu,
                     InputAction.SectionBox, InputAction.SectionClear, InputAction.Fullscreen, InputAction.Screenshot, InputAction.Click, InputAction.DragLook), new[]
                 {
@@ -908,10 +934,11 @@ namespace BimGo.Scene
         /// The controls defaults version (polish round P-B). 0: the defaults up to P-A2; 1: P-B's hotkey review; 2: Round
         /// K-A's media panel; 3: Round K-B's path editor; 4: Round X-B3's billboard resize (HoldScale); 5: Round X-E's
         /// Revit views from here (RevitViewNew, RevitViewUpdate); 6: Round Y-A's saved measurements (MeasureShowAll, MeasureExport); 7: Round Y-C2's
-        /// fixture light profile dock (FixtureProfile); 8: fork build LC-B's lighting calc view (LightingCalcMode). Raise it when a default changes and add the changes to
+        /// fixture light profile dock (FixtureProfile); 8: fork build LC-B's lighting calc view (LightingCalcMode);
+        /// 9: lighting review middle-button orbit (ReviewOrbit). Raise it when a default changes and add the changes to
         /// <see cref="DefaultsChanges"/> (ControlsTests checks the table against the defaults).
         /// </summary>
-        public const int DEFAULTS_VERSION = 8;
+        public const int DEFAULTS_VERSION = 9;
 
         /// <summary>Every default that changed, by version (oldest first). <c>Was</c>: the old binding ("none" for none).</summary>
         public static readonly DefaultsChange[] DefaultsChanges =
@@ -965,7 +992,10 @@ namespace BimGo.Scene
             new(7, InputAction.FixtureProfile, true, null),
 
             // Version 8 (fork build LC-B): Shift+J cycles the lighting calc view
-            new(8, InputAction.LightingCalcMode, true, null)
+            new(8, InputAction.LightingCalcMode, true, null),
+
+            // Version 9: middle mouse orbit in the lighting review only (walking keeps its gun wheel).
+            new(9, InputAction.ReviewOrbit, true, null)
         };
 
         /// <summary>The changes made after a version the user saw (empty when it is current or newer).</summary>

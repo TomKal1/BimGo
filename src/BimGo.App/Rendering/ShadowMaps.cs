@@ -297,7 +297,9 @@ namespace BimGo.Rendering
                 {
                     float d = (i & 4) == 0 ? sliceNear : sliceFar;
                     float sx = (i & 1) == 0 ? -1f : 1f, sy = (i & 2) == 0 ? -1f : 1f;
-                    _corners[i] = camera.Position + forward * d + right * (sx * d * tanX) + cameraUp * (sy * d * tanY);
+                    float halfHeight = camera.IsOrthographic ? camera.OrthographicHeight * 0.5f : d * tanY;
+                    float halfWidth = camera.IsOrthographic ? halfHeight * camera.Aspect : d * tanX;
+                    _corners[i] = camera.Position + forward * d + right * (sx * halfWidth) + cameraUp * (sy * halfHeight);
                     centre += _corners[i];
                 }
                 centre /= 8f;

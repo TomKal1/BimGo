@@ -625,6 +625,7 @@ namespace BimGo.Game
             {
                 _window.Resized = false;
                 _target.Ensure(_window.Width, _window.Height, _msaa);
+                if (_reviewOpen && _reviewView != 3) { ReviewFitCamera(); }
             }
 
             // The gamepad's cursor (menus, editors) follows what is open (build B; used from the next frame's poll)
@@ -670,6 +671,12 @@ namespace BimGo.Game
             if (IsEditingComment)
             {
                 UpdateCommentEditor(input);
+                return;
+            }
+
+            if (_reviewOpen && !_paused)
+            {
+                UpdateLightingReview(input, dt);
                 return;
             }
 
@@ -954,6 +961,7 @@ namespace BimGo.Game
         /// </summary>
         private void FixedUpdate(float dt)
         {
+            if (_reviewOpen) { return; } // review cameras never move the walking player
             if (_tourActive) { return; } // the tour places the player itself
             _player.Controller.GroundZ = _groundZ;
             bool frozen = IsEditingComment || _sunPanelOpen || _sunHoursOpen || GridsPanelHasKeys || FixtureDockHasKeys || !_window.IsActive || _guns[_activeGun].CapturesInput || ClashFreezesPlayer
@@ -997,6 +1005,7 @@ namespace BimGo.Game
             Camera.ViewportWidth = _window.Width;
             Camera.ViewportHeight = _window.Height;
             Camera.Aspect = (float)_window.Width / Math.Max(_window.Height, 1);
+            if (_reviewOpen) { UpdateReviewCamera(); return; }
             Camera.Update();
         }
 
@@ -1018,7 +1027,7 @@ namespace BimGo.Game
         {
             PumpSource(dt);
             foreach (Gun gun in _guns) { gun.Tick(dt); }
-            if (_paused || IsEditingComment || _tourActive) { return; }
+            if (_paused || IsEditingComment || _tourActive || _reviewOpen) { return; }
 
             if (_unarmed) { return; } // no gun out: nothing aims or fires
             Gun active = _guns[_activeGun];
@@ -1092,7 +1101,7 @@ namespace BimGo.Game
         /// True while a mode that works with a free cursor is on (sun panel, sun hours study, photo mode, the section box
         /// editor, clash mode): resuming must not capture the mouse then.
         /// </summary>
-        private bool CursorModeOpen => _sunPanelOpen || _sunHoursOpen || _photoOpen || _sectionOpen || _clashModeOn || _gridsPanelOpen || _pathEditOn || _fixtureDockOpen;
+        private bool CursorModeOpen => _sunPanelOpen || _sunHoursOpen || _photoOpen || _sectionOpen || _clashModeOn || _gridsPanelOpen || _pathEditOn || _fixtureDockOpen || _reviewOpen;
 
         /// <summary>
         /// Pauses (releases the mouse) or resumes (captures it again, unless a free-cursor mode is on: C-B1 fixes, the
@@ -1100,6 +1109,7 @@ namespace BimGo.Game
         /// </summary>
         private void SetPaused(bool paused)
         {
+            if (paused && _reviewOpen) { ResetReviewPointer(); }
             _paused = paused;
             _menuPreview = false; // QOL round: the options preview never outlives the pause menu
             CloseOverlay(); // a dropdown / confirm belongs to the screen it was opened on

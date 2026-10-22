@@ -218,6 +218,9 @@ namespace BimGo.Scene
         /// <summary>Lux per footcandle.</summary>
         public const float LUX_PER_FC = 10.763910f;
 
+        /// <summary>Candelas per square metre per foot-lambert (NIST SP 811, Appendix B.9).</summary>
+        public const float CD_PER_FOOTLAMBERT = 3.4262591f;
+
         /// <summary>Patches past the room's floor and ceiling are clipped this far beyond them (0.25 ft, as WW Tools' report).</summary>
         public const float CLIP_MARGIN = 0.25f * FEET;
 
@@ -262,6 +265,10 @@ namespace BimGo.Scene
 
         /// <summary>Footcandles in the display unit: lux when <paramref name="lux"/>.</summary>
         public static float Display(float footcandles, bool lux) => lux ? footcandles * LUX_PER_FC : footcandles;
+
+        /// <summary>Surface luminance in the display unit: cd/m² for metric, foot-lamberts (fL) for imperial.</summary>
+        public static float DisplayLuminance(float candelasPerSquareMetre, bool metric) =>
+            metric ? candelasPerSquareMetre : candelasPerSquareMetre / CD_PER_FOOTLAMBERT;
 
         /// <summary>Fills each zone's corner values and plan bounds, and the set's luminance reference. Call once after reading.</summary>
         public static void Prepare(LightingCalcResult result)
