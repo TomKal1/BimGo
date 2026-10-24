@@ -14,10 +14,15 @@ $actualPaths = @(Get-ChildItem -LiteralPath (Join-Path $engineRoot 'Upstream') -
     ForEach-Object { [IO.Path]::GetRelativePath($engineRoot, $_.FullName).Replace('\','/') } | Sort-Object)
 if (Compare-Object $expectedPaths $actualPaths) { throw 'Upstream source file set differs from the pinned manifest.' }
 foreach ($entry in $manifest.files) {
+    if ($entry.imagingPatchSha256) {
+        if ((Get-FileHash -LiteralPath (Join-Path $engineRoot $entry.local) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.imagingPatchSha256) { throw "Imaging overlay changed: $($entry.local)" }
+        continue
+    }
     $actual = git -C $repoRoot hash-object --no-filters (Join-Path $engineRoot $entry.local)
     if ($LASTEXITCODE -ne 0 -or $actual -ne $entry.gitBlob) { throw "Upstream source changed: $($entry.local)" }
 }
-Write-Output "Verified $($manifest.files.Count) source blobs at WWTools $($manifest.commit)."
+if ($manifest.imaging -and (Get-FileHash -LiteralPath (Join-Path $engineRoot $manifest.imaging.file) -Algorithm SHA256).Hash.ToLowerInvariant() -ne $manifest.imaging.sha256) { throw 'Calculated renderer differs from its shared manifest.' }
+Write-Output "Verified $($manifest.files.Count) pinned sources and the calculated-imaging overlay."
 $env:MSBuildEnableWorkloadResolver = 'false'
 $project = Join-Path $PSScriptRoot 'Lighting.Baseline/Lighting.Baseline.csproj'
 # One MSBuild node avoids sandbox worker-start failures. Restore uses the normal configured feeds/cache.

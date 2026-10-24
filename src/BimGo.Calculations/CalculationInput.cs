@@ -56,6 +56,9 @@ public sealed class CalculationInput
             if (triangle == null || triangle.Vertices == null || triangle.Vertices.Length != 9 || triangle.Vertices.Any(v => !double.IsFinite(v))
                 || triangle.Class < 0 || triangle.Class > 3 || !double.IsFinite(triangle.Reflectance) || triangle.Reflectance < -1 || triangle.Reflectance > .95)
                 throw new InvalidDataException("Invalid physical triangle.");
+        foreach (var triangle in Triangles)
+            if (triangle.Colour != null && (triangle.Colour.Length != 3 || triangle.Colour.Any(v => !double.IsFinite(v) || v < 0 || v > 1)))
+                throw new InvalidDataException("Invalid surface appearance colour.");
         if (PreservedZones == null || PreservedZones.Count > Zones.Count || PreservedZones.Select(z => z?.Definition?.Key).Distinct().Count() != PreservedZones.Count)
             throw new InvalidDataException("Invalid retained room list.");
         foreach (var saved in PreservedZones)
@@ -120,6 +123,8 @@ public sealed class CalculationTriangle
     public double Reflectance { get; set; } = -1;
     public long Tag { get; set; }
     public string SurfaceKey { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public double[] Colour { get; set; }
     public bool Walkable { get; set; }
     public bool Stair { get; set; }
 }

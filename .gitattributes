@@ -1,4 +1,5 @@
 # CA-0 provenance and numerical replay hashes must survive Windows checkouts.
 src/Lighting.Engine/Upstream/** text eol=lf
+src/Lighting.Engine/CalculatedImage.cs text eol=lf
 src/Lighting.Engine/upstream.lock.json text eol=lf
 tests/Lighting.Corpus/*.json text eol=lf

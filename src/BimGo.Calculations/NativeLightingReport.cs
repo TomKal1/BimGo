@@ -21,7 +21,10 @@ public static class NativeLightingReport
     }
 
     public static string Html(LightingReportData data, IReadOnlyList<SolveStats> diagnostics, double scaleMax, bool lux = false,
-        IReadOnlyList<CalculationEmitter> sources = null)
+        IReadOnlyList<CalculationEmitter> sources = null) => Html(data, diagnostics, scaleMax, lux, sources, false);
+
+    public static string Html(LightingReportData data, IReadOnlyList<SolveStats> diagnostics, double scaleMax, bool lux,
+        IReadOnlyList<CalculationEmitter> sources, bool includeImages)
     {
         if (!double.IsFinite(scaleMax) || scaleMax <= 0) throw new ArgumentOutOfRangeException(nameof(scaleMax));
         string unit = lux ? "lx" : "fc";
@@ -61,6 +64,7 @@ public static class NativeLightingReport
                 .Append(z.OnWalkingSurfaces ? "Points follow walking surfaces; height above each surface: " : "Horizontal workplane above zone bottom: ")
                 .Append(N(z.WorkplaneHeight)).Append(" ft · Grid: ").Append(N(z.GridSpacing)).Append(" ft</p>");
             Plan(b, z, data, scaleMax, lux, sources);
+            if (includeImages && z.Surfaces.Count > 0) b.Append(CalculatedImage.ReportFigure(z));
             b.Append("</section>");
         }
         b.Append("<p class=\"note\">Calculated in BimGo using the shared Lighting.Engine (WWTools diffuse engine). Results depend on the listed geometry, photometry, reflectances and light loss factors.</p></body></html>");

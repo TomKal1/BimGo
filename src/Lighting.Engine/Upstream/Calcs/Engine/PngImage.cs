@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Text;
 
 namespace WWTools.Calcs.Engine
@@ -43,7 +45,10 @@ namespace WWTools.Calcs.Engine
         }
 
         /// <summary>The picture as PNG bytes (8-bit RGB, filtered per row, zlib-deflated).</summary>
-        public byte[] ToPng()
+        public byte[] ToPng() => ToPng(null);
+
+        /// <summary>PNG bytes with optional UTF-8 iTXt metadata, preserving the original parameterless API.</summary>
+        public byte[] ToPng(IEnumerable<KeyValuePair<string, string>>? metadata)
         {
             using (var png = new MemoryStream())
             {
@@ -55,6 +60,18 @@ namespace WWTools.Calcs.Engine
                 header[8] = 8;  // bit depth
                 header[9] = 2;  // colour type: RGB
                 Chunk(png, "IHDR", header);
+
+                if (metadata != null) foreach (var entry in metadata)
+                {
+                    if (string.IsNullOrEmpty(entry.Key) || entry.Key.Length > 79 || entry.Key.IndexOf('\0') >= 0 || entry.Key.Any(c => c < 32 || c > 126))
+                        throw new ArgumentException("PNG metadata keywords must contain 1–79 printable ASCII characters.");
+                    byte[] key = Encoding.ASCII.GetBytes(entry.Key), value = Encoding.UTF8.GetBytes(entry.Value ?? string.Empty);
+                    var text = new byte[key.Length + 5 + value.Length];
+                    Buffer.BlockCopy(key, 0, text, 0, key.Length);
+                    // Keyword terminator, compression flag/method, empty language and translated keyword.
+                    Buffer.BlockCopy(value, 0, text, key.Length + 5, value.Length);
+                    Chunk(png, "iTXt", text);
+                }
 
                 Chunk(png, "IDAT", Zlib(Filtered()));
                 Chunk(png, "IEND", new byte[0]);

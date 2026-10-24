@@ -86,14 +86,15 @@ namespace BimGo.Rendering
             _uploaded = false;
             if (result == null || mode == CalcDisplayMode.Off) { return; }
 
-            bool luminance = mode == CalcDisplayMode.Luminance;
+            bool luminance = mode == CalcDisplayMode.Luminance || mode == CalcDisplayMode.Appearance;
+            bool appearance = mode == CalcDisplayMode.Appearance;
             Span<Vector3> clipped = stackalloc Vector3[5];
             Span<float> clippedValues = stackalloc float[5];
             foreach (CalcZoneResult zone in result.Zones)
             {
                 if (surfaces && mode != CalcDisplayMode.Points)
                 {
-                    float[] corners = luminance ? zone.CornerLuminance : zone.CornerIlluminance;
+                    float[] corners = appearance ? zone.CornerAppearance : luminance ? zone.CornerLuminance : zone.CornerIlluminance;
                     float bottom = zone.BottomZ - LightingCalcs.CLIP_MARGIN, top = zone.CeilingZ + LightingCalcs.CLIP_MARGIN;
                     for (int i = 0; i < zone.Patches.Length && i * 3 + 2 < corners.Length; i++)
                     {
@@ -103,9 +104,9 @@ namespace BimGo.Rendering
                         Vector3 lift = p.Normal * LIFT;
                         for (int k = 1; k + 1 < n; k++)
                         {
-                            Put(clipped[0] + lift, Colour(clippedValues[0], p.Normal));
-                            Put(clipped[k] + lift, Colour(clippedValues[k], p.Normal));
-                            Put(clipped[k + 1] + lift, Colour(clippedValues[k + 1], p.Normal));
+                            Put(clipped[0] + lift, Colour(clippedValues[0], p.Normal, p.Colour));
+                            Put(clipped[k] + lift, Colour(clippedValues[k], p.Normal, p.Colour));
+                            Put(clipped[k + 1] + lift, Colour(clippedValues[k + 1], p.Normal, p.Colour));
                         }
                     }
                 }
@@ -135,8 +136,14 @@ namespace BimGo.Rendering
                 }
             }
 
-            uint Colour(float value, Vector3 normal)
+            uint Colour(float value, Vector3 normal, Vector3? hue)
             {
+                if (appearance)
+                {
+                    WWTools.Calcs.Engine.Vec3? colour = hue.HasValue ? new WWTools.Calcs.Engine.Vec3(hue.Value.X, hue.Value.Y, hue.Value.Z) : null;
+                    var rgb = WWTools.Lighting.Engine.CalculatedImage.DisplayColour(WWTools.Lighting.Engine.CalculatedImage.LinearColour(Math.Max(0,value),colour));
+                    return Rgba.FromFloat((float)rgb.X,(float)rgb.Y,(float)rgb.Z,1f);
+                }
                 Vector3 c = luminance
                     ? LightingCalcs.LuminanceGrey(value, result.LuminanceReference)
                     : LightingCalcs.ShadedFalseColour(value, scaleMin, scaleMax, normal);

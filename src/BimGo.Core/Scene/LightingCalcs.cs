@@ -16,7 +16,10 @@ namespace BimGo.Scene
         Luminance,
 
         /// <summary>The calc points and their values only.</summary>
-        Points
+        Points,
+
+        /// <summary>Calculated diffuse appearance, fixed exposure with optional model hue.</summary>
+        Appearance
     }
 
     /// <summary>A zone's statistics over its calc points (footcandles; ratios NaN when the file left them out).</summary>
@@ -60,6 +63,8 @@ namespace BimGo.Scene
 
         /// <summary>Bit 0 covered, bits 1–3 the surface class (Ceiling 0, Wall 1, Floor 2, Furniture 3).</summary>
         public int Flags;
+        public long SourceTag;
+        public Vector3? Colour;
 
         /// <summary>Something stands on the patch: it takes its neighbours' colour.</summary>
         public readonly bool Covered => (Flags & 1) != 0;
@@ -141,6 +146,8 @@ namespace BimGo.Scene
 
         /// <inheritdoc cref="CornerIlluminance"/>
         public float[] CornerLuminance { get; set; } = Array.Empty<float>();
+
+        public float[] CornerAppearance { get; set; } = Array.Empty<float>();
 
         /// <summary>Plan bounds of the loops (scene m).</summary>
         public Vector2 PlanMin { get; set; }
@@ -452,6 +459,29 @@ namespace BimGo.Scene
             }
             zone.CornerIlluminance = illuminance;
             zone.CornerLuminance = luminance;
+            // Calculated appearance must not blend across a material or source-element boundary.
+            var physical = new Dictionary<(CornerKey, long, Vector3?, float), (double Sum, double Weight)>();
+            foreach (var p in patches)
+            {
+                if (p.Covered) continue;
+                foreach (var v in new[] { p.A,p.B,p.C })
+                {
+                    var key=(CornerKey.Of(v,p.Normal),p.SourceTag,p.Colour,p.Reflectance);
+                    physical.TryGetValue(key,out var acc);physical[key]=(acc.Sum+p.Luminance*p.Area,acc.Weight+p.Area);
+                }
+            }
+            var appearance=new float[patches.Length*3];
+            for(int i=0;i<patches.Length;i++)
+            {
+                var p=patches[i];var vertices=new[] {p.A,p.B,p.C};
+                for(int k=0;k<3;k++)
+                {
+                    var key=(CornerKey.Of(vertices[k],p.Normal),p.SourceTag,p.Colour,p.Reflectance);
+                    appearance[i*3+k]=physical.TryGetValue(key,out var acc)&&acc.Weight>0?(float)(acc.Sum/acc.Weight):p.Luminance;
+                }
+            }
+            zone.CornerAppearance=appearance;
+
         }
     }
 }

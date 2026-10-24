@@ -167,6 +167,16 @@ namespace WWTools.Lighting.Engine
                     }
                     dto.Patches = new RangeDto { Offset = patchStart, Count = patches };
                     data.Patches += patches;
+                    // Optional v1 extension: identity + sRGB hue, indexed exactly like the retained patches.
+                    dto.Appearance = new RangeDto { Offset = stream.Position, Count = patches };
+                    if (keepMesh[zi]) foreach (SurfacePatch patch in zone.Surfaces)
+                    {
+                        if (dropCovered && patch.Covered) continue;
+                        if (dropFurniture && patch.Class == SurfaceClass.Furniture) continue;
+                        body.Write(patch.SourceTag);
+                        WriteVec(body, patch.Colour ?? new Vec3(-1, -1, -1));
+                    }
+
 
                     foreach (IsoluxLine line in IsoluxFor(zone, run.Units))
                     {
@@ -212,6 +222,80 @@ namespace WWTools.Lighting.Engine
             data.Zones = zones.Count;
             data.Json = Serialize(header);
             return data;
+        }
+
+        /// <summary>Restores solved zones for a partial rerun; refuses truncated or incompatible caches.</summary>
+        public static List<CalcZone> ReadZones(string jsonPath) => ReadZones(jsonPath, out _);
+
+        public static List<CalcZone> ReadZones(string jsonPath, out double scaleMax)
+        {
+            if (new FileInfo(jsonPath).Length > 64 * 1024 * 1024) throw new InvalidDataException("Results header is too large.");
+            HeaderDto header;
+            using (var stream = File.OpenRead(jsonPath))
+                header = (HeaderDto?)new DataContractJsonSerializer(typeof(HeaderDto)).ReadObject(stream) ?? throw new InvalidDataException("Missing cached lighting results.");
+            byte[] bytes = File.ReadAllBytes(Path.ChangeExtension(jsonPath, ".bin"));
+            if (header.Format != Format || header.Version != Version || header.BinBytes != bytes.LongLength)
+                throw new InvalidDataException("Previous lighting results are incompatible or incomplete. Run the complete calc set first.");
+            scaleMax = header.Scale.Max;
+            var zones = new List<CalcZone>();
+            using (var stream = new MemoryStream(bytes))
+            using (var reader = new BinaryReader(stream))
+            {
+                Vec3 Vector() => new Vec3(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+                void Seek(RangeDto range, int stride)
+                {
+                    if (range == null || range.Count < 0 || range.Offset < 0 || range.Offset > bytes.LongLength - (long)range.Count * stride * 4)
+                        throw new InvalidDataException("Invalid cached result range.");
+                    stream.Position = range.Offset;
+                }
+                foreach (ZoneDtoData dto in header.Zones)
+                {
+                    var zone = new CalcZone { Key = dto.Key, Number = dto.Number, Name = dto.Name, Kind = dto.Kind,
+                        LevelName = dto.Level, LevelElevation = dto.LevelElevation, BottomZ = dto.BottomZ, TopZ = dto.TopZ,
+                        CeilingZ = dto.CeilingZ, WorkplaneHeight = dto.WorkPlane, GridSpacing = dto.Spacing,
+                        OnWalkingSurfaces = dto.OnWalkingSurfaces, FloorArea = dto.FloorArea, LuminaireCount = dto.LuminaireCount, Watts = dto.Watts };
+                    foreach (double[][] loop in dto.Loops)
+                        zone.Loops.Add(loop.Select(p => new Vec3(p[0], p[1], dto.BottomZ)).ToList());
+                    if (dto.Target != null) zone.Target = new LightingTarget { Average = LightingReport.Convert(dto.Target.Avg ?? 0, header.Units.Report == "lx" ? IlluminanceUnits.Lux : IlluminanceUnits.Footcandles),
+                        AverageMax = LightingReport.Convert(dto.Target.AvgMax ?? 0, header.Units.Report == "lx" ? IlluminanceUnits.Lux : IlluminanceUnits.Footcandles), AverageToMinimum = dto.Target.AvgMin ?? 0 };
+                    Seek(dto.Points, PointFloats);
+                    zone.Illuminance = new double[dto.Points.Count]; zone.Direct = new double[dto.Points.Count];
+                    for (int i = 0; i < dto.Points.Count; i++)
+                    { zone.Points.Add(Vector()); zone.Illuminance[i] = reader.ReadSingle(); zone.Direct[i] = reader.ReadSingle(); }
+                    zone.Statistics = ZoneStatistics.From(zone.Illuminance); zone.DirectStatistics = ZoneStatistics.From(zone.Direct);
+                    Seek(dto.Patches, PatchFloats);
+                    for (int i = 0; i < dto.Patches.Count; i++)
+                    {
+                        Vec3 a = Vector(), b = Vector(), c = Vector(), normal = Vector();
+                        double light = reader.ReadSingle(), reflectance = reader.ReadSingle(); int flags = (int)reader.ReadSingle();
+                        zone.Surfaces.Add(new SurfacePatch(new SceneTriangle(a, b, c, (SurfaceClass)((flags >> 1) & 7)),
+                            normal, reflectance, light, (flags & 1) != 0));
+                    }
+                    if (dto.Appearance != null)
+                    {
+                        if (dto.Appearance.Count != zone.Surfaces.Count) throw new InvalidDataException("Appearance coverage differs from the surface mesh.");
+                        Seek(dto.Appearance, 5); // 8-byte source tag + three float32 colour components
+                        for (int i = 0; i < zone.Surfaces.Count; i++)
+                        {
+                            long tag = reader.ReadInt64(); Vec3 colour = Vector();
+                            bool absent = colour.X == -1 && colour.Y == -1 && colour.Z == -1;
+                            if (!absent && (!LightingImageOptions.Valid(colour) || colour.X < 0 || colour.Y < 0 || colour.Z < 0 || colour.X > 1 || colour.Y > 1 || colour.Z > 1))
+                                throw new InvalidDataException("Invalid cached surface colour.");
+                            SurfacePatch patch = zone.Surfaces[i]; patch.SourceTag = tag; patch.Colour = absent ? (Vec3?)null : colour;
+                            zone.Surfaces[i] = patch;
+                        }
+                    }
+                    foreach (LuminaireDto lum in header.Luminaires)
+                    {
+                        if (lum.Position.Length != 3 || string.IsNullOrEmpty(lum.TypeKey)) continue;
+                        if (!zone.ContainsPlan(lum.Position[0], lum.Position[1]) || lum.Position[2] < zone.BottomZ - 1 || lum.Position[2] > zone.TopZ + 3) continue;
+                        zone.LuminaireTypeCounts.TryGetValue(lum.TypeKey, out int count);
+                        zone.LuminaireTypeCounts[lum.TypeKey] = count + 1;
+                    }
+                    zones.Add(zone);
+                }
+            }
+            return zones;
         }
 
         /// <summary>
@@ -491,6 +575,7 @@ namespace WWTools.Lighting.Engine
             [DataMember(Name = "loops", Order = 17)] public double[][][] Loops = Array.Empty<double[][]>();
             [DataMember(Name = "points", Order = 18)] public RangeDto Points = new RangeDto();
             [DataMember(Name = "patches", Order = 19)] public RangeDto Patches = new RangeDto();
+            [DataMember(Name = "appearance", Order = 21, EmitDefaultValue = false)] public RangeDto? Appearance;
             [DataMember(Name = "isolines", Order = 20)] public List<IsolineDto> Isolines = new List<IsolineDto>();
         }
 

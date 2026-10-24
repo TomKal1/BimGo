@@ -10,7 +10,7 @@ namespace BimGo.Game
     internal sealed partial class GameSession
     {
         private static readonly string[] REVIEW_VIEWS = { "ISO", "PLAN", "RCP", "FLY" };
-        private static readonly string[] REVIEW_RESULTS = { "Materials", "Illuminance", "Luminance" };
+        private static readonly string[] REVIEW_RESULTS = { "Materials", "Illuminance", "Luminance", "Calculated" };
         private static readonly string[] REVIEW_MIN_LABELS = { "West / X min", "South / Y min", "Bottom" };
         private static readonly string[] REVIEW_MAX_LABELS = { "East / X max", "North / Y max", "Top" };
         private const int DROP_REVIEW_LEVEL = 0;
@@ -445,16 +445,16 @@ namespace BimGo.Game
                 _ui.Text(f.Small, x, y, "RESULT DISPLAY", UiTheme.ACCENT);
                 y += S(22);
                 // WW Tools' existing Points request is the material view with the point overlay too.
-                int currentMode = _calcMode == CalcDisplayMode.Points ? 0 : (int)_calcMode;
+                int currentMode = _calcMode == CalcDisplayMode.Appearance ? 3 : _calcMode == CalcDisplayMode.Points ? 0 : (int)_calcMode;
                 int mode = Segmented(f, input, x, y, w, REVIEW_RESULTS, currentMode);
-                if (mode != currentMode) { _calcMode = (CalcDisplayMode)mode; RememberCalcView(); }
+                if (mode != currentMode) { _calcMode = mode == 3 ? CalcDisplayMode.Appearance : (CalcDisplayMode)mode; RememberCalcView(); }
                 y += S(40);
                 _ui.TextWrapped(f.Small, x, y, w, _calc.SetName, UiTheme.TEXT_SOFT, maxLines: 1);
                 y += S(24);
                 UpdateCalcTexts();
                 y += _ui.TextWrapped(f.Small, x, y, w, _calcSurfaceCaption, UiTheme.TEXT_SOFT, maxLines: 2) + S(4);
                 y += _ui.TextWrapped(f.Small, x, y, w, _calcPointCaption, UiTheme.TEXT_SOFT, maxLines: 2) + S(12);
-                if (_calcMode == CalcDisplayMode.Illuminance || _calcMode == CalcDisplayMode.Luminance)
+                if (_calcMode == CalcDisplayMode.Illuminance || _calcMode == CalcDisplayMode.Luminance || _calcMode == CalcDisplayMode.Appearance)
                 {
                     _calcSurfaces = Checkbox(f, input, x, y, half, "Surfaces", _calcSurfaces);
                 }
@@ -503,6 +503,11 @@ namespace BimGo.Game
                     y += S(48);
                 }
                 if (min != oldMin || max != oldMax) { SetBoxLocal(min, max); }
+            }
+            if (_calc != null)
+            {
+                if (SmallButton(f,input,x,y,w,S(30),"CALCULATED IMAGES · PNG…")) OpenCalculatedImages();
+                y+=S(38);
             }
             if (SmallButton(f, input, x, y, half, S(30), "EXPORT PNG")) { RememberCalcView(); RequestScreenshot(); }
             if (SmallButton(f, input, x + half + S(8), y, half, S(30), _reviewPin ? "CANCEL PIN" : "PIN REVISION")) { _reviewPin = !_reviewPin; }

@@ -3,7 +3,7 @@
   "branch": "claude/zealous-brahmagupta-n6ies6",
   "commit": "7c307ebed155dacba0a567e23ee639b2b793c54d",
   "physicalModel": "wwtools-diffuse-v1",
-  "sourcePolicy": "Upstream snapshot; no local solver edits. Relocate maintenance to a shared release before dual-product adoption.",
+  "sourcePolicy": "Pinned WWTools base plus byte-identical calculated-imaging overlay from WWTools. The scalar lighting equations are unchanged; patched files and renderer are hash-verified.",
   "files": [
     {
       "path": "src/WWTools/Calcs/Engine/CalcLog.cs",
@@ -18,7 +18,8 @@
     {
       "path": "src/WWTools/Calcs/Engine/PngImage.cs",
       "local": "Upstream/Calcs/Engine/PngImage.cs",
-      "gitBlob": "94115316de6e048254717a786de0de6177dc80be"
+      "gitBlob": "94115316de6e048254717a786de0de6177dc80be",
+      "imagingPatchSha256": "4db680b725a413efa1c837aa9397f3f119a07039630254ae73673072481353b7"
     },
     {
       "path": "src/WWTools/Calcs/Engine/Polygon.cs",
@@ -58,7 +59,8 @@
     {
       "path": "src/WWTools/Lighting/Engine/CalcResultsFile.cs",
       "local": "Upstream/Lighting/Engine/CalcResultsFile.cs",
-      "gitBlob": "9a40c1a0345a9d1d8e8d64719ca1ec98acd82746"
+      "gitBlob": "9a40c1a0345a9d1d8e8d64719ca1ec98acd82746",
+      "imagingPatchSha256": "b26ff34a57eb010d21dac66923f626d5672f0ce03654cb6987daa7c1b7e9dd4a"
     },
     {
       "path": "src/WWTools/Lighting/Engine/CalcZone.cs",
@@ -113,12 +115,14 @@
     {
       "path": "src/WWTools/Lighting/Engine/LightingReport.cs",
       "local": "Upstream/Lighting/Engine/LightingReport.cs",
-      "gitBlob": "0103606c50781f6d5b469a270bf8ec9172e29fbc"
+      "gitBlob": "0103606c50781f6d5b469a270bf8ec9172e29fbc",
+      "imagingPatchSha256": "4717d2a5f14b37ea00aedfb2dfa789dcb878e51f8fd865057db998ce61531b6c"
     },
     {
       "path": "src/WWTools/Lighting/Engine/LightingSolver.cs",
       "local": "Upstream/Lighting/Engine/LightingSolver.cs",
-      "gitBlob": "e97f2a166bb28823e070a24c4653a64616316614"
+      "gitBlob": "e97f2a166bb28823e070a24c4653a64616316614",
+      "imagingPatchSha256": "869a20de170a279d350263f1068cd34ff92159dc94012e6f4088388b5b814f3c"
     },
     {
       "path": "src/WWTools/Lighting/Engine/LightingTarget.cs",
@@ -158,7 +162,8 @@
     {
       "path": "src/WWTools/Lighting/Engine/RoomReport.cs",
       "local": "Upstream/Lighting/Engine/RoomReport.cs",
-      "gitBlob": "4af2abfbcfd062b3db8be0347ec9a37631f0808b"
+      "gitBlob": "4af2abfbcfd062b3db8be0347ec9a37631f0808b",
+      "imagingPatchSha256": "8e7fea0b8f47e01bdf23f6fa14d7641664524f0b6a7be8081e9978427e3bd090"
     },
     {
       "path": "src/WWTools/Lighting/Engine/RoomStatistics.cs",
@@ -168,12 +173,14 @@
     {
       "path": "src/WWTools/Lighting/Engine/SurfacePatch.cs",
       "local": "Upstream/Lighting/Engine/SurfacePatch.cs",
-      "gitBlob": "d8274fcc6fcd758d68307b391e32eea2be4fb02c"
+      "gitBlob": "d8274fcc6fcd758d68307b391e32eea2be4fb02c",
+      "imagingPatchSha256": "94ac182909c4d911db873787b9999894ff3e2469f36bbb65dc2f65667ca30d5c"
     },
     {
       "path": "src/WWTools/Lighting/Engine/TriangleScene.cs",
       "local": "Upstream/Lighting/Engine/TriangleScene.cs",
-      "gitBlob": "c1dc9bf5c2e7257d47cef09f7ee2732fdd1944e8"
+      "gitBlob": "c1dc9bf5c2e7257d47cef09f7ee2732fdd1944e8",
+      "imagingPatchSha256": "154c61165cc2e3fa26229dd1672982a54c7fe2f1061d831202544b84716f24af"
     },
     {
       "path": "src/WWTools/Lighting/Engine/WalkingSurfaces.cs",
@@ -190,5 +197,11 @@
       "local": "Upstream/Lighting/StoredPhotometry.cs",
       "gitBlob": "b756b5270b610ef47f6b637dd7d27d8910ae2997"
     }
-  ]
+  ],
+  "imaging": {
+    "model": "calculated-diffuse-image-v1",
+    "source": "TomKal1/WWTools",
+    "file": "CalculatedImage.cs",
+    "sha256": "1206c64264a9173952f4b05374cc7caef4d7a1eaf2405df317f209be83b2e771"
+  }
 }

@@ -81,6 +81,11 @@ internal sealed partial class GameSession
                 if (SmallButton(f, input, x + 2 * (bw + S(8)), cy, bw, S(28), "INPUT SCENE…")) ExportNativeCalculation(3);
                 cy += S(40);
             }
+            if (_calc != null)
+            {
+                if (SmallButton(f,input,x,cy,contentW,S(30),"CALCULATED IMAGES · PNG…")) OpenCalculatedImages();
+                cy+=S(40);
+            }
             cy = BuildLightingCalcsSection(f, input, x, cy, contentW);
         }
         else if (_lightingTab == 4) cy = BuildLightsTab(f, input, x, cy, contentW);

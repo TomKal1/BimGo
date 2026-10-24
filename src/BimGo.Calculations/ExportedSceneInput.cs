@@ -135,6 +135,7 @@ public static class ExportedSceneInput
                 normal = Vector3.Normalize(normal);
                 int cls = category is "furniture" or "furnsys" or "casework" or "generic" or "specialty" or "plumbing" ? 3 : normal.Z > .7 ? 2 : normal.Z < -.7 ? 0 : 1;
                 input.Triangles.Add(new CalculationTriangle { Vertices = World(a).Concat(World(b)).Concat(World(c)).ToArray(), Class = cls,
+                    Colour = new[] { (scene.Vertices[ia].Colour & 255) / 255.0, ((scene.Vertices[ia].Colour >> 8) & 255) / 255.0, ((scene.Vertices[ia].Colour >> 16) & 255) / 255.0 },
                     Tag = index+1, SurfaceKey = identity + "/triangle:" + ((k-element.OpaqueStart)/3), Walkable = walkable, Stair = stair });
                 if (input.Triangles.Count > 250000) throw new InvalidDataException("The physical domain exceeds 250,000 input triangles. Reduce the selected domain or re-export simpler physical geometry.");
             }

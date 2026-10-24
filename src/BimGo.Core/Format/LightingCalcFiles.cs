@@ -251,6 +251,10 @@ namespace BimGo.Format
                 direct[i] = float.IsFinite(d) ? d : float.NaN;
             }
 
+            long appearanceOffset = 0; int appearanceCount = 0;
+            bool hasAppearance = z.TryGetProperty("appearance", out JsonElement appearance);
+            if (hasAppearance && (!Range(appearance, 5, bin.LongLength, out appearanceOffset, out appearanceCount) || appearanceCount != patchCount))
+            { reason = "its surface appearance range is incomplete"; return null; }
             var patches = new CalcPatch[patchCount];
             int kept = 0;
             for (int i = 0; i < patchCount; i++)
@@ -259,12 +263,26 @@ namespace BimGo.Format
                 Vector3 n = new(F(body, at + 36), F(body, at + 40), F(body, at + 44));
                 float e = F(body, at + 48), rho = F(body, at + 52), flags = F(body, at + 56);
                 if (!float.IsFinite(e) || !float.IsFinite(rho) || !(n.LengthSquared() > 0.25f)) { continue; } // skip a bad patch, keep the zone
+                Vector3? colour = null; long sourceTag = 0;
+                if (hasAppearance)
+                {
+                    int ca = checked((int)(appearanceOffset + (long)i * 20));
+                    sourceTag = System.Buffers.Binary.BinaryPrimitives.ReadInt64LittleEndian(body.Slice(ca, 8));
+                    Vector3 rgb = new(F(body, ca + 8), F(body, ca + 12), F(body, ca + 16));
+                    if (!(rgb.X == -1 && rgb.Y == -1 && rgb.Z == -1))
+                    {
+                        if (!float.IsFinite(rgb.X) || !float.IsFinite(rgb.Y) || !float.IsFinite(rgb.Z) || rgb.X < 0 || rgb.Y < 0 || rgb.Z < 0 || rgb.X > 1 || rgb.Y > 1 || rgb.Z > 1)
+                        { reason = "invalid surface colour"; return null; }
+                        colour = rgb;
+                    }
+                }
                 patches[kept++] = new CalcPatch
                 {
                     A = LightingCalcs.ToScene(F(body, at), F(body, at + 4), F(body, at + 8), origin),
                     B = LightingCalcs.ToScene(F(body, at + 12), F(body, at + 16), F(body, at + 20), origin),
                     C = LightingCalcs.ToScene(F(body, at + 24), F(body, at + 28), F(body, at + 32), origin),
                     Normal = Vector3.Normalize(n),
+                    SourceTag = sourceTag, Colour = colour,
                     Illuminance = MathF.Max(0f, e),
                     Reflectance = Math.Clamp(rho, 0f, 1f),
                     Flags = float.IsFinite(flags) ? (int)flags : 0

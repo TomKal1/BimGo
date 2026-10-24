@@ -31,7 +31,13 @@ namespace WWTools.Lighting.Engine
         /// <summary>Caller's tag (element id) for diagnostics.</summary>
         public long Tag;
 
+        /// <summary>Optional model sRGB colour (0–1), used as an appearance hue, independently of physical reflectance.</summary>
+        public Vec3? Colour;
+
         public SceneTriangle(Vec3 a, Vec3 b, Vec3 c, SurfaceClass surfaceClass, double reflectance = -1, long tag = 0)
+            : this(a, b, c, surfaceClass, reflectance, tag, null) { }
+
+        public SceneTriangle(Vec3 a, Vec3 b, Vec3 c, SurfaceClass surfaceClass, double reflectance, long tag, Vec3? colour)
         {
             A = a;
             B = b;
@@ -39,6 +45,7 @@ namespace WWTools.Lighting.Engine
             Class = surfaceClass;
             Reflectance = reflectance;
             Tag = tag;
+            Colour = colour;
         }
 
         public Vec3 Normal => Vec3.Cross(B - A, C - A).Normalized();

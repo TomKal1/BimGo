@@ -92,7 +92,7 @@ addEventListener('resize',function(){if(el)fit();});
         /// </summary>
         public static string Page(CalcZone zone, LightingReportData data)
         {
-            if (zone.IsMultiLevel && zone.Statistics.Count > 0) return MultiLevelPages(zone, data);
+            if (zone.IsMultiLevel && zone.Statistics.Count > 0) return MultiLevelPages(zone, data) + CalculatedPage(zone, data);
 
             IlluminanceUnits units = data.Units;
             ZoneStatistics s = zone.Statistics;
@@ -117,7 +117,15 @@ addEventListener('resize',function(){if(el)fit();});
             sb.Append(LuminaireTable(zone, data));
             Basis(sb, zone, data);
             sb.AppendLine("</section>");
+            sb.Append(CalculatedPage(zone, data));
             return sb.ToString();
+        }
+
+        private static string CalculatedPage(CalcZone zone, LightingReportData data)
+        {
+            if (!data.CalculatedImages || zone.Surfaces.Count == 0 || zone.Statistics.Count == 0) return string.Empty;
+            return "<section class=\"room\"><h2>" + H(zone.DisplayName) + " — Calculated lighting image</h2>" +
+                CalculatedImage.ReportFigure(zone) + "</section>";
         }
 
         private static string MultiLevelPages(CalcZone zone, LightingReportData data)

@@ -28,7 +28,7 @@ public sealed class NativeCalculationRun
     public IReadOnlyDictionary<string, string> ZoneRevisions { get; init; }
     public IReadOnlyList<SolveStats> Statistics { get; init; }
     internal LightingReportData ReportData { get; init; }
-    public string HtmlReport(double scaleMax, bool lux = false) => NativeLightingReport.Html(ReportData,Statistics,scaleMax,lux,Input.Emitters);
+    public string HtmlReport(double scaleMax, bool lux = false) => NativeLightingReport.Html(ReportData,Statistics,scaleMax,lux,Input.Emitters,includeImages:true);
 }
 
 /// <summary>Runs the pinned diffuse kernel entirely offline. Call on a worker with owned immutable input.</summary>
@@ -52,7 +52,7 @@ public static class NativeCalculator
             }).ToList();
         }
         cancel.ThrowIfCancellationRequested(); progress?.Invoke("Preparing physical geometry and photometry");
-        var triangles = input.Triangles.Select(t => new SceneTriangle(V(t.Vertices,0),V(t.Vertices,3),V(t.Vertices,6),(SurfaceClass)t.Class,t.Reflectance,t.Tag)).ToList();
+        var triangles = input.Triangles.Select(t => new SceneTriangle(V(t.Vertices,0),V(t.Vertices,3),V(t.Vertices,6),(SurfaceClass)t.Class,t.Reflectance,t.Tag,t.Colour == null ? (Vec3?)null : V(t.Colour,0))).ToList();
         var options = input.Solver.ToOptions();
         // MaxPatches cannot reduce the mesh below its input triangle count. Preserve the physical mesh;
         // budget its transport storage instead of rejecting ordinary detailed BIM exports at 60k.

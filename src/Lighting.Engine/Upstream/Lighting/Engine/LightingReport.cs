@@ -83,6 +83,9 @@ namespace WWTools.Lighting.Engine
 
         /// <summary>Top of the colour scale (fc) shared by every zone; 0 = a round number above each zone's maximum.</summary>
         public double ColorScaleMax { get; set; }
+
+        /// <summary>Include an independently rendered calculated diffuse image page for each solved zone.</summary>
+        public bool CalculatedImages { get; set; }
     }
 
     /// <summary>Formats results: values in the chosen units, a printable HTML report and a CSV of points.</summary>

@@ -36,7 +36,7 @@ namespace BimGo.Game
         /// <summary>Phase C: how old WW Tools' "View in BimGo" request may be.</summary>
         private static readonly TimeSpan CALC_OPEN_MAX_AGE = TimeSpan.FromMinutes(2);
 
-        private static readonly string[] CALC_MODE_OPTIONS = { "Off", "Illuminance", "Luminance", "Points" };
+        private static readonly string[] CALC_MODE_OPTIONS = { "Off", "Illuminance", "Luminance", "Points", "Calculated" };
 
         private static readonly KeyHint HINT_CALC_CYCLE = new(() => $"{Key(InputAction.LightingCalcMode)}: off / illuminance / luminance / points");
 
@@ -304,6 +304,7 @@ namespace BimGo.Game
             CalcDisplayMode mode = request.Mode switch
             {
                 "luminance" => CalcDisplayMode.Luminance,
+                "appearance" => CalcDisplayMode.Appearance,
                 "points" => CalcDisplayMode.Points,
                 _ => CalcDisplayMode.Illuminance
             };
@@ -349,7 +350,7 @@ namespace BimGo.Game
                 LoadCalc(_calcNames[0], CalcDisplayMode.Illuminance, update: false);
                 return;
             }
-            _calcMode = (CalcDisplayMode)(((int)_calcMode + 1) % 4);
+            _calcMode = (CalcDisplayMode)(((int)_calcMode + 1) % 5);
             _calcBuildKey = int.MinValue;
             RememberCalcView();
             Toast(_calcMode == CalcDisplayMode.Off ? "Lighting calc off" : $"Lighting calc: {ModeLabel(_calcMode)}", 1.8f);
@@ -359,6 +360,7 @@ namespace BimGo.Game
         {
             CalcDisplayMode.Illuminance => "illuminance",
             CalcDisplayMode.Luminance => "luminance",
+            CalcDisplayMode.Appearance => "calculated diffuse appearance",
             CalcDisplayMode.Points => "points",
             _ => "off"
         };
@@ -411,7 +413,7 @@ namespace BimGo.Game
                 _calcBuildKey = key;
                 _calcOverlay.Build(_calc, mode, _calcSurfaces, _calcPoints, _calcIsolines && mode != CalcDisplayMode.Luminance, _calc.ScaleMin, scaleMax);
             }
-            _calcOverlay.Draw(Camera, mode == CalcDisplayMode.Points ? 1f : _calcOpacity, _sectionPlanes, _sectionCount);
+            _calcOverlay.Draw(Camera, mode == CalcDisplayMode.Points || mode == CalcDisplayMode.Appearance ? 1f : _calcOpacity, _sectionPlanes, _sectionCount);
         }
 
         /// <summary>The top of the false colour scale (fc): the sheets' scale × the panel's scale slider.</summary>
@@ -567,9 +569,10 @@ namespace BimGo.Game
             bool luminance = _calcMode == CalcDisplayMode.Luminance;
             string luminanceUnit = lux ? "cd/m²" : "fL";
             string source = _calc.IsNative ? (_nativeShown ? "BIMGO" : "BIMGO SAVED · UNVERIFIED") : "IMPORTED SAVED RUN";
-            _calcLegendTitle = (luminance ? $"SURFACE LUMINANCE [{luminanceUnit}]" : $"ILLUMINANCE [{unit}]") + $" · {source} · {_calc.SetName.ToUpperInvariant()}";
+            _calcLegendTitle = (_calcMode == CalcDisplayMode.Appearance ? "CALCULATED DIFFUSE · EV 0 (point scale below)" : luminance ? $"SURFACE LUMINANCE [{luminanceUnit}]" : $"ILLUMINANCE [{unit}]") + $" · {source} · {_calc.SetName.ToUpperInvariant()}";
             _calcSurfaceCaption = luminance
                 ? (lux ? "Surfaces: luminance · candelas/m² (cd/m²)" : "Surfaces: luminance · foot-lamberts (fL)")
+                : _calcMode == CalcDisplayMode.Appearance ? "Calculated diffuse · EV 0 · 100 cd/m²; other geometry is preview"
                 : _calcMode == CalcDisplayMode.Illuminance ? $"Surfaces: illuminance [{unit}]" : "Surfaces: material colours";
             _calcPointCaption = lux ? "Points / values: illuminance · lux (lx)" : "Points / values: illuminance · foot-candles (fc)";
             for (int t = 0; t < _calcTicks.Length; t++)
@@ -677,7 +680,8 @@ namespace BimGo.Game
 
             // Opacity and the scale's top (× the sheets' scale)
             Text.Clear().Append(_calcOpacity * 100f, 0).Append(" %");
-            float opacity = Slider(f, input, SLIDER_CALC_OPACITY, ix, y, half, "Opacity", Text.Span, _calcOpacity, 0.3f, 1f);
+            float opacity = _calcMode == CalcDisplayMode.Appearance ? _calcOpacity : Slider(f, input, SLIDER_CALC_OPACITY, ix, y, half, "Opacity", Text.Span, _calcOpacity, 0.3f, 1f);
+            if (_calcMode == CalcDisplayMode.Appearance) _ui.Text(f.Small,ix,y+S(14),"Calculated: opaque",UiTheme.TEXT_MUTED);
             Text.Clear();
             if (_calc != null) { Text.Append(LightingCalcs.Display(CalcScaleMax, CalcInLux), CalcInLux ? 0 : 1).Append(CalcInLux ? " lx" : " fc"); }
             else { Text.Append(_calcScaleTop * 100f, 0).Append(" %"); }
@@ -705,7 +709,7 @@ namespace BimGo.Game
             if (about != null) { y += _ui.TextWrapped(f.Small, ix, y, iw, about, UiTheme.TEXT_FAINT, maxLines: 4) + S(4); }
             if (_calcNotice != null) { y += _ui.TextWrapped(f.Small, ix, y, iw, _calcNotice, UiTheme.MEASURE_LABEL, maxLines: 3) + S(4); }
             y += _ui.TextWrapped(f.Small, ix, y, iw,
-                "Analysis overlays show the selected saved or native run. The live fixture preview is separate. Luminance gray is normalized analysis, not calculated material appearance.",
+                "Calculated uses fixed EV 0 and saved diffuse lighting with model hues. Uncovered geometry remains preview. Export images use the same CPU renderer as WWTools; no coloured bounce, glossy or glass transport.",
                 UiTheme.TEXT_FAINT, maxLines: 3);
 
             // A divider before the fixture types

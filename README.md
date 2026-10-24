@@ -35,6 +35,14 @@ Edits respect two phases picked in Options: the walkthrough shows the **new** ph
 
 ## 1. Overview
 
+**Independent calculated lighting images (Tom-Main, 2026-10-22).** LIGHTING → RESULTS and Model Review →
+CALCULATED IMAGES · PNG… open a local room-image viewer with cutaway/interior cameras, fixed exposure
+and 1080p/4K export. Model Review's Calculated mode uses saved diffuse lighting and model hues.
+Native report exports include the images. The same CPU renderer ships independently in WWTools;
+neither application requires the other, and no new external dependency was added. This is calculated
+diffuse appearance, with no coloured-bounce/gloss/glass transport, rather than full photorealism.
+See [build notes](ai/261022d_LightingCalcs_B/6_independent_calculated_images.md).
+
 | Item | Decision |
 |---|---|
 | Solution | `src/BimGo.sln`: **BimGo.Core** (net8.0), **BimGo.App** (net8.0-windows, `BimGo.exe`), **BimGo.Revit** (Revit 2025 / 2026 on net8.0-windows, 2027 on net10.0-windows). Version **1.0.0** on all three |

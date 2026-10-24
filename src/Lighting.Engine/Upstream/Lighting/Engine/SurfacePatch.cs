@@ -30,9 +30,15 @@ namespace WWTools.Lighting.Engine
         /// </summary>
         public bool Covered;
 
+        /// <summary>Source element identity and optional sRGB appearance hue. Neither changes the scalar diffuse solve.</summary>
+        public long SourceTag;
+        public Vec3? Colour;
+
         public SurfacePatch(SceneTriangle triangle, Vec3 normal, double reflectance, double illuminance, bool covered = false)
         {
             Covered = covered;
+            SourceTag = triangle.Tag;
+            Colour = triangle.Colour;
             A = triangle.A;
             B = triangle.B;
             C = triangle.C;

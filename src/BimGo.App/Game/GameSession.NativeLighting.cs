@@ -19,6 +19,7 @@ internal sealed partial class GameSession
     private readonly CalculationRevisionGate _nativeGate = new();
     private CancellationTokenSource _nativeCancel;
     private Task<NativeCalculationOutcome> _nativeJob;
+    private Task<string> _nativeReportExport;
     private long _nativeTicket;
     private string _nativeJobSet;
     private NativeCalculationRun _nativeRun, _nativePreviousRun;
@@ -132,6 +133,9 @@ internal sealed partial class GameSession
 
     private void TickNativeLighting()
     {
+        if (_nativeReportExport?.IsCompleted == true)
+        { _nativeStatus=_nativeReportExport.GetAwaiter().GetResult();_nativeReportExport=null; }
+
         if (!_nativeLightingReady) return;
         if (_clock >= _nativeNextCheck)
         {
@@ -236,12 +240,35 @@ internal sealed partial class GameSession
         _window.Input.ReleaseAll(); if(path==null)return;
         try
         {
-            if(kind==0)File.WriteAllText(path,run.HtmlReport(CalcScaleMax,CalcInLux),Encoding.UTF8);
+            if(kind==0)
+            {
+                if(_nativeReportExport!=null){_nativeStatus="A report export is already running.";return;}
+                float scale=CalcScaleMax;bool lux=CalcInLux;
+                _nativeStatus="Rendering report images…";
+                _nativeReportExport=Task.Run(()=>
+                {
+                    try{File.WriteAllText(path,run.HtmlReport(scale,lux),Encoding.UTF8);return "Exported "+Path.GetFileName(path)+" · revision "+run.ScenarioHash[..8];}
+                    catch(Exception ex){return "Report export failed: "+ex.Message;}
+                });
+                return;
+            }
             else if(kind==1)File.WriteAllText(path,run.PointCsv,Encoding.UTF8);
             else File.WriteAllBytes(path,kind==2?run.StructuredResults:run.SceneBytes);
             _nativeStatus="Exported "+Path.GetFileName(path)+" · revision "+run.ScenarioHash[..8];
         }
         catch(Exception ex){_nativeStatus="Export failed: "+ex.Message;}
+    }
+    private void OpenCalculatedImages()
+    {
+        try
+        {
+            if (_calc == null) { _nativeStatus="Load or run a calculation first."; return; }
+            var zones=_nativeShown && _nativeRun!=null ? _nativeRun.Zones : CalculatedImages.FromDisplay(_calc,Scene.OriginOffset);
+            _window.SetCaptured(false);_window.Input.ReleaseAll();
+            using var images=new CalculatedImageForm(zones);images.ShowDialog();
+            _window.Input.ReleaseAll();
+        }
+        catch(Exception ex){_nativeStatus="Calculated images: "+ex.Message;Toast(_nativeStatus,important:true);}
     }
     private void DisposeNativeLighting()
     {

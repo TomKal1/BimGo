@@ -472,20 +472,20 @@ namespace WWTools.Lighting.Engine
                     if (ab >= bc && ab >= ca)
                     {
                         Vec3 m = (t.A + t.B) * 0.5;
-                        stack.Push(new SceneTriangle(t.A, m, t.C, t.Class, t.Reflectance, t.Tag));
-                        stack.Push(new SceneTriangle(m, t.B, t.C, t.Class, t.Reflectance, t.Tag));
+                        stack.Push(new SceneTriangle(t.A, m, t.C, t.Class, t.Reflectance, t.Tag, t.Colour));
+                        stack.Push(new SceneTriangle(m, t.B, t.C, t.Class, t.Reflectance, t.Tag, t.Colour));
                     }
                     else if (bc >= ca)
                     {
                         Vec3 m = (t.B + t.C) * 0.5;
-                        stack.Push(new SceneTriangle(t.A, t.B, m, t.Class, t.Reflectance, t.Tag));
-                        stack.Push(new SceneTriangle(t.A, m, t.C, t.Class, t.Reflectance, t.Tag));
+                        stack.Push(new SceneTriangle(t.A, t.B, m, t.Class, t.Reflectance, t.Tag, t.Colour));
+                        stack.Push(new SceneTriangle(t.A, m, t.C, t.Class, t.Reflectance, t.Tag, t.Colour));
                     }
                     else
                     {
                         Vec3 m = (t.C + t.A) * 0.5;
-                        stack.Push(new SceneTriangle(t.A, t.B, m, t.Class, t.Reflectance, t.Tag));
-                        stack.Push(new SceneTriangle(m, t.B, t.C, t.Class, t.Reflectance, t.Tag));
+                        stack.Push(new SceneTriangle(t.A, t.B, m, t.Class, t.Reflectance, t.Tag, t.Colour));
+                        stack.Push(new SceneTriangle(m, t.B, t.C, t.Class, t.Reflectance, t.Tag, t.Colour));
                     }
                 }
             }
