@@ -26,8 +26,8 @@ MIT licence, https://github.com/microsoft/testfx
 --------------------------------------------------------------------------------
 WWTools lighting engine development snapshot (CA-0 / CA-1)
 
-Development builds now bundle Lighting.Engine 0.1.0. Its unchanged upstream
-sources are from TomKal1/WWTools commit 7c307ebed155dacba0a567e23ee639b2b793c54d.
+Development builds now bundle Lighting.Engine 0.2.0. Its unchanged upstream
+sources are from TomKal1/WWTools commit d1542a8a68c4419f51a3a34d78b1caa465b4e9d5 (main).
 The upstream project declares Copyright (C) 2026 Wiley & Wilson. All rights
 reserved. No redistribution license was present in the inspected branch.
 These sources are excluded from the MIT-0/MIT statements above. The bundled

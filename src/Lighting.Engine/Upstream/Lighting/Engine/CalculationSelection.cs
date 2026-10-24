@@ -32,10 +32,20 @@ namespace WWTools.Lighting.Engine
 
         /// <summary>Removes manual exclusions and points at/under actual furniture triangles, retaining all other heights.</summary>
         public static int ExcludePoints(CalcZone zone, IReadOnlyList<SceneTriangle> geometry,
-            bool underFurniture, IEnumerable<Vec3> manual)
+            bool underFurniture, IEnumerable<Vec3> manual) =>
+            ExcludePoints(zone, underFurniture ? FurnitureScene(geometry) : null, manual);
+
+        /// <summary>
+        /// The furniture of the geometry, ready for <see cref="ExcludePoints(CalcZone, TriangleScene?, IEnumerable{Vec3})"/>.
+        /// Build it once per run: over a whole building it takes seconds (3.3 s a zone on Snowdon).
+        /// </summary>
+        public static TriangleScene FurnitureScene(IReadOnlyList<SceneTriangle> geometry) =>
+            new TriangleScene(geometry.Where(t => t.Class == SurfaceClass.Furniture).ToList());
+
+        /// <summary>As above, with the furniture scene already built; null leaves points under furniture in.</summary>
+        public static int ExcludePoints(CalcZone zone, TriangleScene? furniture, IEnumerable<Vec3> manual)
         {
             var excluded = (manual ?? Enumerable.Empty<Vec3>()).ToArray();
-            var furniture = underFurniture ? new TriangleScene(geometry.Where(t => t.Class == SurfaceClass.Furniture).ToList()) : null;
             var keep = new List<int>();
             for (int i = 0; i < zone.Points.Count; i++)
             {

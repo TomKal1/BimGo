@@ -61,6 +61,30 @@ namespace WWTools.Calcs.Engine
         /// </summary>
         public List<ZoneLevel> Levels { get; } = new List<ZoneLevel>();
 
+        /// <summary>
+        /// Elevation of the first storey above the zone's highest level (the floor over its head);
+        /// NaN on the top storey or when the storeys are unknown. A Space often stops at a dropped
+        /// ceiling while part of the room runs up to the deck under this level.
+        /// </summary>
+        public double LevelAboveElevation { get; set; } = double.NaN;
+
+        /// <summary>
+        /// Fills <see cref="Levels"/> from the building's storeys (lowest first): any storey the
+        /// zone reaches below its own level (a stair space on L1 that starts at Parking), its own
+        /// level, then every storey whose floor lies inside its height (a stair shaft or a lobby
+        /// with a balcony spans several). A storey within 4 ft of its own level is the same floor.
+        /// </summary>
+        public void SetLevels(IEnumerable<ZoneLevel> storeys)
+        {
+            Levels.Clear();
+            List<ZoneLevel> sorted = storeys.OrderBy(l => l.Elevation).ToList();
+            Levels.AddRange(sorted.Where(l => l.Elevation >= BottomZ - 1.0 && l.Elevation < LevelElevation - 4));
+            Levels.Add(new ZoneLevel(LevelName, LevelElevation));
+            Levels.AddRange(sorted.Where(l => l.Elevation > LevelElevation + 4 && l.Elevation < TopZ - 2));
+            ZoneLevel? above = sorted.FirstOrDefault(l => l.Elevation > LevelElevation + 4 && l.Elevation >= TopZ - 2);
+            LevelAboveElevation = above != null ? above.Elevation : double.NaN;
+        }
+
         /// <summary>The zone spans more than one level.</summary>
         public bool IsMultiLevel => Levels.Count > 1;
 

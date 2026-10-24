@@ -1,7 +1,7 @@
 # CA-0 synthetic replay corpus
 
 Five complete CPU compatibility inputs, captured from the unchanged WWTools
-integration-branch implementation at `7c307ebed155dacba0a567e23ee639b2b793c54d`.
+main-branch implementation at `d1542a8a68c4419f51a3a34d78b1caa465b4e9d5` (recaptured 2026-10-24; `golden-diff.md` records the change from `7c307eb`).
 They are synthetic scenes, not exported Revit golden runs. They exercise a small
 room, open office, near-field source with casework, asymmetric photometry, and
 connected rooms through an opening. The closed-cube analytic check is generated

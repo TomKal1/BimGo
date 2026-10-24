@@ -71,7 +71,7 @@ public sealed partial class NativeLightingTests
     {
         var input=Input(Scene());input.Emitters[0].Type="Fixture <A&B>";
         var original=input.Emitters[0];
-        input.Emitters.Add(new CalculationEmitter {Key="above-room",Type="Transport source above room",Position=new[]{6d,5d,9.5},
+        input.Emitters.Add(new CalculationEmitter {Key="above-room",Type="Transport source above room",Position=new[]{6d,5d,12.5},
             Nadir=original.Nadir,Axis0=original.Axis0,Ies=original.Ies,Provenance=original.Provenance,
             Lumens=original.Lumens,Downward=original.Downward,Multiplier=original.Multiplier});
         var run=Run(input);var html=run.ReportHtml;

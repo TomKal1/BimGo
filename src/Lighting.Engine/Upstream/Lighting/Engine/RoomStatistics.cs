@@ -52,9 +52,13 @@ namespace WWTools.Lighting.Engine
         public static double ReflectedShare(CalcZone zone)
         {
             double total = zone.Statistics.Average;
-            if (total <= 1e-9) return 0;
+            if (total < WWTools.Calcs.Engine.ZoneStatistics.RatioFloor) return double.NaN; // reads 0.0: no share to give
             return IesPhotometry.Clamp((total - zone.DirectStatistics.Average) / total, 0, 1);
         }
+
+        /// <summary>A share as a whole percentage, or "–" when there is none (NaN).</summary>
+        public static string FormatShare(double share) =>
+            double.IsNaN(share) ? "–" : (share * 100).ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " %";
 
         /// <summary>The ceiling, walls, floor and furniture of the zone, those it has, in that order.</summary>
         public static List<SurfaceSummary> Surfaces(CalcZone zone)

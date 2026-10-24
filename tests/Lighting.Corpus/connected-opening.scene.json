@@ -2,7 +2,7 @@
   "Name": "connected-opening",
   "LengthUnit": "ft",
   "IlluminanceUnit": "fc",
-  "PhysicalModel": "wwtools-diffuse-v1",
+  "PhysicalModel": "wwtools-diffuse-v2",
   "Width": 24,
   "Depth": 10,
   "Height": 9,

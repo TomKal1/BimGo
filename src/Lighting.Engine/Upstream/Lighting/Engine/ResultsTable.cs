@@ -44,7 +44,7 @@ namespace WWTools.Lighting.Engine
                         any ? Value(s.Minimum) : "-",
                         any ? Ratio(s.AverageToMinimum) : "-",
                         any ? Ratio(s.MaximumToMinimum) : "-",
-                        any ? Ratio(s.Average > 1e-9 ? s.Maximum / s.Average : double.PositiveInfinity) : "-",
+                        any ? Ratio(s.Average >= ZoneStatistics.RatioFloor ? s.Maximum / s.Average : double.PositiveInfinity) : "-",
                     };
                 })
                 .ToList();

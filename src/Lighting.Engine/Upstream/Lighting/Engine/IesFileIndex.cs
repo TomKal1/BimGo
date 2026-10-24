@@ -19,6 +19,19 @@ namespace WWTools.Lighting.Engine
 
         public int Count => _byName.Count;
 
+        /// <summary>
+        /// Revit's "RVT 20xx" folders with the running version's first (a Revit 2025 run must not
+        /// take generic.ies from RVT 2026), then the rest newest first.
+        /// </summary>
+        public static List<string> OrderVersionFolders(IEnumerable<string> versionFolders, string? runningVersion)
+        {
+            string running = string.IsNullOrWhiteSpace(runningVersion) ? string.Empty : "RVT " + runningVersion!.Trim();
+            return versionFolders
+                .OrderByDescending(v => running.Length > 0 && Path.GetFileName(v.TrimEnd('\\', '/')).Equals(running, StringComparison.OrdinalIgnoreCase))
+                .ThenByDescending(v => v, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
         public static IesFileIndex Build(IEnumerable<string> folders)
         {
             var index = new IesFileIndex();

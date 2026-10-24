@@ -37,6 +37,9 @@ namespace WWTools.Lighting.Engine
 
         /// <summary>Top of the colour scale (fc) shared by the sheets and report; 0 = a round number above the highest value.</summary>
         public double ColorScaleMax { get; set; }
+
+        /// <summary>The settings all zones share, as "name: value" (grid, geometry detail, quality, ...); empty in older files.</summary>
+        public List<string> SharedSettings { get; set; } = new List<string>();
     }
 
     /// <summary>A built results file: the JSON header and the binary body it describes.</summary>
@@ -123,6 +126,7 @@ namespace WWTools.Lighting.Engine
                     Interreflections = run.Interreflection,
                     Quality = run.Quality,
                     LlfApplied = true,
+                    SharedSettings = run.SharedSettings.Count > 0 ? run.SharedSettings.ToList() : null,
                 },
                 Units = new UnitsDto { Length = "ft", Coordinates = "revit-internal", Illuminance = "fc", Report = LightingReport.UnitLabel(run.Units) },
                 Scale = new ScaleDto { Min = 0, Max = Round(scaleMax), Label = "Illuminance" },
@@ -146,6 +150,11 @@ namespace WWTools.Lighting.Engine
                         body.Write((float)(i < zone.Direct.Length ? zone.Direct[i] : double.NaN));
                     }
                     data.Points += points;
+                    if (zone.IsMultiLevel && zone.PointLevel.Length >= points)
+                    {
+                        dto.Levels = zone.Levels.Select(l => new LevelDto { Name = l.Name, Elevation = Round(l.Elevation) }).ToList();
+                        dto.PointLevels = zone.PointLevel.Take(points).ToArray();
+                    }
 
                     long patchStart = stream.Position;
                     int patches = 0;
@@ -227,7 +236,44 @@ namespace WWTools.Lighting.Engine
         /// <summary>Restores solved zones for a partial rerun; refuses truncated or incompatible caches.</summary>
         public static List<CalcZone> ReadZones(string jsonPath) => ReadZones(jsonPath, out _);
 
-        public static List<CalcZone> ReadZones(string jsonPath, out double scaleMax)
+        /// <summary>Every saved luminaire position (feet, world frame), for marking fixtures on calculated images.</summary>
+        public static List<Vec3> ReadLuminairePositions(string jsonPath)
+        {
+            if (new FileInfo(jsonPath).Length > 64 * 1024 * 1024) throw new InvalidDataException("Results header is too large.");
+            HeaderDto header;
+            using (var stream = File.OpenRead(jsonPath))
+                header = (HeaderDto?)new DataContractJsonSerializer(typeof(HeaderDto)).ReadObject(stream) ?? throw new InvalidDataException("Missing cached lighting results.");
+            return header.Luminaires.Where(l => l.Position != null && l.Position.Length == 3)
+                .Select(l => new Vec3(l.Position[0], l.Position[1], l.Position[2])).ToList();
+        }
+
+        public static List<CalcZone> ReadZones(string jsonPath, out double scaleMax) => ReadZones(jsonPath, out scaleMax, out _);
+
+        /// <summary>
+        /// The shared settings in <paramref name="now"/> that differ from <paramref name="before"/>, as
+        /// "grid 1 ft → 2 ft". A setting only one of them has counts as changed.
+        /// </summary>
+        public static List<string> ChangedSettings(IReadOnlyList<string> before, IReadOnlyList<string> now)
+        {
+            (string Name, string Value) Split(string s)
+            {
+                int colon = s.IndexOf(": ", StringComparison.Ordinal);
+                return colon < 0 ? (s, string.Empty) : (s.Substring(0, colon), s.Substring(colon + 2));
+            }
+            var old = before.Select(Split).GroupBy(p => p.Name).ToDictionary(g => g.Key, g => g.First().Value);
+            var changes = new List<string>();
+            foreach ((string name, string value) in now.Select(Split))
+            {
+                old.TryGetValue(name, out string? was);
+                if (was != value) changes.Add($"{name} {was ?? "(not recorded)"} → {value}");
+                old.Remove(name);
+            }
+            changes.AddRange(old.Select(p => $"{p.Key} {p.Value} → (not set)"));
+            return changes;
+        }
+
+        /// <summary>Restores solved zones and the run's shared settings (empty for older files).</summary>
+        public static List<CalcZone> ReadZones(string jsonPath, out double scaleMax, out List<string> sharedSettings)
         {
             if (new FileInfo(jsonPath).Length > 64 * 1024 * 1024) throw new InvalidDataException("Results header is too large.");
             HeaderDto header;
@@ -237,6 +283,7 @@ namespace WWTools.Lighting.Engine
             if (header.Format != Format || header.Version != Version || header.BinBytes != bytes.LongLength)
                 throw new InvalidDataException("Previous lighting results are incompatible or incomplete. Run the complete calc set first.");
             scaleMax = header.Scale.Max;
+            sharedSettings = header.Run?.SharedSettings?.ToList() ?? new List<string>();
             var zones = new List<CalcZone>();
             using (var stream = new MemoryStream(bytes))
             using (var reader = new BinaryReader(stream))
@@ -263,6 +310,12 @@ namespace WWTools.Lighting.Engine
                     for (int i = 0; i < dto.Points.Count; i++)
                     { zone.Points.Add(Vector()); zone.Illuminance[i] = reader.ReadSingle(); zone.Direct[i] = reader.ReadSingle(); }
                     zone.Statistics = ZoneStatistics.From(zone.Illuminance); zone.DirectStatistics = ZoneStatistics.From(zone.Direct);
+                    if (dto.Levels != null && dto.Levels.Count > 1 && dto.PointLevels != null && dto.PointLevels.Length == zone.Points.Count &&
+                        dto.PointLevels.All(l => l >= 0 && l < dto.Levels.Count))
+                    {
+                        zone.Levels.AddRange(dto.Levels.Select(l => new ZoneLevel(l.Name, l.Elevation)));
+                        zone.PointLevel = dto.PointLevels;
+                    }
                     Seek(dto.Patches, PatchFloats);
                     for (int i = 0; i < dto.Patches.Count; i++)
                     {
@@ -285,10 +338,16 @@ namespace WWTools.Lighting.Engine
                             zone.Surfaces[i] = patch;
                         }
                     }
-                    foreach (LuminaireDto lum in header.Luminaires)
+                    if (dto.LuminaireTypes != null)
+                    {
+                        foreach (TypeCountDto type in dto.LuminaireTypes)
+                            if (!string.IsNullOrEmpty(type.TypeKey) && type.Count > 0) zone.LuminaireTypeCounts[type.TypeKey] = type.Count;
+                    }
+                    // Older files: recount by position (no geometry, so a fixture on the floor above may still count).
+                    else foreach (LuminaireDto lum in header.Luminaires)
                     {
                         if (lum.Position.Length != 3 || string.IsNullOrEmpty(lum.TypeKey)) continue;
-                        if (!zone.ContainsPlan(lum.Position[0], lum.Position[1]) || lum.Position[2] < zone.BottomZ - 1 || lum.Position[2] > zone.TopZ + 3) continue;
+                        if (!LightingReport.LuminaireInZone(zone, new Vec3(lum.Position[0], lum.Position[1], lum.Position[2]))) continue;
                         zone.LuminaireTypeCounts.TryGetValue(lum.TypeKey, out int count);
                         zone.LuminaireTypeCounts[lum.TypeKey] = count + 1;
                     }
@@ -440,6 +499,9 @@ namespace WWTools.Lighting.Engine
                 FloorArea = Round(zone.FloorArea),
                 LuminaireCount = zone.LuminaireCount,
                 Watts = Round(zone.Watts),
+                // The run's own decision (it can see slabs), so a reread counts exactly what the report did.
+                LuminaireTypes = zone.LuminaireTypeCounts.OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                    .Select(kv => new TypeCountDto { TypeKey = kv.Key, Count = kv.Value }).ToList(),
                 Stats = new StatsDto
                 {
                     Count = s.Count,
@@ -533,6 +595,7 @@ namespace WWTools.Lighting.Engine
             [DataMember(Name = "interreflections", Order = 2)] public bool Interreflections;
             [DataMember(Name = "quality", Order = 3)] public string Quality = string.Empty;
             [DataMember(Name = "llfApplied", Order = 4)] public bool LlfApplied;
+            [DataMember(Name = "sharedSettings", Order = 5, EmitDefaultValue = false)] public List<string>? SharedSettings;
         }
 
         [DataContract]
@@ -576,7 +639,18 @@ namespace WWTools.Lighting.Engine
             [DataMember(Name = "points", Order = 18)] public RangeDto Points = new RangeDto();
             [DataMember(Name = "patches", Order = 19)] public RangeDto Patches = new RangeDto();
             [DataMember(Name = "appearance", Order = 21, EmitDefaultValue = false)] public RangeDto? Appearance;
+            [DataMember(Name = "luminaireTypes", Order = 22, EmitDefaultValue = false)] public List<TypeCountDto>? LuminaireTypes;
+            /// <summary>A zone spanning levels: its levels and each point's level index, so plan values can be placed again per level.</summary>
+            [DataMember(Name = "levels", Order = 23, EmitDefaultValue = false)] public List<LevelDto>? Levels;
+            [DataMember(Name = "pointLevels", Order = 24, EmitDefaultValue = false)] public int[]? PointLevels;
             [DataMember(Name = "isolines", Order = 20)] public List<IsolineDto> Isolines = new List<IsolineDto>();
+        }
+
+        [DataContract]
+        private sealed class LevelDto
+        {
+            [DataMember(Name = "name", Order = 1)] public string Name = string.Empty;
+            [DataMember(Name = "elevation", Order = 2)] public double Elevation;
         }
 
         [DataContract]
@@ -604,6 +678,13 @@ namespace WWTools.Lighting.Engine
         private sealed class RangeDto
         {
             [DataMember(Name = "offset", Order = 1)] public long Offset;
+            [DataMember(Name = "count", Order = 2)] public int Count;
+        }
+
+        [DataContract]
+        private sealed class TypeCountDto
+        {
+            [DataMember(Name = "typeKey", Order = 1)] public string TypeKey = string.Empty;
             [DataMember(Name = "count", Order = 2)] public int Count;
         }
 

@@ -42,6 +42,21 @@ namespace WWTools.Lighting.Engine
         /// <summary>The same across the luminaire (the 90°–270° plane).</summary>
         public double[] PolarCrosswise { get; set; } = Array.Empty<double>();
 
+        /// <summary>
+        /// The schedule's photometry text: the IES file's own description, else the IES file's name
+        /// (from Revit's photometric web file, or the file the source names). LED15FM12 and the
+        /// bollard's files have no description.
+        /// </summary>
+        public static string PhotometryLabel(string description, string webFileName, string source)
+        {
+            if (!string.IsNullOrWhiteSpace(description)) return description.Trim();
+            string FileName(string path) { try { return System.IO.Path.GetFileName(path.Trim()); } catch (ArgumentException) { return path.Trim(); } }
+            if (!string.IsNullOrWhiteSpace(webFileName)) return FileName(webFileName);
+            const string prefix = "IES file: ";
+            int at = source.IndexOf(prefix, StringComparison.OrdinalIgnoreCase);
+            return at >= 0 ? FileName(source.Substring(at + prefix.Length)) : string.Empty;
+        }
+
         /// <summary>Samples a polar curve from the photometry (no light loss factor).</summary>
         public static double[] SamplePolar(IesPhotometry photometry, bool crosswise)
         {
@@ -93,6 +108,23 @@ namespace WWTools.Lighting.Engine
     {
         public const double LuxPerFootcandle = 10.763910416709722;
 
+        /// <summary>
+        /// How far below a zone's floor a luminaire may sit and still be the zone's: floor-recessed and step lights
+        /// are, but fixtures of the level below, hung on the underside of this floor's slab (half a foot down and more), are not.
+        /// </summary>
+        public const double LuminaireBelowFloor = 0.25;
+
+        /// <summary>How far above a zone's top a luminaire may sit and still be the zone's (a space set lower than its ceiling).</summary>
+        public const double LuminaireAboveTop = 3;
+
+        /// <summary>A luminaire belongs to a zone: over its footprint, from just below its floor to 3 ft above its top.</summary>
+        public static bool LuminaireInZone(CalcZone zone, Vec3 position) =>
+            zone.ContainsPlan(position.X, position.Y) && LuminaireAtZoneHeight(zone, position.Z, zone.TopZ);
+
+        /// <summary>The height half of <see cref="LuminaireInZone"/>, against a given top (the room top, or a ceiling).</summary>
+        public static bool LuminaireAtZoneHeight(CalcZone zone, double z, double top) =>
+            z >= zone.BottomZ - LuminaireBelowFloor && z <= top + LuminaireAboveTop;
+
         public static double Convert(double footcandles, IlluminanceUnits units) =>
             units == IlluminanceUnits.Lux ? footcandles * LuxPerFootcandle : footcandles;
 
@@ -105,6 +137,19 @@ namespace WWTools.Lighting.Engine
             return units == IlluminanceUnits.Lux
                 ? v.ToString("0", CultureInfo.InvariantCulture)
                 : v.ToString("0.0", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// A warning naming the luminaire types counted at 0 W (Lobby Chandelier, exterior spots),
+        /// whose power density is understated; null when every type has a wattage.
+        /// </summary>
+        public static string? NoWattageWarning(IEnumerable<LuminaireTypeSummary> types)
+        {
+            List<LuminaireTypeSummary> none = types.Where(t => t.Count > 0 && !(t.Watts > 0)).ToList();
+            if (none.Count == 0) return null;
+            return $"{none.Sum(t => t.Count)} fixture(s) of {none.Count} type(s) have no wattage, so the power density leaves them out: " +
+                   string.Join(", ", none.Select(t => $"{t.TypeName} ({t.Count})")) +
+                   ". Set the family's apparent load or wattage, or the IES file's input watts.";
         }
 
         public static string FormatRatio(double ratio) =>
@@ -124,9 +169,9 @@ namespace WWTools.Lighting.Engine
         {
             var sb = new StringBuilder();
             string u = UnitLabel(data.Units);
-            sb.AppendLine($"Zone,Level,X (ft),Y (ft),Z (ft),Total ({u}),Direct ({u}),Stair part");
-            // Points inside casework, furniture or walls have blank values. A zone spanning
-            // levels gives each point's own level.
+            sb.AppendLine($"Zone,Level,X (ft),Y (ft),Z (ft),Total ({u}),Direct ({u}),Stair part,Excluded");
+            // Points inside casework, furniture or walls have blank values and "excluded" in the
+            // last column. A zone spanning levels gives each point's own level.
             foreach (CalcZone zone in data.Zones)
             {
                 for (int i = 0; i < zone.Points.Count; i++)
@@ -143,7 +188,8 @@ namespace WWTools.Lighting.Engine
                       .Append(p.Z.ToString("0.###", CultureInfo.InvariantCulture)).Append(',')
                       .Append(CsvNumber(total, data.Units)).Append(',')
                       .Append(CsvNumber(direct, data.Units)).Append(',')
-                      .Append(part >= 0 && part < zone.Parts.Count ? ReportHtml.CsvField(zone.Parts[part].Name) : string.Empty)
+                      .Append(part >= 0 && part < zone.Parts.Count ? ReportHtml.CsvField(zone.Parts[part].Name) : string.Empty).Append(',')
+                      .Append(double.IsNaN(total) ? "excluded" : string.Empty)
                       .AppendLine();
                 }
             }
@@ -290,7 +336,7 @@ namespace WWTools.Lighting.Engine
             foreach (Vec3 l in data.LuminairePositions)
             {
                 if (l.X < min.X - 0.5 || l.X > max.X + 0.5 || l.Y < min.Y - 0.5 || l.Y > max.Y + 0.5) continue;
-                if (l.Z < zone.BottomZ - 1 || l.Z > zone.TopZ + 3) continue;
+                if (!LuminaireAtZoneHeight(zone, l.Z, zone.TopZ)) continue;
                 sb.Append($"<circle cx=\"{X(l.X)}\" cy=\"{Y(l.Y)}\" r=\"4\" fill=\"#ffd84a\" stroke=\"#4a3b00\" stroke-width=\"1\"/>");
             }
 

@@ -2,7 +2,7 @@
   "Name": "open-office",
   "LengthUnit": "ft",
   "IlluminanceUnit": "fc",
-  "PhysicalModel": "wwtools-diffuse-v1",
+  "PhysicalModel": "wwtools-diffuse-v2",
   "Width": 40,
   "Depth": 30,
   "Height": 9,

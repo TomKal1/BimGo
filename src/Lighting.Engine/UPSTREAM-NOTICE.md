@@ -1,8 +1,8 @@
 # Source provenance and ownership
 
 The files in `Upstream/` are an unchanged development snapshot of TomKal1/WWTools,
-branch `claude/zealous-brahmagupta-n6ies6`, commit
-`7c307ebed155dacba0a567e23ee639b2b793c54d`. `upstream.lock.json` records every
+branch `main`, commit
+`d1542a8a68c4419f51a3a34d78b1caa465b4e9d5`. `upstream.lock.json` records every
 original path and Git blob SHA. `tools/check-lighting-engine.ps1` checks these bytes.
 
 The upstream project declares **Copyright (C) 2026 Wiley & Wilson. All rights

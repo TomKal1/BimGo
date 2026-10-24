@@ -20,6 +20,8 @@ public sealed class CalculationInput
     public CalculationSolverSettings Solver { get; set; }
     public string SamplingPolicy { get; set; } = "wwtools-index-hammersley-v1";
     public List<CalculationZone> Zones { get; set; } = new();
+    /// <summary>Building storeys (feet), lowest first: zones take their levels and the level above from these.</summary>
+    public List<CalculationLevel> Storeys { get; set; } = new();
     public List<CalculationTriangle> Triangles { get; set; } = new();
     public List<CalculationEmitter> Emitters { get; set; } = new();
     public List<string> Warnings { get; set; } = new();
@@ -56,6 +58,7 @@ public sealed class CalculationInput
             if (triangle == null || triangle.Vertices == null || triangle.Vertices.Length != 9 || triangle.Vertices.Any(v => !double.IsFinite(v))
                 || triangle.Class < 0 || triangle.Class > 3 || !double.IsFinite(triangle.Reflectance) || triangle.Reflectance < -1 || triangle.Reflectance > .95)
                 throw new InvalidDataException("Invalid physical triangle.");
+        if (Storeys == null || Storeys.Any(l => l == null || !double.IsFinite(l.Elevation))) throw new InvalidDataException("Invalid building storey.");
         foreach (var triangle in Triangles)
             if (triangle.Colour != null && (triangle.Colour.Length != 3 || triangle.Colour.Any(v => !double.IsFinite(v) || v < 0 || v > 1)))
                 throw new InvalidDataException("Invalid surface appearance colour.");
@@ -75,6 +78,9 @@ public sealed class CalculationInput
                 throw new InvalidDataException("Invalid source output.");
             foreach (var vector in new[] { emitter.Position, emitter.Nadir, emitter.Axis0 })
                 if (vector == null || vector.Length != 3 || vector.Any(v => !double.IsFinite(v))) throw new InvalidDataException("Invalid source frame.");
+            if ((emitter.BodyMin == null) != (emitter.BodyMax == null)
+                || emitter.BodyMin != null && (emitter.BodyMin.Length != 3 || emitter.BodyMax.Length != 3 || emitter.BodyMin.Concat(emitter.BodyMax).Any(v => !double.IsFinite(v))))
+                throw new InvalidDataException("Invalid fixture body box.");
             if (emitter.Nadir.Sum(v => v*v) < .9 || emitter.Axis0.Sum(v => v*v) < .9) throw new InvalidDataException("Missing source orientation.");
             if (emitter.Ies != null && emitter.Ies.Length > 512*1024) throw new InvalidDataException("Source photometry exceeds 512 KB.");
             if (emitter.Estimated && !Set.AllowEstimatedPhotometry) throw new InvalidDataException("Estimated sources require Allow estimated photometry.");
@@ -115,6 +121,13 @@ public sealed class CalculationZone
     public double[][] Loops { get; set; }
     public double[] LevelElevations { get; set; } = Array.Empty<double>();
     public string[] LevelNames { get; set; } = Array.Empty<string>();
+    /// <summary>Elevation of the zone's own level (feet); its bottom when unknown.</summary>
+    public double? LevelElevation { get; set; }
+}
+public sealed class CalculationLevel
+{
+    public string Name { get; set; }
+    public double Elevation { get; set; }
 }
 public sealed class CalculationTriangle
 {
@@ -127,6 +140,8 @@ public sealed class CalculationTriangle
     public double[] Colour { get; set; }
     public bool Walkable { get; set; }
     public bool Stair { get; set; }
+    /// <summary>Exported from a ceiling element: a fixture at its underside is recessed whatever its thickness.</summary>
+    public bool Ceiling { get; set; }
 }
 public sealed class CalculationEmitter
 {
@@ -144,6 +159,13 @@ public sealed class CalculationEmitter
     public double Multiplier { get; set; }
     public double Watts { get; set; }
     public double[] OriginalPosition { get; set; }
+    /// <summary>The fixture's exported box (feet), for telling pendants, standing and surface fixtures apart; null when unknown.</summary>
+    public double[] BodyMin { get; set; }
+    public double[] BodyMax { get; set; }
+    /// <summary>The position is the family/source origin with no manual offset, so auto mounting may place the light centre.</summary>
+    public bool AutoMount { get; set; }
+    /// <summary>Where auto mounting put the light centre, and why; set when sources are resolved.</summary>
+    public string Placement { get; set; }
 }
 
 /// <summary>Physical changes only. Presentation visibility, camera and section state are deliberately absent.</summary>

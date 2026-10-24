@@ -99,7 +99,7 @@ public static class NativeLightingReport
         for (int i = 0; i < data.LuminairePositions.Count; i++)
         {
             var p = data.LuminairePositions[i];
-            if (!zone.ContainsPlan(p.X,p.Y) || p.Z < zone.BottomZ || p.Z > zone.TopZ) continue;
+            if (!LightingReport.LuminaireInZone(zone,p)) continue;
             var source = sources != null && i < sources.Count ? sources[i] : null;
             string fill = source?.Estimated == true ? "#ffc247" : "#fff";
             b.Append($"<circle class=\"luminaire\" cx=\"{N(X(p.X))}\" cy=\"{N(Y(p.Y))}\" r=\"4\" fill=\"{fill}\" stroke=\"#171717\"><title>Source {i + 1}: {H(source?.Type)}{(source?.Estimated == true ? " (estimated)" : "")}</title></circle>");

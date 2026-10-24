@@ -54,8 +54,42 @@ namespace WWTools.Lighting
         [DataMember(Order = 7)]
         private bool NoBimGoResults { get; set; }
 
+        /// <summary>Per-fixture overrides and last placements, keyed by instance key (link UniqueId + "|" for linked fixtures).</summary>
+        [DataMember(Order = 8)]
+        public List<LuminaireInstanceSetting> Instances { get; set; } = new List<LuminaireInstanceSetting>();
+
         public LuminaireTypeSetting? FindLuminaire(string typeKey) =>
             Luminaires.FirstOrDefault(l => string.Equals(l.TypeKey, typeKey, StringComparison.Ordinal));
+
+        public LuminaireInstanceSetting? FindInstance(string instanceKey) =>
+            Instances.FirstOrDefault(i => string.Equals(i.InstanceKey, instanceKey, StringComparison.Ordinal));
+
+        public LuminaireInstanceSetting GetOrAddInstance(string instanceKey, string typeKey)
+        {
+            LuminaireInstanceSetting? existing = FindInstance(instanceKey);
+            if (existing != null)
+            {
+                existing.TypeKey = typeKey;
+                return existing;
+            }
+            var created = new LuminaireInstanceSetting { InstanceKey = instanceKey, TypeKey = typeKey };
+            Instances.Add(created);
+            return created;
+        }
+
+        /// <summary>Stores where a run placed each fixture's light centre; overrides are left alone.</summary>
+        public void RecordPlacements(IEnumerable<(string InstanceKey, string TypeKey, MountingPlacement Placement)> placements, string runLabel)
+        {
+            foreach ((string instanceKey, string typeKey, MountingPlacement p) in placements)
+            {
+                LuminaireInstanceSetting s = GetOrAddInstance(instanceKey, typeKey);
+                s.LastPlacement = LuminaireMounting.Word(p.Kind);
+                s.LastSure = p.Sure;
+                s.LastReason = p.Reason;
+                s.LastRun = runLabel;
+                s.LastAim = p.Aim.HasValue ? "out of the wall" : "down";
+            }
+        }
 
         public LuminaireTypeSetting GetOrAddLuminaire(string typeKey, string displayName)
         {
@@ -105,6 +139,89 @@ namespace WWTools.Lighting
             ReportFolder ??= string.Empty;
             foreach (CalcSetDefinition set in CalcSets) set.Normalise();
             foreach (LuminaireTypeSetting lum in Luminaires) lum.Normalise();
+            Instances ??= new List<LuminaireInstanceSetting>();
+            Instances.RemoveAll(i => i == null || string.IsNullOrEmpty(i.InstanceKey));
+            foreach (LuminaireInstanceSetting i in Instances) i.Normalise();
+        }
+    }
+
+    /// <summary>
+    /// One fixture's own overrides (null = follow its type) and where the last run placed its light
+    /// centre. An Offset here nudges the placed light up or down, except on a Custom mounting, where it
+    /// is the Custom offset.
+    /// </summary>
+    [DataContract]
+    public class LuminaireInstanceSetting
+    {
+        [DataMember(Order = 1)] public string InstanceKey { get; set; } = string.Empty;
+        /// <summary>The fixture's type when last seen, for display; an override stays with the fixture if its type changes.</summary>
+        [DataMember(Order = 2)] public string TypeKey { get; set; } = string.Empty;
+        [DataMember(Order = 3)] public string? Mounting { get; set; }
+        [DataMember(Order = 4)] public string? Aim { get; set; }
+        [DataMember(Order = 5)] public double? RotationDegrees { get; set; }
+        [DataMember(Order = 6)] public double? CenterOffset { get; set; }
+        /// <summary>The last run's placement word (e.g. "wall"), whether it was sure, why, and which run.</summary>
+        [DataMember(Order = 7)] public string LastPlacement { get; set; } = string.Empty;
+        [DataMember(Order = 8)] public bool LastSure { get; set; } = true;
+        [DataMember(Order = 9)] public string LastReason { get; set; } = string.Empty;
+        [DataMember(Order = 10)] public string LastRun { get; set; } = string.Empty;
+        /// <summary>Which way an Auto aim pointed in the last run ("down" or "out of the wall").</summary>
+        [DataMember(Order = 11)] public string LastAim { get; set; } = string.Empty;
+
+        public bool HasOverride => Mounting != null || Aim != null || RotationDegrees.HasValue || CenterOffset.HasValue;
+
+        public void ClearOverrides()
+        {
+            Mounting = null;
+            Aim = null;
+            RotationDegrees = null;
+            CenterOffset = null;
+        }
+
+        public void Normalise()
+        {
+            TypeKey ??= string.Empty;
+            LastPlacement ??= string.Empty;
+            LastReason ??= string.Empty;
+            LastRun ??= string.Empty;
+            LastAim ??= string.Empty;
+        }
+    }
+
+    /// <summary>The mounting, aim and light centre a calc uses for one fixture: its own overrides over its type's settings.</summary>
+    public readonly struct FixtureSettings
+    {
+        public FixtureSettings(MountingKind mounting, string aim, double rotationDegrees, string center, double centerOffset, double nudge)
+        {
+            Mounting = mounting;
+            Aim = aim;
+            RotationDegrees = rotationDegrees;
+            Center = center;
+            CenterOffset = centerOffset;
+            Nudge = nudge;
+        }
+
+        public MountingKind Mounting { get; }
+        public string Aim { get; }
+        public double RotationDegrees { get; }
+        public string Center { get; }
+        public double CenterOffset { get; }
+
+        /// <summary>Vertical move (feet) added after the light centre is placed.</summary>
+        public double Nudge { get; }
+
+        public static FixtureSettings Resolve(LuminaireTypeSetting? type, LuminaireInstanceSetting? instance)
+        {
+            MountingKind mounting = LuminaireMounting.Parse(instance?.Mounting ?? type?.Mounting);
+            string aim = instance?.Aim ?? type?.Aim ?? "Auto";
+            double rotation = instance?.RotationDegrees ?? type?.RotationDegrees ?? 0;
+            string center = type?.Center ?? "Origin";
+            double offset = type?.CenterOffset ?? 0;
+            if (instance?.Mounting != null && mounting != MountingKind.Custom)
+                (center, offset) = LuminaireMounting.PresetCentre(mounting);
+            if (mounting == MountingKind.Custom)
+                return new FixtureSettings(mounting, aim, rotation, center, instance?.CenterOffset ?? offset, 0);
+            return new FixtureSettings(mounting, aim, rotation, center, offset, instance?.CenterOffset ?? 0);
         }
     }
 
@@ -134,13 +251,16 @@ namespace WWTools.Lighting
         [DataMember(Order = 6)]
         public double RotationDegrees { get; set; }
 
-        /// <summary>"Down", "FamilyNegativeZ" or "FamilyPositiveZ".</summary>
+        /// <summary>
+        /// "Auto" (down, or out of the wall for a fixture set in a wall face), "Down",
+        /// "FamilyNegativeZ" or "FamilyPositiveZ".
+        /// </summary>
         [DataMember(Order = 7)]
-        public string Aim { get; set; } = "Down";
+        public string Aim { get; set; } = "Auto";
 
         /// <summary>"Auto", "Origin", "BoundingBoxBottom" or "BoundingBoxCenter".</summary>
         [DataMember(Order = 8)]
-        public string Center { get; set; } = "Auto";
+        public string Center { get; set; } = "Origin";
 
         /// <summary>Vertical offset added to the light centre (feet).</summary>
         [DataMember(Order = 9)]
@@ -154,13 +274,37 @@ namespace WWTools.Lighting
         [DataMember(Order = 11)]
         public double Watts { get; set; }
 
+        /// <summary>
+        /// How the fixture is mounted (a <see cref="WWTools.Lighting.Engine.MountingKind"/> name): Auto works it out per
+        /// fixture; Custom uses <see cref="Center"/> and <see cref="CenterOffset"/>. Null in older settings.
+        /// </summary>
+        [DataMember(Order = 12)]
+        public string? Mounting { get; set; }
+
+        /// <summary>What the last run's Auto placement found for this type, for the Luminaire Manager.</summary>
+        [DataMember(Order = 13)]
+        public string LastPlacement { get; set; } = string.Empty;
+
+        /// <summary>1 once <see cref="Aim"/> knows "Auto"; 0 in older settings, where "Down" was only the default.</summary>
+        [DataMember(Order = 14)]
+        public int AimVersion { get; set; } = 1;
+
         public void Normalise()
         {
             TypeKey ??= string.Empty;
             DisplayName ??= string.Empty;
             IesPath ??= string.Empty;
-            Aim ??= "Down";
-            Center ??= "Auto";
+            Aim ??= "Auto";
+            if (AimVersion < 1)
+            {
+                if (Aim == "Down") Aim = "Auto";
+                AimVersion = 1;
+            }
+            Center ??= "Origin";
+            LastPlacement ??= string.Empty;
+            // Older settings had only a light centre: one someone chose stays theirs.
+            if (string.IsNullOrEmpty(Mounting))
+                Mounting = (Center == "Origin" || Center == "Auto") && CenterOffset == 0 ? "Auto" : "Custom";
             if (Multiplier <= 0) Multiplier = 1.0;
         }
 
@@ -196,6 +340,26 @@ namespace WWTools.Lighting
         /// <summary>The zones to calculate; empty = every placed zone in the source.</summary>
         [DataMember(Order = 4)]
         public List<string> ZoneUniqueIds { get; set; } = new List<string>();
+
+        /// <summary>
+        /// The settings every zone of a run shares, as "name: value", saved with the results: a
+        /// partial rerun under different ones would mix two calculations in one report.
+        /// </summary>
+        public List<string> SharedSettings()
+        {
+            string N(double v) => v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+            return new List<string>
+            {
+                $"grid: {N(GridSpacing)} ft",
+                $"boundary offset: {N(BoundaryOffset)} ft",
+                $"work plane: {(UseZoneWorkplane ? "space value, else " : string.Empty)}{N(WorkplaneHeight)} ft",
+                $"geometry detail: {GeometryDetail}",
+                $"quality: {Quality}",
+                $"interreflection: {(Interreflection ? "on" : "off")}",
+                $"reflectance source: {ReflectanceSource}",
+                $"reflectances: ceiling {N(CeilingReflectance)}, walls {N(WallReflectance)}, floor {N(FloorReflectance)}, furniture {N(FurnitureReflectance)}",
+            };
+        }
 
         [DataMember(Order = 5)]
         public double GridSpacing { get; set; } = 2.0;
@@ -346,6 +510,46 @@ namespace WWTools.Lighting
         [DataMember(Order = 40)]
         private bool NoPdf { get; set; }
 
+        [DataMember(Order = 41)] public bool EmergencyOnly { get; set; }
+        [DataMember(Order = 42)] public List<EmergencyLuminaireSetting> EmergencyLuminaires { get; set; } = new List<EmergencyLuminaireSetting>();
+        [DataMember(Order = 43)] public List<string> ExcludedElementKeys { get; set; } = new List<string>();
+        [DataMember(Order = 44)] public List<string> ExcludedCategories { get; set; } = new List<string>();
+        [DataMember(Order = 45)] public List<ExcludedCalcPoint> ExcludedPoints { get; set; } = new List<ExcludedCalcPoint>();
+        // Inverted for old saved sets: furniture exclusion is enabled unless explicitly disabled.
+        [DataMember(Order = 46)] private bool KeepFurniturePoints { get; set; }
+        public bool AutoExcludeFurniture { get => !KeepFurniturePoints; set => KeepFurniturePoints = !value; }
+        /// <summary>Old opt-in for moving recessed sources below ceilings; superseded by <see cref="AutoPlaceSources"/>.</summary>
+        [DataMember(Order = 47)] public bool CorrectRecessedSources { get; set; }
+        // Inverted so old saved sets get automatic placement too (it replaces the old recessed correction).
+        [DataMember(Order = 50)] private bool ManualSourcePlacement { get; set; }
+        /// <summary>Place light centres of types whose mounting is Auto from their geometry and host; off = family origin.</summary>
+        public bool AutoPlaceSources { get => !ManualSourcePlacement; set => ManualSourcePlacement = !value; }
+        [DataMember(Order = 48)] public List<ZoneAnnotation> ZoneAnnotations { get; set; } = new List<ZoneAnnotation>();
+        [DataMember(Order = 49)] public List<CalcPointAnnotation> PointAnnotations { get; set; } = new List<CalcPointAnnotation>();
+        /// <summary>The zones the last run's results hold (all of them after a partial rerun), for the calc window's zone list.</summary>
+        [DataMember(Order = 51)] public List<string> CalculatedZoneKeys { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Calculate elevator shafts too. Off by default: a shaft has no fixtures, reads zero and
+        /// costs a full solve (see <see cref="IsElevatorShaft"/>).
+        /// </summary>
+        [DataMember(Order = 52)] public bool IncludeElevators { get; set; }
+
+        /// <summary>
+        /// A zone named as an elevator shaft ("E1 Elevator", "Elev 2", "Hoistway", "Lift Shaft"); not
+        /// an elevator lobby, machine or equipment room, which are lit rooms.
+        /// </summary>
+        public static bool IsElevatorShaft(string? name)
+        {
+            string n = " " + (name ?? string.Empty).ToLowerInvariant() + " ";
+            if (new[] { "lobby", "machine", "equipment", "control", "vestibule", "room", "corridor" }.Any(n.Contains)) return false;
+            return n.Contains("elevator") || n.Contains("hoistway") || n.Contains("lift shaft") ||
+                   System.Text.RegularExpressions.Regex.IsMatch(n, @"\belev\b");
+        }
+
+        public double EmergencyOutputFor(string key) => EmergencyLuminaires.FirstOrDefault(e => e.Key == key)?.Output ?? 0;
+        public bool IncludesGeometry(string key, string category) => !ExcludedElementKeys.Contains(key) && !ExcludedCategories.Contains(category);
+
         /// <summary>The set's default target; null when none is set.</summary>
         public LightingTarget? DefaultTarget
         {
@@ -390,6 +594,13 @@ namespace WWTools.Lighting
             if (ValueTextSize <= 0) ValueTextSize = 3.0 / 32.0;
             if (ColorScaleMax < 0) ColorScaleMax = 0;
             ResultsTableTitle ??= ResultsTable.DefaultTitle;
+            EmergencyLuminaires ??= new List<EmergencyLuminaireSetting>();
+            ExcludedElementKeys ??= new List<string>(); ExcludedCategories ??= new List<string>();
+            ExcludedPoints ??= new List<ExcludedCalcPoint>(); ZoneAnnotations ??= new List<ZoneAnnotation>();
+            PointAnnotations ??= new List<CalcPointAnnotation>();
+            CalculatedZoneKeys ??= new List<string>();
+            if (EmergencyLuminaires.Any(e => e == null || double.IsNaN(e.Output) || double.IsInfinity(e.Output) || e.Output < 0 || e.Output > 1))
+                throw new InvalidDataException("Emergency output must be between 0 and 1 (0–100%).");
             ZoneTargets ??= new List<ZoneTargetSetting>();
             ResultsTables ??= new List<ResultsTablePlacement>();
             ZoneTargets.RemoveAll(z => z == null || string.IsNullOrWhiteSpace(z.Target));
@@ -403,6 +614,8 @@ namespace WWTools.Lighting
             CalcSetDefinition copy = LightingProjectSettings.FromJson(json).CalcSets[0];
             copy.Name = newName;
             copy.CreatedElementUniqueIds = new List<string>();
+            copy.ZoneAnnotations.Clear(); copy.PointAnnotations.Clear();
+            copy.CalculatedZoneKeys.Clear();
             copy.SummaryViewUniqueId = string.Empty;
             copy.LastRun = string.Empty;
             copy.LastSummary = string.Empty;
@@ -410,6 +623,32 @@ namespace WWTools.Lighting
             copy.ResultsTables = new List<ResultsTablePlacement>();
             return copy;
         }
+    }
+
+    [DataContract]
+    public class EmergencyLuminaireSetting
+    {
+        [DataMember(Order = 1)] public string Key { get; set; } = string.Empty;
+        [DataMember(Order = 2)] public double Output { get; set; } = 1;
+    }
+    [DataContract]
+    public class ExcludedCalcPoint
+    {
+        [DataMember(Order = 1)] public string ZoneKey { get; set; } = string.Empty;
+        [DataMember(Order = 2)] public double X { get; set; }
+        [DataMember(Order = 3)] public double Y { get; set; }
+        [DataMember(Order = 4)] public double Z { get; set; }
+    }
+    [DataContract]
+    public class ZoneAnnotation
+    {
+        [DataMember(Order = 1)] public string ZoneKey { get; set; } = string.Empty;
+        [DataMember(Order = 2)] public List<string> ElementIds { get; set; } = new List<string>();
+    }
+    [DataContract]
+    public class CalcPointAnnotation : ExcludedCalcPoint
+    {
+        [DataMember(Order = 5)] public List<string> ElementIds { get; set; } = new List<string>();
     }
 
     /// <summary>A zone's own target, as typed (e.g. "20, 3" = 20 avg, 3:1 avg/min; "none" = no target).</summary>

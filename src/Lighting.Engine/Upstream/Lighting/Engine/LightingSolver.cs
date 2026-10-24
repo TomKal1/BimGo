@@ -38,6 +38,9 @@ namespace WWTools.Lighting.Engine
         /// <summary>Upper bound on patches per zone; the patch size grows to stay under it.</summary>
         public int MaxPatches { get; set; } = 60000;
 
+        /// <summary>A copy with every property, including ones added later.</summary>
+        public SolverOptions Clone() => (SolverOptions)MemberwiseClone();
+
         public static SolverOptions ForQuality(CalcQuality quality, bool interreflection)
         {
             switch (quality)
@@ -75,22 +78,44 @@ namespace WWTools.Lighting.Engine
         public long GatherRays { get; set; }
         public double PatchesSeconds { get; set; }
         public double BvhSeconds { get; set; }
+
+        /// <summary>Which patches face each zone and whose reflectance each takes.</summary>
+        public double SurfaceOwnersSeconds { get; set; }
         public double DirectPointsSeconds { get; set; }
         public double DirectPatchesSeconds { get; set; }
         public double FormFactorSeconds { get; set; }
         public double IterationSeconds { get; set; }
         public double GatherSeconds { get; set; }
 
-        public double TotalSeconds =>
-            PatchesSeconds + BvhSeconds + DirectPointsSeconds + DirectPatchesSeconds + FormFactorSeconds + IterationSeconds + GatherSeconds;
+        /// <summary>No light reached the zone's points or its own surfaces (an elevator shaft), so the interreflection solve was skipped.</summary>
+        public bool NoLightOnSurfaces { get; set; }
 
-        public override string ToString() =>
-            $"{PointsInsideObstructions} points inside obstructions (left out), {PointsWithoutDirectLight} without direct light; " +
-            $"{InputTriangles:N0} triangles -> {Patches:N0} patches of up to {PatchSize:0.##} ft ({PatchesSeconds:0.00}s), BVH {BvhSeconds:0.00}s; " +
-            $"{Luminaires} luminaires; direct on {Points:N0} points {DirectPointsSeconds:0.00}s; " +
-            $"direct on patches {DirectPatchesSeconds:0.00}s; form factors {FormFactorSeconds:0.00}s; " +
-            $"{Iterations} iterations {IterationSeconds:0.00}s; final gather {GatherSeconds:0.00}s; " +
-            $"rays: direct {DirectRays:N0}, form factor {FormFactorRays:N0}, gather {GatherRays:N0}; total {TotalSeconds:0.00}s";
+        /// <summary>Patches, BVH, direct on patches, form factors and iterations were done once for the zone's cluster, not for this zone alone.</summary>
+        public bool ClusterStagesShared { get; set; }
+
+        /// <summary>Of <see cref="DirectRays"/>, the rays of the cluster's direct light on patches.</summary>
+        public long ClusterDirectRays { get; set; }
+
+        /// <summary>The cluster's number in the run log; when set, the shared stages read "shared (cluster N)".</summary>
+        public int Cluster { get; set; }
+
+        public double TotalSeconds =>
+            PatchesSeconds + BvhSeconds + SurfaceOwnersSeconds + DirectPointsSeconds + DirectPatchesSeconds + FormFactorSeconds + IterationSeconds + GatherSeconds;
+
+        public override string ToString()
+        {
+            bool shared = ClusterStagesShared && Cluster > 0;
+            string Time(double seconds) => shared ? $"shared (cluster {Cluster})" : $"{seconds:0.00}s";
+            return $"{PointsInsideObstructions} points inside obstructions (left out), {PointsWithoutDirectLight} without direct light; " +
+                $"{InputTriangles:N0} triangles -> {Patches:N0} patches of up to {PatchSize:0.##} ft ({Time(PatchesSeconds)}), BVH {Time(BvhSeconds)}; surface owners {Time(SurfaceOwnersSeconds)}; " +
+                $"{Luminaires} luminaires; direct on {Points:N0} points {DirectPointsSeconds:0.00}s; " +
+                $"direct on patches {Time(DirectPatchesSeconds)}; form factors {Time(FormFactorSeconds)}; " +
+                $"{Iterations} iterations {Time(IterationSeconds)}; final gather {GatherSeconds:0.00}s; " +
+                (shared
+                    ? $"rays: direct {DirectRays - ClusterDirectRays:N0}, form factor shared (cluster {Cluster}), gather {GatherRays:N0}; zone total {DirectPointsSeconds + GatherSeconds:0.00}s"
+                    : $"rays: direct {DirectRays:N0}, form factor {FormFactorRays:N0}, gather {GatherRays:N0}; total {TotalSeconds:0.00}s") +
+                (NoLightOnSurfaces ? "; no light on the zone's points or surfaces, so interreflection was skipped" : string.Empty);
+        }
     }
 
     /// <summary>
@@ -131,20 +156,49 @@ namespace WWTools.Lighting.Engine
         public SolveStats LastStats { get; private set; } = new SolveStats();
 
         private long _directRays;
+        private int[]? _allLuminaires;
+
+        private IReadOnlyList<int> AllLuminaires =>
+            _allLuminaires ?? (_allLuminaires = Enumerable.Range(0, _luminaires.Count).ToArray());
 
         /// <summary>
         /// Solves one zone against the triangles around it and fills its illuminance arrays and
-        /// statistics.
+        /// statistics: a cluster of one zone, with one box over all the triangles and every luminaire.
         /// </summary>
         public void Solve(CalcZone zone, IReadOnlyList<SceneTriangle> triangles,
             Action<string>? status = null, CancellationToken cancel = default)
         {
-            int pointCount = zone.Points.Count;
-            zone.Illuminance = new double[pointCount];
-            zone.Direct = new double[pointCount];
-            var stats = new SolveStats { InputTriangles = triangles.Count, Points = pointCount, Luminaires = _luminaires.Count };
-            LastStats = stats;
-            _directRays = 0;
+            var min = new Vec3(double.MaxValue, double.MaxValue, double.MaxValue);
+            var max = new Vec3(double.MinValue, double.MinValue, double.MinValue);
+            foreach (SceneTriangle t in triangles)
+                foreach (Vec3 v in new[] { t.A, t.B, t.C })
+                {
+                    min = new Vec3(Math.Min(min.X, v.X), Math.Min(min.Y, v.Y), Math.Min(min.Z, v.Z));
+                    max = new Vec3(Math.Max(max.X, v.X), Math.Max(max.Y, v.Y), Math.Max(max.Z, v.Z));
+                }
+            SharedSolution shared = SolveShared(new[] { zone }, triangles, new[] { (min, max) },
+                new[] { AllLuminaires }, new[] { 0 }, status, cancel);
+            if (_options.Interreflection && !shared.Skipped && shared.Patches.Count > 0) status?.Invoke("final gather");
+            GatherZone(zone, shared, cancel);
+        }
+
+        /// <summary>
+        /// The cluster stage: patches and BVH over the cluster's triangles, each zone's point probes
+        /// and direct light (from the luminaires in its own box), direct light on the patches, form
+        /// factors and the gathering iterations. Each zone then calls <see cref="GatherZone"/>.
+        /// <paramref name="boxes"/>[i] is a member zone's region box, <paramref name="luminairesPerBox"/>[i]
+        /// the luminaires inside it and <paramref name="boxOfZone"/>[k] the box of zone k.
+        /// </summary>
+        public SharedSolution SolveShared(IReadOnlyList<CalcZone> zones, IReadOnlyList<SceneTriangle> triangles,
+            IReadOnlyList<(Vec3 Min, Vec3 Max)> boxes, IReadOnlyList<IReadOnlyList<int>> luminairesPerBox,
+            IReadOnlyList<int> boxOfZone, Action<string>? status = null, CancellationToken cancel = default)
+        {
+            if (zones.Count == 0) throw new ArgumentException("A cluster needs at least one zone.", nameof(zones));
+            if (boxes.Count != luminairesPerBox.Count) throw new ArgumentException("One luminaire list per box.", nameof(luminairesPerBox));
+            if (boxOfZone.Count != zones.Count) throw new ArgumentException("One box per zone.", nameof(boxOfZone));
+            cancel.ThrowIfCancellationRequested();
+
+            var stats = new SolveStats { InputTriangles = triangles.Count, Luminaires = _luminaires.Count };
             var watch = Stopwatch.StartNew();
             double Lap()
             {
@@ -154,7 +208,7 @@ namespace WWTools.Lighting.Engine
             }
 
             status?.Invoke($"building patches from {triangles.Count:N0} triangles");
-            List<SceneTriangle> patches = BuildPatches(triangles, zone.Reflectances);
+            List<SceneTriangle> patches = BuildPatches(triangles, zones[0].Reflectances);
             LastPatchCount = patches.Count;
             stats.Patches = patches.Count;
             stats.PatchSize = LastPatchSize;
@@ -162,16 +216,174 @@ namespace WWTools.Lighting.Engine
             status?.Invoke($"building ray-tracing tree over {patches.Count:N0} patches");
             var scene = new TriangleScene(patches);
             stats.BvhSeconds = Lap();
+
+            // Each zone's points, lit by the luminaires in its own box only.
+            status?.Invoke("direct light on calculation points");
+            var states = new Dictionary<CalcZone, ZoneSolveState>();
+            for (int k = 0; k < zones.Count; k++)
+            {
+                CalcZone zone = zones[k];
+                IReadOnlyList<int> luminaires = luminairesPerBox[boxOfZone[k]];
+                states[zone] = DirectOnPoints(zone, scene, luminaires, cancel);
+            }
+            Lap(); // timed per zone
+
+            foreach (CalcZone zone in zones)
+            {
+                ZoneSolveState state = states[zone];
+                states[zone] = new ZoneSolveState(state.Inside, RoomSurfaces(zone, patches, scene, cancel), state.Luminaires, state.Stats);
+            }
+
+            // A patch with no reflectance of its own takes that of the room it faces; one facing
+            // none (a free-standing wall, a neighbour's wall back) takes the nearest room's.
+            int[] owner = PatchOwners(zones, patches, scene, cancel);
+            (Vec3 Min, Vec3 Max)[] bounds = zones.Select(z => z.PlanBounds).ToArray();
             var reflectance = new double[patches.Count];
-            for (int i = 0; i < patches.Count; i++)
+            Parallel.For(0, patches.Count, new ParallelOptions { CancellationToken = cancel }, i =>
             {
                 SceneTriangle p = patches[i];
-                reflectance[i] = p.Reflectance >= 0 ? p.Reflectance : zone.Reflectances.For(p.Class);
+                if (p.Reflectance >= 0) { reflectance[i] = p.Reflectance; return; }
+                int k = owner[i] >= 0 ? owner[i] : NearestZone(zones, bounds, p.Centroid);
+                reflectance[i] = zones[k].Reflectances.For(p.Class);
+            });
+
+            var patchCentre = new Vec3[patches.Count];
+            var patchNormal = new Vec3[patches.Count];
+            for (int i = 0; i < patches.Count; i++)
+            {
+                patchCentre[i] = patches[i].Centroid;
+                patchNormal[i] = scene.NormalOf(i);
             }
+            IReadOnlyList<int>[] patchLuminaires = PatchLuminaires(patchCentre, boxes, luminairesPerBox, cancel);
+            stats.SurfaceOwnersSeconds = Lap();
+
+            long raysBefore = Interlocked.Read(ref _directRays);
+            var directOnPatch = new double[patches.Count];
+            if (!_options.Interreflection || patches.Count == 0)
+            {
+                // The rooms' own surfaces still get their direct light, for the report.
+                int[] own = states.Values.SelectMany(s => s.OwnSurfaces.Select(o => o.Index)).Distinct().ToArray();
+                Parallel.ForEach(own, new ParallelOptions { CancellationToken = cancel }, i =>
+                {
+                    directOnPatch[i] = DirectIlluminance(scene, patchCentre[i] + patchNormal[i] * SurfaceOffset, patchNormal[i], patchLuminaires[i], null);
+                });
+                stats.DirectPatchesSeconds = Lap();
+                stats.DirectRays = Interlocked.Read(ref _directRays) - raysBefore;
+                LastIterations = 0;
+                return Shared(scene, patches, reflectance, owner, directOnPatch, false, stats, states);
+            }
+
+            status?.Invoke($"direct light on {patches.Count} surface patches");
+            Parallel.For(0, patches.Count, new ParallelOptions { CancellationToken = cancel }, i =>
+            {
+                directOnPatch[i] = DirectIlluminance(scene, patchCentre[i] + patchNormal[i] * SurfaceOffset, patchNormal[i], patchLuminaires[i], null);
+            });
+            stats.DirectPatchesSeconds = Lap();
+            stats.DirectRays = Interlocked.Read(ref _directRays) - raysBefore;
+
+            // No light on any zone's points or its own surfaces (an elevator shaft, a room whose
+            // fixtures are all next door): skip the form factors, which are most of the solve.
+            // Lit rooms around it in the margin don't count; what they would reflect in through a
+            // doorway, off surfaces no zone owns, is left out.
+            if (zones.All(z => z.Direct.All(v => !(v > 1e-9)) && states[z].OwnSurfaces.All(o => !(directOnPatch[o.Index] > 1e-9))))
+            {
+                stats.NoLightOnSurfaces = true;
+                LastIterations = 0;
+                return Shared(scene, patches, reflectance, owner, directOnPatch, true, stats, states);
+            }
+
+            // Form factors by ray sampling: which patch each of a patch's rays lands on. Small
+            // patches (a faucet cut into slivers) carry little flux, so they get fewer rays; the
+            // mean over each patch's own rays stays unbiased, only its noise changes.
+            status?.Invoke("sampling form factors");
+            int maxRays = Math.Max(8, _options.PatchRays);
+            // The smallest piece Subdivide splits off: full-size patches get every ray.
+            double nominalArea = 0.25 * LastPatchSize * LastPatchSize;
+            var rayStart = new int[patches.Count + 1];
+            for (int i = 0; i < patches.Count; i++)
+                rayStart[i + 1] = rayStart[i] + RaysFor(patches[i].Area, nominalArea, maxRays);
+            var hits = new int[rayStart[patches.Count]];
+            Parallel.For(0, patches.Count, new ParallelOptions { CancellationToken = cancel }, i =>
+            {
+                Vec3 origin = patchCentre[i] + patchNormal[i] * SurfaceOffset;
+                Basis(patchNormal[i], out Vec3 t, out Vec3 b);
+                uint seed = Hash((uint)i);
+                int count = rayStart[i + 1] - rayStart[i];
+                for (int k = 0; k < count; k++)
+                {
+                    Vec3 dir = CosineDirection(k, count, seed, patchNormal[i], t, b);
+                    int hit = scene.ClosestHit(origin, dir, 1e6, out _, out bool front);
+                    hits[rayStart[i] + k] = front ? hit : -1;
+                }
+            });
+            stats.FormFactorRays = rayStart[patches.Count];
+            stats.FormFactorSeconds = Lap();
+
+            // Gathering iterations (Jacobi): E = E_direct + mean(ρ_hit · E_hit).
+            status?.Invoke("solving interreflections");
+            var e = (double[])directOnPatch.Clone();
+            var next = new double[patches.Count];
+            // Each zone converges to its own tolerance, so a dim room isn't stopped early by a
+            // bright one. Patches no zone owns share one last group.
+            int groups = zones.Count + 1;
+            var group = new int[patches.Count];
+            for (int i = 0; i < patches.Count; i++) group[i] = owner[i] >= 0 ? owner[i] : zones.Count;
+            var maxChange = new double[groups];
+            var maxValue = new double[groups];
+            int iteration = 0;
+            for (; iteration < _options.MaxIterations; iteration++)
+            {
+                cancel.ThrowIfCancellationRequested();
+                for (int g = 0; g < groups; g++) { maxChange[g] = 0; maxValue[g] = 1e-9; }
+                for (int i = 0; i < patches.Count; i++)
+                {
+                    double sum = 0;
+                    int start = rayStart[i];
+                    int end = rayStart[i + 1];
+                    for (int k = start; k < end; k++)
+                    {
+                        int h = hits[k];
+                        if (h >= 0) sum += reflectance[h] * e[h];
+                    }
+                    double value = directOnPatch[i] + sum / (end - start);
+                    next[i] = value;
+                    int gi = group[i];
+                    maxChange[gi] = Math.Max(maxChange[gi], Math.Abs(value - e[i]));
+                    maxValue[gi] = Math.Max(maxValue[gi], value);
+                }
+                var swap = e;
+                e = next;
+                next = swap;
+                bool converged = true;
+                for (int g = 0; g < groups && converged; g++)
+                    if (!(maxChange[g] / maxValue[g] < _options.Convergence)) converged = false;
+                if (converged) { iteration++; break; }
+            }
+            LastIterations = iteration;
+            stats.Iterations = iteration;
+            stats.IterationSeconds = Lap();
+            return Shared(scene, patches, reflectance, owner, e, false, stats, states);
+        }
+
+        private static SharedSolution Shared(TriangleScene scene, List<SceneTriangle> patches, double[] reflectance, int[] owner,
+            double[] illuminance, bool skipped, SolveStats stats, Dictionary<CalcZone, ZoneSolveState> states)
+        {
+            var exitance = new double[patches.Count];
+            for (int i = 0; i < patches.Count; i++) exitance[i] = reflectance[i] * illuminance[i];
+            return new SharedSolution(scene, patches, reflectance, owner, illuminance, exitance, skipped, stats, states);
+        }
+
+        /// <summary>The inside/above probe, <see cref="CalcZone.CeilingZ"/> and direct light on one zone's points.</summary>
+        private ZoneSolveState DirectOnPoints(CalcZone zone, TriangleScene scene, IReadOnlyList<int> luminaires, CancellationToken cancel)
+        {
+            int pointCount = zone.Points.Count;
+            zone.Direct = new double[pointCount];
+            var stats = new SolveStats { Points = pointCount, Luminaires = luminaires.Count };
+            long raysBefore = Interlocked.Read(ref _directRays);
+            var watch = Stopwatch.StartNew();
 
             // Points inside casework, furniture or walls see only the inside of that solid: a ray
             // straight up meets the back of a face. They are left out (NaN) rather than read as 0.
-            status?.Invoke("direct light on calculation points");
             Vec3 normal = zone.PointNormal;
             var inside = new bool[pointCount];
             var reached = new int[_luminaires.Count];
@@ -190,7 +402,7 @@ namespace WWTools.Lighting.Engine
                     }
                     above[i] = origin.Z + up;
                 }
-                zone.Direct[i] = DirectIlluminance(scene, origin, normal, reached);
+                zone.Direct[i] = DirectIlluminance(scene, origin, normal, luminaires, reached);
             });
             // Over a stair or balcony the first thing above most points is the flight or floor
             // overhead, not the ceiling: take the highest (the top of the shaft or atrium).
@@ -198,126 +410,131 @@ namespace WWTools.Lighting.Engine
             stats.PointsInsideObstructions = inside.Count(b => b);
             stats.PointsWithoutDirectLight = zone.Direct.Count(d => !double.IsNaN(d) && d <= 1e-9);
             stats.PointsReachedByLuminaire = reached;
-            stats.DirectPointsSeconds = Lap();
+            stats.DirectRays = Interlocked.Read(ref _directRays) - raysBefore;
+            stats.DirectPointsSeconds = watch.Elapsed.TotalSeconds;
+            return new ZoneSolveState(inside, new List<(int, bool)>(), luminaires, stats);
+        }
 
-            if (!_options.Interreflection || patches.Count == 0)
+        /// <summary>
+        /// For each patch, the luminaires of every box its centroid lies in (in index order), or
+        /// of all boxes when it lies in none. Patches in the same boxes share one list.
+        /// </summary>
+        private static IReadOnlyList<int>[] PatchLuminaires(Vec3[] centres, IReadOnlyList<(Vec3 Min, Vec3 Max)> boxes,
+            IReadOnlyList<IReadOnlyList<int>> luminairesPerBox, CancellationToken cancel)
+        {
+            const double tolerance = 1e-6;
+            var result = new IReadOnlyList<int>[centres.Length];
+            var byBoxes = new Dictionary<string, IReadOnlyList<int>>();
+            var inBoxes = new List<int>();
+            for (int i = 0; i < centres.Length; i++)
+            {
+                if (i % 4096 == 0) cancel.ThrowIfCancellationRequested();
+                Vec3 c = centres[i];
+                inBoxes.Clear();
+                for (int b = 0; b < boxes.Count; b++)
+                {
+                    (Vec3 min, Vec3 max) = boxes[b];
+                    if (c.X >= min.X - tolerance && c.X <= max.X + tolerance &&
+                        c.Y >= min.Y - tolerance && c.Y <= max.Y + tolerance &&
+                        c.Z >= min.Z - tolerance && c.Z <= max.Z + tolerance)
+                        inBoxes.Add(b);
+                }
+                // A patch in no box (part of a slab or long wall that only overlaps a box) takes
+                // every box's luminaires: with one box that is the single-zone rule.
+                if (inBoxes.Count == 0)
+                    for (int b = 0; b < boxes.Count; b++) inBoxes.Add(b);
+                string key = string.Join(",", inBoxes);
+                if (!byBoxes.TryGetValue(key, out IReadOnlyList<int>? luminaires))
+                {
+                    luminaires = inBoxes.SelectMany(b => luminairesPerBox[b]).Distinct().OrderBy(l => l).ToArray();
+                    byBoxes[key] = luminaires;
+                }
+                result[i] = luminaires;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// The per-zone stage: the final gather from the zone's points against the cluster's
+        /// converged exitance, its own surfaces and its statistics. <see cref="LastStats"/> becomes
+        /// the zone's stats with the cluster's stages copied in and marked shared.
+        /// </summary>
+        public void GatherZone(CalcZone zone, SharedSolution shared, CancellationToken cancel = default)
+        {
+            if (!shared.Zones.TryGetValue(zone, out ZoneSolveState? state))
+                throw new ArgumentException("The zone is not part of this solve.", nameof(zone));
+
+            int pointCount = zone.Points.Count;
+            zone.Illuminance = new double[pointCount];
+            SolveStats stats = state.Stats;
+            var watch = Stopwatch.StartNew();
+
+            if (!_options.Interreflection || shared.Patches.Count == 0 || shared.Skipped)
             {
                 Array.Copy(zone.Direct, zone.Illuminance, pointCount);
-                // The room's own surfaces still get their direct light, for the report.
-                List<(int Index, bool Covered)> own = RoomSurfaces(zone, patches, scene);
-                var ownLight = new double[patches.Count];
-                Parallel.ForEach(own.Select(o => o.Index), new ParallelOptions { CancellationToken = cancel }, i =>
-                {
-                    Vec3 n = scene.NormalOf(i);
-                    ownLight[i] = DirectIlluminance(scene, patches[i].Centroid + n * SurfaceOffset, n);
-                });
-                KeepSurfaces(zone, patches, scene, reflectance, ownLight, own);
-                Finish(zone);
-                LastIterations = 0;
-                stats.DirectRays = Interlocked.Read(ref _directRays);
-                return;
             }
-
-            // Direct light on patches.
-            status?.Invoke($"direct light on {patches.Count} surface patches");
-            var directOnPatch = new double[patches.Count];
-            var patchCentre = new Vec3[patches.Count];
-            var patchNormal = new Vec3[patches.Count];
-            for (int i = 0; i < patches.Count; i++)
+            else
             {
-                patchCentre[i] = patches[i].Centroid;
-                patchNormal[i] = scene.NormalOf(i);
-            }
-
-            Parallel.For(0, patches.Count, new ParallelOptions { CancellationToken = cancel }, i =>
-            {
-                directOnPatch[i] = DirectIlluminance(scene, patchCentre[i] + patchNormal[i] * SurfaceOffset, patchNormal[i]);
-            });
-            stats.DirectPatchesSeconds = Lap();
-
-            // Form factors by ray sampling: which patch each of a patch's rays lands on.
-            status?.Invoke("sampling form factors");
-            int rays = Math.Max(8, _options.PatchRays);
-            var hits = new int[patches.Count * rays];
-            Parallel.For(0, patches.Count, new ParallelOptions { CancellationToken = cancel }, i =>
-            {
-                Vec3 origin = patchCentre[i] + patchNormal[i] * SurfaceOffset;
-                Basis(patchNormal[i], out Vec3 t, out Vec3 b);
-                uint seed = Hash((uint)i);
-                for (int k = 0; k < rays; k++)
+                int gather = Math.Max(16, _options.GatherRays);
+                TriangleScene scene = shared.Scene;
+                double[] exitance = shared.Exitance;
+                bool[] inside = state.Inside;
+                Vec3 normal = zone.PointNormal;
+                Basis(normal, out Vec3 nt, out Vec3 nb);
+                Parallel.For(0, pointCount, new ParallelOptions { CancellationToken = cancel }, i =>
                 {
-                    Vec3 dir = CosineDirection(k, rays, seed, patchNormal[i], t, b);
-                    int hit = scene.ClosestHit(origin, dir, 1e6, out _, out bool front);
-                    hits[i * rays + k] = front ? hit : -1;
-                }
-            });
-            stats.FormFactorRays = (long)patches.Count * rays;
-            stats.FormFactorSeconds = Lap();
-
-            // Gathering iterations (Jacobi): E = E_direct + mean(ρ_hit · E_hit).
-            status?.Invoke("solving interreflections");
-            var e = (double[])directOnPatch.Clone();
-            var next = new double[patches.Count];
-            int iteration = 0;
-            for (; iteration < _options.MaxIterations; iteration++)
-            {
-                cancel.ThrowIfCancellationRequested();
-                double maxChange = 0;
-                double maxValue = 1e-9;
-                for (int i = 0; i < patches.Count; i++)
-                {
-                    double sum = 0;
-                    int offset = i * rays;
-                    for (int k = 0; k < rays; k++)
+                    if (inside[i])
                     {
-                        int h = hits[offset + k];
-                        if (h >= 0) sum += reflectance[h] * e[h];
+                        zone.Illuminance[i] = double.NaN;
+                        return;
                     }
-                    double value = directOnPatch[i] + sum / rays;
-                    next[i] = value;
-                    maxChange = Math.Max(maxChange, Math.Abs(value - e[i]));
-                    maxValue = Math.Max(maxValue, value);
-                }
-                var swap = e;
-                e = next;
-                next = swap;
-                if (maxChange / maxValue < _options.Convergence) { iteration++; break; }
+                    Vec3 origin = zone.Points[i] + normal * SurfaceOffset;
+                    uint seed = Hash((uint)i ^ 0x9e3779b9u);
+                    double sum = 0;
+                    for (int k = 0; k < gather; k++)
+                    {
+                        Vec3 dir = CosineDirection(k, gather, seed, normal, nt, nb);
+                        int hit = scene.ClosestHit(origin, dir, 1e6, out _, out bool front);
+                        if (hit >= 0 && front) sum += exitance[hit];
+                    }
+                    zone.Illuminance[i] = zone.Direct[i] + sum / gather;
+                });
+                stats.GatherRays = (long)pointCount * gather;
             }
-            LastIterations = iteration;
-            stats.Iterations = iteration;
-            stats.IterationSeconds = Lap();
+            stats.GatherSeconds = watch.Elapsed.TotalSeconds;
 
-            // Final gather at the calculation points.
-            status?.Invoke("final gather");
-            int gather = Math.Max(16, _options.GatherRays);
-            double[] exitance = new double[patches.Count];
-            for (int i = 0; i < patches.Count; i++) exitance[i] = reflectance[i] * e[i];
-            Basis(normal, out Vec3 nt, out Vec3 nb);
-            Parallel.For(0, pointCount, new ParallelOptions { CancellationToken = cancel }, i =>
-            {
-                if (inside[i])
-                {
-                    zone.Illuminance[i] = double.NaN;
-                    return;
-                }
-                Vec3 origin = zone.Points[i] + normal * SurfaceOffset;
-                uint seed = Hash((uint)i ^ 0x9e3779b9u);
-                double sum = 0;
-                for (int k = 0; k < gather; k++)
-                {
-                    Vec3 dir = CosineDirection(k, gather, seed, normal, nt, nb);
-                    int hit = scene.ClosestHit(origin, dir, 1e6, out _, out bool front);
-                    if (hit >= 0 && front) sum += exitance[hit];
-                }
-                zone.Illuminance[i] = zone.Direct[i] + sum / gather;
-            });
-            stats.GatherRays = (long)pointCount * gather;
-            stats.GatherSeconds = Lap();
-            stats.DirectRays = Interlocked.Read(ref _directRays);
-
-            KeepSurfaces(zone, patches, scene, reflectance, e, RoomSurfaces(zone, patches, scene));
+            KeepSurfaces(zone, shared.Patches, shared.Scene, shared.Reflectance, shared.Illuminance, state.OwnSurfaces);
             Finish(zone);
+            LastStats = WithClusterStages(stats, shared.ClusterStats);
         }
+
+        /// <summary>A zone's stats with the cluster's stages copied in, so today's log line still reads whole.</summary>
+        private static SolveStats WithClusterStages(SolveStats zone, SolveStats cluster) => new SolveStats
+        {
+            InputTriangles = cluster.InputTriangles,
+            Patches = cluster.Patches,
+            PatchSize = cluster.PatchSize,
+            Points = zone.Points,
+            Luminaires = zone.Luminaires,
+            Iterations = cluster.Iterations,
+            PointsInsideObstructions = zone.PointsInsideObstructions,
+            PointsWithoutDirectLight = zone.PointsWithoutDirectLight,
+            PointsReachedByLuminaire = zone.PointsReachedByLuminaire,
+            DirectRays = zone.DirectRays + cluster.DirectRays,
+            ClusterDirectRays = cluster.DirectRays,
+            FormFactorRays = cluster.FormFactorRays,
+            GatherRays = zone.GatherRays,
+            PatchesSeconds = cluster.PatchesSeconds,
+            BvhSeconds = cluster.BvhSeconds,
+            SurfaceOwnersSeconds = cluster.SurfaceOwnersSeconds,
+            DirectPointsSeconds = zone.DirectPointsSeconds,
+            DirectPatchesSeconds = cluster.DirectPatchesSeconds,
+            FormFactorSeconds = cluster.FormFactorSeconds,
+            IterationSeconds = cluster.IterationSeconds,
+            GatherSeconds = zone.GatherSeconds,
+            NoLightOnSurfaces = cluster.NoLightOnSurfaces,
+            ClusterStagesShared = true,
+        };
 
         /// <summary>
         /// The patches that belong to the zone: those whose front side looks into its footprint,
@@ -325,24 +542,94 @@ namespace WWTools.Lighting.Engine
         /// inside the footprint, which keeps the room's own wall faces and drops their backs, the
         /// neighbours' faces and the top of the ceiling. Patches under furniture are marked covered.
         /// </summary>
-        internal static List<(int Index, bool Covered)> RoomSurfaces(CalcZone zone, IReadOnlyList<SceneTriangle> patches, TriangleScene scene)
+        internal static List<(int Index, bool Covered)> RoomSurfaces(CalcZone zone, IReadOnlyList<SceneTriangle> patches, TriangleScene scene,
+            CancellationToken cancel = default)
         {
             const double probe = 0.5;
-            double bottom = zone.BottomZ - 0.25; // drops the undersides of things standing on the floor
-            double top = (double.IsNaN(zone.CeilingZ) ? Math.Max(zone.TopZ, zone.BottomZ + zone.WorkplaneHeight) : zone.CeilingZ) + 0.25;
-            var own = new List<(int, bool)>();
-            for (int i = 0; i < patches.Count; i++)
+            (double bottom, double top) = FaceRange(zone);
+            (Vec3 Min, Vec3 Max) bounds = zone.PlanBounds;
+            // Per patch: 0 not the zone's, 1 the zone's, 2 the zone's and covered; collected in index order.
+            var found = new byte[patches.Count];
+            Parallel.For(0, patches.Count, new ParallelOptions { CancellationToken = cancel }, i =>
             {
                 Vec3 n = scene.NormalOf(i);
                 Vec3 p = patches[i].Centroid + n * probe;
-                if (p.Z < bottom || p.Z > top) continue;
-                if (!zone.ContainsPlan(p.X, p.Y)) continue;
+                if (p.Z < bottom || p.Z > top) return;
+                if (!InPlan(zone, bounds, p)) return;
                 // A patch covered by something standing on it (floor under a cabinet, wall behind
                 // casework) looks into the inside of that solid: its first hit is a back face.
                 bool covered = scene.ClosestHit(patches[i].Centroid + n * SurfaceOffset, n, 1e6, out _, out bool front) >= 0 && !front;
-                own.Add((i, covered));
-            }
+                found[i] = covered ? (byte)2 : (byte)1;
+            });
+            var own = new List<(int, bool)>();
+            for (int i = 0; i < found.Length; i++)
+                if (found[i] != 0) own.Add((i, found[i] == 2));
             return own;
+        }
+
+        /// <summary>Whether a point lies in the zone's plan; its plan bounds reject most points cheaply.</summary>
+        private static bool InPlan(CalcZone zone, (Vec3 Min, Vec3 Max) bounds, Vec3 p) =>
+            p.X >= bounds.Min.X && p.X <= bounds.Max.X && p.Y >= bounds.Min.Y && p.Y <= bounds.Max.Y &&
+            zone.ContainsPlan(p.X, p.Y);
+
+        /// <summary>The heights a patch's probe point must lie between to face the zone: floor to ceiling, with a quarter foot of play.</summary>
+        private static (double Bottom, double Top) FaceRange(CalcZone zone) =>
+            (zone.BottomZ - 0.25, // drops the undersides of things standing on the floor
+             (double.IsNaN(zone.CeilingZ) ? Math.Max(zone.TopZ, zone.BottomZ + zone.WorkplaneHeight) : zone.CeilingZ) + 0.25);
+
+        /// <summary>
+        /// The zone (index) each patch faces, or -1. A patch faces a zone when the point half a foot
+        /// in front of it lies in the zone's plan between its floor and ceiling, as for
+        /// <see cref="RoomSurfaces"/>. When several zones hold the point, the one whose floor under
+        /// it is highest wins, then the smallest (the rule of <see cref="FixtureZoneCheck.Owner"/>).
+        /// </summary>
+        internal static int[] PatchOwners(IReadOnlyList<CalcZone> zones, IReadOnlyList<SceneTriangle> patches, TriangleScene scene,
+            CancellationToken cancel = default)
+        {
+            const double probe = 0.5;
+            var ranges = new (double Bottom, double Top)[zones.Count];
+            var bounds = new (Vec3 Min, Vec3 Max)[zones.Count];
+            for (int k = 0; k < zones.Count; k++)
+            {
+                ranges[k] = FaceRange(zones[k]);
+                bounds[k] = zones[k].PlanBounds;
+            }
+            var owner = new int[patches.Count];
+            Parallel.For(0, patches.Count, new ParallelOptions { CancellationToken = cancel }, i =>
+            {
+                Vec3 p = patches[i].Centroid + scene.NormalOf(i) * probe;
+                int best = -1;
+                double bestFloor = 0;
+                for (int k = 0; k < zones.Count; k++)
+                {
+                    if (p.Z < ranges[k].Bottom || p.Z > ranges[k].Top || !InPlan(zones[k], bounds[k], p)) continue;
+                    double floor = FixtureZoneCheck.FloorUnder(zones[k], p.Z);
+                    if (best < 0 || floor > bestFloor || (floor == bestFloor && zones[k].Area < zones[best].Area))
+                    {
+                        best = k;
+                        bestFloor = floor;
+                    }
+                }
+                owner[i] = best;
+            });
+            return owner;
+        }
+
+        /// <summary>The zone (index) whose footprint is nearest a point in plan; 0 inside it.</summary>
+        private static int NearestZone(IReadOnlyList<CalcZone> zones, (Vec3 Min, Vec3 Max)[] bounds, Vec3 point)
+        {
+            int best = 0;
+            double bestDistance = double.MaxValue;
+            for (int k = 0; k < zones.Count; k++)
+            {
+                double d = InPlan(zones[k], bounds[k], point) ? 0 : Polygon.DistanceToBoundary(zones[k].Loops, point.X, point.Y);
+                if (d < bestDistance)
+                {
+                    best = k;
+                    bestDistance = d;
+                }
+            }
+            return best;
         }
 
         private static void KeepSurfaces(CalcZone zone, IReadOnlyList<SceneTriangle> patches, TriangleScene scene,
@@ -374,14 +661,16 @@ namespace WWTools.Lighting.Engine
 
         /// <summary>Direct illuminance (fc) on a surface at <paramref name="point"/> facing <paramref name="normal"/>.</summary>
         public double DirectIlluminance(TriangleScene scene, Vec3 point, Vec3 normal) =>
-            DirectIlluminance(scene, point, normal, null);
+            DirectIlluminance(scene, point, normal, AllLuminaires, null);
 
-        private double DirectIlluminance(TriangleScene scene, Vec3 point, Vec3 normal, int[]? reached)
+        /// <summary>Direct illuminance from the given luminaires only (indexes into the solver's list).</summary>
+        private double DirectIlluminance(TriangleScene scene, Vec3 point, Vec3 normal, IReadOnlyList<int> luminaires, int[]? reached)
         {
             double total = 0;
             long rays = 0;
-            for (int li = 0; li < _luminaires.Count; li++)
+            for (int n = 0; n < luminaires.Count; n++)
             {
+                int li = luminaires[n];
                 Luminaire lum = _luminaires[li];
                 Vec3 toCentre = lum.Position - point;
                 double centreDistance = toCentre.Length;
@@ -440,6 +729,16 @@ namespace WWTools.Lighting.Engine
             }
             LastPatchSize = size;
             return output;
+        }
+
+        /// <summary>Fewest form-factor rays any patch gets.</summary>
+        public const int MinPatchRays = 12;
+
+        /// <summary>Form-factor rays for a patch: the maximum at the nominal area, fewer in proportion for smaller patches, never below <see cref="MinPatchRays"/> (or the maximum, if smaller).</summary>
+        internal static int RaysFor(double area, double nominalArea, int maxRays)
+        {
+            int rays = (int)Math.Round(maxRays * area / nominalArea);
+            return Math.Max(Math.Min(MinPatchRays, maxRays), Math.Min(maxRays, rays));
         }
 
         /// <summary>The patch size the last solve ended up using (ft).</summary>

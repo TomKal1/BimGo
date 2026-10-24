@@ -34,6 +34,9 @@ namespace WWTools.Lighting.Engine
         /// <summary>A level whose floor covers this share of the footprint is the slab over the zone, not a balcony: it and the levels above are dropped.</summary>
         public const double LidCoverage = 0.85;
 
+        /// <summary>A floor at no level this far over the level under it (ft) is reported as a level of its own; lower, it is a step in that level's floor.</summary>
+        public const double LooseFloorRise = 4.0;
+
         /// <summary>When this share of the walking surfaces is stair, every point sits on its surface (a stair shaft).</summary>
         public const double StairShare = 0.25;
 
@@ -46,10 +49,12 @@ namespace WWTools.Lighting.Engine
         /// <summary>
         /// Lays the zone's points on its walking surfaces. <paramref name="isWalkable"/> says
         /// which element tags are floors, stairs or ramps; <paramref name="isStair"/> which are
-        /// stairs or ramps. Returns notes for the log.
+        /// stairs or ramps. <paramref name="claimedBy"/> names the other calc zone a floor
+        /// position (x, y, z) belongs to, if any (see <see cref="ClaimedByOthers"/>): those
+        /// points are left to it. Returns notes for the log.
         /// </summary>
         public static List<string> Generate(CalcZone zone, TriangleScene scene, double spacing, double boundaryOffset,
-            Func<long, bool> isWalkable, Func<long, bool> isStair)
+            Func<long, bool> isWalkable, Func<long, bool> isStair, Func<double, double, double, CalcZone?>? claimedBy = null)
         {
             var notes = new List<string>();
             zone.Points.Clear();
@@ -58,7 +63,7 @@ namespace WWTools.Lighting.Engine
             if (zone.Levels.Count == 0) zone.Levels.Add(new ZoneLevel(zone.LevelName, zone.BottomZ));
 
             List<(double X, double Y)> plan = zone.PlanGrid(spacing, boundaryOffset);
-            var hits = new List<(double X, double Y, double Z, bool Stair, int Level)>();
+            var hits = new List<(double X, double Y, double Z, bool Stair, int Level, CalcZone? Owner)>();
             double low = zone.BottomZ - 0.5, high = zone.TopZ - 1.5;
             var down = new Vec3(0, 0, -1);
             foreach ((double x, double y) in plan)
@@ -74,7 +79,7 @@ namespace WWTools.Lighting.Engine
                     long tag = scene.Triangles[hit].Tag;
                     if (front && !inside && scene.NormalOf(hit).Z > MinNormalZ && z >= low && z <= high &&
                         above - z >= Headroom && isWalkable(tag))
-                        hits.Add((x, y, z, isStair(tag), zone.LevelIndexAt(z)));
+                        hits.Add((x, y, z, isStair(tag), zone.LevelIndexAt(z), claimedBy?.Invoke(x, y, z)));
                     // Faces point out of their solids: going down, a front face is a way in, a back face the way out.
                     inside = front;
                     above = z;
@@ -94,6 +99,14 @@ namespace WWTools.Lighting.Engine
                 break;
             }
 
+            // A floor that is another calc zone's (the storey over a double-height shop, corridors
+            // over a lobby) is that zone's to calculate: counting it here would count it twice.
+            foreach (IGrouping<CalcZone, (double X, double Y, double Z, bool Stair, int Level, CalcZone? Owner)> owner in
+                     hits.Where(h => h.Owner != null).GroupBy(h => h.Owner!))
+                notes.Add($"{zone.DisplayName}: {owner.Count()} position(s) on the floor at {zone.Levels[owner.First().Level].Name} " +
+                          $"lie in {owner.Key.DisplayName}, so they are left to it.");
+            hits.RemoveAll(h => h.Owner != null);
+
             int[] partOf = hits.Select(h => zone.Parts.FindIndex(p => p.Contains(h.X, h.Y, h.Z))).ToArray();
             bool OnFlight(int i) => partOf[i] >= 0 && zone.Parts[partOf[i]].Kind == ZonePartKind.Flight;
 
@@ -108,6 +121,28 @@ namespace WWTools.Lighting.Engine
                 else if (hits.Any(h => h.Level == level))
                     notes.Add($"{zone.DisplayName}: no floor or landing lies at {zone.Levels[level].Name}, so it is not split there.");
             }
+            // A floor at no level (a loft 9.6 ft over L5, short of the roof level) gets a level of its
+            // own, named from the level under it, rather than being mixed into that level's statistics.
+            List<double> loose = Enumerable.Range(0, hits.Count)
+                .Where(i => !hits[i].Stair && partOf[i] < 0 && anchored.All(l => Math.Abs(hits[i].Z - l.Elevation) > 1.0))
+                .Select(i => hits[i].Z).OrderBy(z => z).ToList();
+            var extra = new List<ZoneLevel>();
+            for (int start = 0; start < loose.Count;)
+            {
+                int end = start;
+                while (end + 1 < loose.Count && loose[end + 1] - loose[end] < 0.25) end++;
+                double lo = loose[start], hi = loose[end];
+                ZoneLevel? below = anchored.Where(l => l.Elevation <= lo).OrderByDescending(l => l.Elevation).FirstOrDefault();
+                if (end - start + 1 >= 3 && hi - lo <= 1.0 && below != null && lo - below.Elevation > LooseFloorRise)
+                {
+                    var level = new ZoneLevel($"{below.Name} + {lo - below.Elevation:0.#} ft", lo);
+                    extra.Add(level);
+                    notes.Add($"{zone.DisplayName}: a floor at {lo:0.##} lies at no level, so its {end - start + 1} point(s) are reported as {level.Name}.");
+                }
+                start = end + 1;
+            }
+            anchored.AddRange(extra);
+            anchored.Sort((a, b) => a.Elevation.CompareTo(b.Elevation));
             zone.Levels.Clear();
             zone.Levels.AddRange(anchored);
             int[] levelOf = hits.Select(h => zone.LevelIndexAt(h.Z)).ToArray();
@@ -151,6 +186,17 @@ namespace WWTools.Lighting.Engine
                       (zone.PointsOnSurface ? "all on the surface (stair)" : $"{zone.WorkplaneHeight:0.##} ft above floors, on the surface of stairs") +
                       $"; {zone.Parts.Count} stair part(s).");
             return notes;
+        }
+
+        /// <summary>
+        /// The calc zone, other than <paramref name="zone"/>, that a floor position belongs to: one
+        /// over it in plan whose own floor starts higher than this zone's and whose height range
+        /// holds the position (the storey over a double-height room). Null when none.
+        /// </summary>
+        public static Func<double, double, double, CalcZone?> ClaimedByOthers(CalcZone zone, IEnumerable<CalcZone> zones)
+        {
+            List<CalcZone> above = zones.Where(o => !ReferenceEquals(o, zone) && o.BottomZ > zone.BottomZ + 1.0 && o.Loops.Count > 0).ToList();
+            return (x, y, z) => above.FirstOrDefault(o => z >= o.BottomZ - 0.5 && z < o.TopZ && o.ContainsPlan(x, y));
         }
 
         /// <summary>

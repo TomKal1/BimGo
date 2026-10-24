@@ -130,7 +130,7 @@ internal sealed partial class GameSession
             if (walking != set.WalkingSurfaces) { set.WalkingSurfaces = walking; NativeSetupChanged(); }
             bool estimates = Checkbox(f, input, x, y, w, "Allow estimated photometry", set.AllowEstimatedPhotometry); y += S(27);
             if (estimates != set.AllowEstimatedPhotometry) { set.AllowEstimatedPhotometry = estimates; NativeSetupChanged(); }
-            bool correction = Checkbox(f, input, x, y, w, "Correct recessed sources", set.CorrectRecessedSources); y += S(27);
+            bool correction = Checkbox(f, input, x, y, w, "Auto mounting (light centres)", set.CorrectRecessedSources); y += S(27);
             if (correction != set.CorrectRecessedSources) { set.CorrectRecessedSources = correction; NativeSetupChanged(); }
             bool excludeFurniture = Checkbox(f, input, x, y, w, "Exclude points under furniture", set.AutoExcludeFurniture); y += S(27);
             if (excludeFurniture != set.AutoExcludeFurniture) { set.AutoExcludeFurniture = excludeFurniture; NativeSetupChanged(); }

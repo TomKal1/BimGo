@@ -34,6 +34,8 @@ public static class ExportedSceneInput
         input.Warnings.Add(set.EmergencyOnly ? "Emergency calculation: only selected fixture instances contribute, at their individual emergency output fractions times LLF." : "Normal calculation: emergency participation/output overrides do not dim normal operation.");
         input.Warnings.Add($"Calculation-only exclusions: {set.ExcludedElements.Length} elements, {set.ExcludedCategories.Length} categories, {set.ExcludedPoints.Length} manual points. Display visibility is independent.");
         Aabb domain = Aabb.Empty;
+        var storeys = (scene.Levels ?? Array.Empty<LevelInfo>()).Where(l => l.IsStorey).OrderBy(l => l.Elevation).ToArray();
+        input.Storeys = storeys.Select(l => new CalculationLevel { Name = l.Name, Elevation = (l.Elevation + (double)scene.OriginOffset.Z) / Feet }).ToList();
         for (int j = 0; j < set.Rooms.Length; j++)
         {
             int i = set.Rooms[j]; var room = scene.Rooms[i]; string key = RoomKey(scene, i);
@@ -46,11 +48,18 @@ public static class ExportedSceneInput
                 Loops = room.Loops.Select(l => l.SelectMany(p => new[] { Math.Round(p.X/Feet,5)+scene.OriginOffset.X/Feet, Math.Round(p.Y/Feet,5)+scene.OriginOffset.Y/Feet }).ToArray()).ToArray(),
                 Level = levels.FirstOrDefault().Name ?? "", LevelNames = levels.Select(l => l.Name).ToArray(),
                 LevelElevations = levels.Select(l => (l.Elevation + (double)scene.OriginOffset.Z)/Feet).ToArray() });
-            domain.Include(new Aabb(new Vector3(room.Min, room.BottomZ), new Vector3(room.Max, room.TopZ)));
+            // Own level: the highest storey at or just above the floor. The region reaches 3 ft over the top or up to the level above (the engine's RegionBox).
+            int own = Array.FindLastIndex(storeys, l => l.Elevation <= room.BottomZ + .08);
+            float ownElevation = own >= 0 ? storeys[own].Elevation : room.BottomZ;
+            if (own >= 0) input.Zones[^1].LevelElevation = (ownElevation + (double)scene.OriginOffset.Z) / Feet;
+            float top = room.TopZ + (float)(3*Feet);
+            int above = Array.FindIndex(storeys, l => l.Elevation > ownElevation + 4*Feet && l.Elevation >= room.TopZ - 2*Feet);
+            if (above >= 0) top = Math.Max(top, storeys[above].Elevation);
+            domain.Include(new Aabb(new Vector3(room.Min, room.BottomZ), new Vector3(room.Max, top)));
         }
         domain.Min -= new Vector3((float)(set.Margin*Feet), (float)(set.Margin*Feet), (float)(1.5*Feet));
-        domain.Max += new Vector3((float)(set.Margin*Feet), (float)(set.Margin*Feet), (float)(3*Feet));
-        input.Warnings.Add($"Transport domain: selected room union plus {set.Margin:0.##} ft XY, 1.5 ft below and 3 ft above; connections outside this domain are not modeled.");
+        domain.Max += new Vector3((float)(set.Margin*Feet), (float)(set.Margin*Feet), 0);
+        input.Warnings.Add($"Transport domain: selected room union plus {set.Margin:0.##} ft XY, 1.5 ft below and 3 ft above or up to the level above; connections outside this domain are not modeled.");
         var instances = edits?.Instances ?? Array.Empty<CalculationInstance>();
         var instancesByElement = instances.ToLookup(d => d.Element);
         var lightsByElement = (scene.Lighting?.Lights ?? Array.Empty<LightSource>()).Select((l,k) => (Light:l, Index:k)).ToLookup(p => p.Light.Element);
@@ -106,7 +115,10 @@ public static class ExportedSceneInput
                 // Analytic spot is retained as parameters in provenance and resolved to full IES before solving.
                 if (ies == null && TrySpot(chosen, out int beam, out int field))
                     provenance = $"Explicit analytic spot estimate; beam={beam}; field={field}";
+                bool body = bounds.Max.X >= bounds.Min.X;
                 input.Emitters.Add(new CalculationEmitter { Key = identity + "/source:" + light.Index, FixtureKey = identity, Type = element.FamilyType,
+                    BodyMin = body ? World(bounds.Min) : null, BodyMax = body ? World(bounds.Max) : null,
+                    AutoMount = source.CalculationOrigin != null && fixture?.UsePreviewLensPosition != true && (fixture?.HeightOffset ?? 0) == 0,
                     Position = World(p), Nadir = Vector(Vector3.Normalize(Vector3.TransformNormal(source.Aim, transform))),
                     Axis0 = Vector(Vector3.Normalize(Vector3.TransformNormal(source.Across, transform))),
                     Ies = ies, Estimated = ies == null, Provenance = provenance + (source.Estimated ? "; source placement/output marked estimated by exporter" : ""),
@@ -136,7 +148,7 @@ public static class ExportedSceneInput
                 int cls = category is "furniture" or "furnsys" or "casework" or "generic" or "specialty" or "plumbing" ? 3 : normal.Z > .7 ? 2 : normal.Z < -.7 ? 0 : 1;
                 input.Triangles.Add(new CalculationTriangle { Vertices = World(a).Concat(World(b)).Concat(World(c)).ToArray(), Class = cls,
                     Colour = new[] { (scene.Vertices[ia].Colour & 255) / 255.0, ((scene.Vertices[ia].Colour >> 8) & 255) / 255.0, ((scene.Vertices[ia].Colour >> 16) & 255) / 255.0 },
-                    Tag = index+1, SurfaceKey = identity + "/triangle:" + ((k-element.OpaqueStart)/3), Walkable = walkable, Stair = stair });
+                    Tag = index+1, SurfaceKey = identity + "/triangle:" + ((k-element.OpaqueStart)/3), Walkable = walkable, Stair = stair, Ceiling = category == "ceilings" });
                 if (input.Triangles.Count > 250000) throw new InvalidDataException("The physical domain exceeds 250,000 input triangles. Reduce the selected domain or re-export simpler physical geometry.");
             }
         }

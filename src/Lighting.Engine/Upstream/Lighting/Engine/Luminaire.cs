@@ -40,6 +40,17 @@ namespace WWTools.Lighting.Engine
                 Watts = Watts,
             };
 
+        /// <summary>A copy of this luminaire aimed along <paramref name="nadir"/>, with its 0° axis from <paramref name="axis0"/>.</summary>
+        public Luminaire Aimed(Vec3 nadir, Vec3 axis0) =>
+            new Luminaire(Position, nadir, axis0, Photometry)
+            {
+                Id = Id,
+                TypeKey = TypeKey,
+                TypeName = TypeName,
+                Multiplier = Multiplier,
+                Watts = Watts,
+            };
+
         /// <summary>Element id (or any caller id) for reports.</summary>
         public long Id { get; set; }
 
@@ -58,6 +69,9 @@ namespace WWTools.Lighting.Engine
 
         /// <summary>Photometric 90° horizontal axis.</summary>
         public Vec3 Axis90 { get; }
+
+        /// <summary>For the log: where it aims and which way its 0° plane (its length) runs, so aim and rotation can be checked.</summary>
+        public string Aiming => $"aim {Nadir}; 0° axis {Axis0}";
 
         public IesPhotometry Photometry { get; }
 

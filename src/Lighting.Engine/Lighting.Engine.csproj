@@ -4,7 +4,7 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <AssemblyName>Lighting.Engine</AssemblyName>
     <Description>WWTools diffuse compatibility engine, pinned source extraction for independent hosts.</Description>
     <IsPackable>false</IsPackable>

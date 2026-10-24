@@ -26,7 +26,7 @@ namespace WWTools.Lighting.Engine
 
         public double RotationDegrees { get; set; }
 
-        public string Aim { get; set; } = "Down";
+        public string Aim { get; set; } = "Auto";
 
         /// <summary>The Luminaire Manager's light centre offset (ft).</summary>
         public double CenterOffset { get; set; }

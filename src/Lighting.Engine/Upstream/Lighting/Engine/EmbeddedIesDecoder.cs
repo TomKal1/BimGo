@@ -26,6 +26,17 @@ namespace WWTools.Lighting.Engine
                 return text;
             }
 
+            // The file's bytes read as UTF-16, so each char holds two ASCII bytes ("IE" is U+4549).
+            if (text.Any(c => c > 0xFF))
+            {
+                string unpacked = Encoding.GetEncoding(28591).GetString(Encoding.Unicode.GetBytes(text)).TrimEnd('\0');
+                if (LooksLikeIes(unpacked))
+                {
+                    how = "bytes packed as UTF-16";
+                    return unpacked;
+                }
+            }
+
             string compact = new string(text.Where(c => !char.IsWhiteSpace(c)).ToArray());
             byte[]? bytes = TryBase64(compact);
             if (bytes != null)

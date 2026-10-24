@@ -83,7 +83,7 @@ addEventListener('resize',function(){if(el)fit();});
         private const int OverviewHeight = 400;
 
         /// <summary>Image pixels per CSS pixel for the 3D views, so they stay sharp when printed or zoomed.</summary>
-        private const double CutawayResolution = 3;
+        private const double CutawayResolution = 2;
 
         /// <summary>
         /// The page for one zone (an HTML section). A zone spanning levels gets an overview page
@@ -125,7 +125,7 @@ addEventListener('resize',function(){if(el)fit();});
         {
             if (!data.CalculatedImages || zone.Surfaces.Count == 0 || zone.Statistics.Count == 0) return string.Empty;
             return "<section class=\"room\"><h2>" + H(zone.DisplayName) + " — Calculated lighting image</h2>" +
-                CalculatedImage.ReportFigure(zone) + "</section>";
+                CalculatedImage.ReportFigure(zone, data.LuminairePositions) + "</section>";
         }
 
         private static string MultiLevelPages(CalcZone zone, LightingReportData data)
@@ -210,7 +210,7 @@ addEventListener('resize',function(){if(el)fit();});
             if (targetFc > 0)
                 Kpi(sb, $"{RoomStatistics.Coverage(zone, targetFc) * 100:0} %", $"of points ≥ {V(targetFc, units)} {u}");
             if (data.Interreflection)
-                Kpi(sb, $"{RoomStatistics.ReflectedShare(zone) * 100:0} %", "of the average is reflected light");
+                Kpi(sb, RoomStatistics.FormatShare(RoomStatistics.ReflectedShare(zone)), "of the average is reflected light");
             if (power)
                 Kpi(sb, $"{zone.PowerDensity:0.00} W/ft²", $"{zone.LuminaireCount} luminaire(s), {zone.Watts:0} W" +
                     (zone.OnWalkingSurfaces ? $" over {zone.FloorArea:0} ft² walked on" : string.Empty));
@@ -416,7 +416,7 @@ addEventListener('resize',function(){if(el)fit();});
             var placer = new LabelPlacer(ViewWidth, ViewHeight - scaleBarRoom);
             foreach (Vec3 l in data.LuminairePositions)
             {
-                if (!zone.ContainsPlan(l.X, l.Y) || l.Z < zone.BottomZ - 1 || l.Z > zone.TopZ + 3) continue;
+                if (!LightingReport.LuminaireInZone(zone, l)) continue;
                 double lx = ox + (l.X - min.X) * scale, ly = oy + (max.Y - l.Y) * scale;
                 sb.Append($"<rect x=\"{F(lx - 3.5)}\" y=\"{F(ly - 3.5)}\" width=\"7\" height=\"7\" fill=\"#ffd84a\" stroke=\"#4a3b00\"/>");
                 placer.Take(lx - 4.5, ly - 4.5, lx + 4.5, ly + 4.5);

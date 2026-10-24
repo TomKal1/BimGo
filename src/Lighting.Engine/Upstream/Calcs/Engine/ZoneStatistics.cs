@@ -12,11 +12,20 @@ namespace WWTools.Calcs.Engine
         public double Maximum { get; set; }
         public double Minimum { get; set; }
 
-        /// <summary>Average ÷ minimum, or +∞ when the minimum is zero.</summary>
-        public double AverageToMinimum => Minimum > 1e-9 ? Average / Minimum : double.PositiveInfinity;
+        /// <summary>
+        /// Smallest minimum and average a ratio is given for: the report's display resolution
+        /// (0.05 fc; 0.5 lx is just under it). Below it the value prints as zero and a ratio
+        /// over it means nothing (a 0.0 minimum gave 585,522:1).
+        /// </summary>
+        public const double RatioFloor = 0.05;
 
-        /// <summary>Maximum ÷ minimum, or +∞ when the minimum is zero.</summary>
-        public double MaximumToMinimum => Minimum > 1e-9 ? Maximum / Minimum : double.PositiveInfinity;
+        /// <summary>Average ÷ minimum, or +∞ (printed N/A) when the minimum or average reads zero.</summary>
+        public double AverageToMinimum => HasRatios ? Average / Minimum : double.PositiveInfinity;
+
+        /// <summary>Maximum ÷ minimum, or +∞ (printed N/A) when the minimum or average reads zero.</summary>
+        public double MaximumToMinimum => HasRatios ? Maximum / Minimum : double.PositiveInfinity;
+
+        private bool HasRatios => Minimum >= RatioFloor && Average >= RatioFloor;
 
         public static ZoneStatistics From(IEnumerable<double> values)
         {

@@ -186,7 +186,7 @@ namespace WWTools.Lighting.Engine
             int edge = Math.Max(1, (int)Math.Round(reportPixel));
             foreach (Vec3 l in luminaires)
             {
-                if (!zone.ContainsPlan(l.X, l.Y) || l.Z < zone.BottomZ - 1 || l.Z > ceiling + 3) continue;
+                if (!zone.ContainsPlan(l.X, l.Y) || !LightingReport.LuminaireAtZoneHeight(zone, l.Z, ceiling)) continue;
                 var s = Project(l);
                 for (int y = (int)s.Y - half; y <= (int)s.Y + half; y++)
                     for (int x = (int)s.X - half; x <= (int)s.X + half; x++)

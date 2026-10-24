@@ -27,6 +27,8 @@ public sealed class NativeCalculationRun
     public IReadOnlyList<CalcZone> Zones { get; init; }
     public IReadOnlyDictionary<string, string> ZoneRevisions { get; init; }
     public IReadOnlyList<SolveStats> Statistics { get; init; }
+    /// <summary>The run's calculation log: clusters, per-room solve statistics and per-fixture ownership checks.</summary>
+    public string Log { get; init; }
     internal LightingReportData ReportData { get; init; }
     public string HtmlReport(double scaleMax, bool lux = false) => NativeLightingReport.Html(ReportData,Statistics,scaleMax,lux,Input.Emitters,includeImages:true);
 }
@@ -44,6 +46,8 @@ public static class NativeCalculator
         {
             if (previous == null || previous.Input.Set.Id != input.Set.Id || zoneKeys.Count == 0 || zoneKeys.Any(k => !input.Zones.Any(z => z.Key == k)))
                 throw new InvalidDataException("Run the complete set before rerunning selected rooms, and select rooms belonging to that set.");
+            var changed = CalcResultsFile.ChangedSettings(SharedSettings(previous.Input), SharedSettings(input));
+            if (changed.Count > 0) throw new InvalidDataException("Shared settings changed since the complete run (" + string.Join("; ", changed) + "). Run the complete set.");
             input.PreservedZones = input.Zones.Where(z => !zoneKeys.Contains(z.Key)).Select(room =>
             {
                 int old = previous.Zones.ToList().FindIndex(z => z.Key == room.Key);
@@ -61,7 +65,12 @@ public static class NativeCalculator
         if(transportBudget>256L*1024*1024)throw new InvalidDataException("This quality/domain needs more than 256 MB of form-factor storage. Select fewer rooms or a lower quality.");
         var photometry = new Dictionary<string,IesPhotometry>(StringComparer.Ordinal);
         var luminaires = new List<Luminaire>();
+        // Auto mounting (WWTools LuminaireMounting): recessed in a ceiling of any thickness, pendants and surface fixtures from
+        // the fixture box, standing fixtures, and lights buried in a slab dropped out of its underside.
         TriangleScene placementScene = input.Set.CorrectRecessedSources && !input.SourcesResolved ? new TriangleScene(triangles) : null;
+        var ceilingTags = input.Triangles.Where(t => t.Ceiling).Select(t => t.Tag).ToHashSet();
+        var floorTags = input.Triangles.Where(t => t.Walkable).Select(t => t.Tag).ToHashSet();
+        var placements = new MountingPlacement?[input.Emitters.Count];
         int corrections = 0;
         for (int i=0;i<input.Emitters.Count;i++)
         {
@@ -89,75 +98,116 @@ public static class NativeCalculator
                 if (ies.HadTiltData) input.Warnings.Add($"IES tilt factors are ignored by the {EngineIdentity.PhysicalModel} compatibility model ({source.Type}).");
             }
             var position=V(source.Position,0);
-            if (placementScene != null && source.Nadir[2] < -.7)
+            if (placementScene != null && source.AutoMount && source.Nadir[2] < -.7)
             {
-                double? ceiling=LuminairePlacement.CeilingUndersideBelow(placementScene,position,1);
-                if (ceiling.HasValue && position.Z >= ceiling.Value-.05)
+                var geometry=new FixtureGeometry { Origin=position,Name=source.Type??"",BodyMin=source.BodyMin==null?null:V(source.BodyMin,0),BodyMax=source.BodyMax==null?null:V(source.BodyMax,0) };
+                var placed=LuminaireMounting.Place(MountingKind.Auto,true,geometry,"",0,placementScene,ceilingTags.Contains,floorTags.Contains);
+                placements[i]=placed;
+                source.Placement=LuminaireMounting.Word(placed.Kind)+(placed.Sure?"":", not sure")+": "+placed.Reason;
+                if ((placed.Position-position).Length>.01)
                 {
                     source.OriginalPosition=(double[])source.Position.Clone();
-                    source.Position=new[] {position.X,position.Y,ceiling.Value-1.0/12}; position=V(source.Position,0); corrections++;
+                    source.Position=new[] {placed.Position.X,placed.Position.Y,placed.Position.Z}; position=placed.Position; corrections++;
                 }
             }
             luminaires.Add(new Luminaire(position,V(source.Nadir,0),V(source.Axis0,0),ies)
             { Id=i+1, TypeKey=source.Type??source.Key,TypeName=source.Type??source.Key,Multiplier=source.Multiplier,Watts=ies.InputWatts });
         }
-        if (corrections>0) input.Warnings.Add($"{corrections} recessed source(s) corrected to 1 inch below a nearby ceiling; original and resolved positions are retained.");
+        if (corrections>0) input.Warnings.Add($"{corrections} source(s) moved to their mounting's light centre by auto mounting; original and resolved positions are retained.");
+        foreach (var type in Enumerable.Range(0,input.Emitters.Count).Where(i=>placements[i].HasValue).GroupBy(i=>input.Emitters[i].Type??input.Emitters[i].Key))
+        {
+            var unsure=type.Where(i=>!placements[i].Value.Sure).ToList();
+            if (unsure.Count>0) input.Warnings.Add($"{type.Key}: the light centre of {unsure.Count} of {type.Count()} source(s) is not sure ({placements[unsure[0]].Value.Reason}). Check the fixture's height offset or lens position.");
+        }
         input.SourcesResolved=true;
         input.Warnings=input.Warnings.Distinct(StringComparer.Ordinal).ToList();
         input.Validate(); string hash=input.ContentHash(); byte[] sceneBytes=input.Serialize();
         if (sceneBytes.Length > 64 * 1024 * 1024) throw new InvalidDataException("The retained calculation input exceeds 64 MB. Run the complete set or reduce the selected domain.");
         var zones=new List<CalcZone>(); var stats=new List<SolveStats>(); bool complete=true; int pointBudget=0;
-        TriangleScene walking=input.Set.WalkingSurfaces?new TriangleScene(triangles):null;
+        TriangleScene allScene=new TriangleScene(triangles);
         var walkable=input.Triangles.Where(t=>t.Walkable).Select(t=>t.Tag).ToHashSet(); var stairs=input.Triangles.Where(t=>t.Stair).Select(t=>t.Tag).ToHashSet();
         var runNotes = new List<string>();
         var zoneRevisions = new Dictionary<string, string>();
+        var log = CalcLog.InMemory();
         if (input.PreservedZones.Count > 0)
         {
-            runNotes.Add("Partial rerun: unselected rooms retain previously calculated values and their own input revision hashes. Rerun the entire set after shared changes affecting other rooms.");
+            runNotes.Add("Partial rerun: unselected rooms retain previously calculated values and their own input revision hashes; selected rooms are solved together in their own storey clusters.");
             complete = input.PreservedZones.All(p => p.Complete);
         }
+        var storeys = input.Storeys.Select(l => new ZoneLevel(l.Name ?? "", l.Elevation)).ToList();
+        var fresh = new List<CalcZone>(); var preservedStats = new Dictionary<CalcZone, SolveStats>();
         foreach (var room in input.Zones)
         {
             var preserved = input.PreservedZones.FirstOrDefault(p => p.Definition.Key == room.Key);
             if (preserved != null)
             {
-                pointBudget += preserved.Points.Length;
-                if (pointBudget > 100000) throw new InvalidDataException("The combined calculation exceeds 100,000 points. Adjust grid spacing or room selection.");
-                zones.Add(preserved.Restore()); stats.Add(preserved.Diagnostics); zoneRevisions[room.Key] = preserved.InputRevision;
+                var restored = preserved.Restore(); zones.Add(restored); preservedStats[restored] = preserved.Diagnostics; zoneRevisions[room.Key] = preserved.InputRevision;
                 continue;
             }
-            cancel.ThrowIfCancellationRequested();
             var zone=new CalcZone { Key=room.Key,Name=room.Name??"",Number=room.Number??"",LevelName=room.Level??"",Kind="Room",
-                BottomZ=room.Bottom,TopZ=room.Top,WorkplaneHeight=input.Set.Workplane,
+                BottomZ=room.Bottom,TopZ=room.Top,WorkplaneHeight=input.Set.Workplane,LevelElevation=room.LevelElevation??room.Bottom,
                 Reflectances=new Reflectances { Ceiling=input.Set.Ceiling,Wall=input.Set.Wall,Floor=input.Set.Floor,Furniture=input.Set.Furniture } };
             foreach(var loop in room.Loops) { var boundary=new List<Vec3>();for(int i=0;i<loop.Length;i+=2)boundary.Add(new(loop[i],loop[i+1],room.Bottom));zone.Loops.Add(boundary); }
-            for(int i=0;i<Math.Min(room.LevelElevations?.Length??0,room.LevelNames?.Length??0);i++)zone.Levels.Add(new ZoneLevel(room.LevelNames[i],room.LevelElevations[i]));
-            if(walking!=null) WalkingSurfaces.Generate(zone,walking,input.Set.Spacing,input.Set.BoundaryOffset,walkable.Contains,stairs.Contains);
+            if (storeys.Count > 0) zone.SetLevels(storeys);
+            else for(int i=0;i<Math.Min(room.LevelElevations?.Length??0,room.LevelNames?.Length??0);i++)zone.Levels.Add(new ZoneLevel(room.LevelNames[i],room.LevelElevations[i]));
+            zones.Add(zone); fresh.Add(zone); zoneRevisions[room.Key] = hash;
+        }
+        // Points, once every zone exists: a tall zone leaves the storeys over its floor to the zones that hold them.
+        TriangleScene furniture = input.Set.AutoExcludeFurniture ? CalculationSelection.FurnitureScene(triangles) : null;
+        foreach (var zone in fresh)
+        {
+            cancel.ThrowIfCancellationRequested();
+            if(input.Set.WalkingSurfaces)
+                foreach (string note in WalkingSurfaces.Generate(zone,allScene,input.Set.Spacing,input.Set.BoundaryOffset,walkable.Contains,stairs.Contains,WalkingSurfaces.ClaimedByOthers(zone,zones)))
+                    log.Write($"  {zone.DisplayName}: {note}");
             else
             {
-                if (room.Bottom+input.Set.Workplane>=room.Top) throw new InvalidDataException($"Workplane lies above {zone.DisplayName}.");
+                if (zone.BottomZ+input.Set.Workplane>=zone.TopZ) throw new InvalidDataException($"Workplane lies above {zone.DisplayName}.");
                 zone.GenerateGrid(input.Set.Spacing,input.Set.BoundaryOffset);
             }
-            int excluded = CalculationSelection.ExcludePoints(zone, triangles, input.Set.AutoExcludeFurniture,
-                input.Set.ExcludedPoints.Where(p => p.ZoneKey == room.Key).Select(p => V(p.Position, 0)));
+            int excluded = CalculationSelection.ExcludePoints(zone, furniture,
+                input.Set.ExcludedPoints.Where(p => p.ZoneKey == zone.Key).Select(p => V(p.Position, 0)));
             if (excluded > 0) runNotes.Add($"{zone.DisplayName}: {excluded} point(s) excluded manually or under furniture; retained workplane heights are unchanged.");
-            zoneRevisions[room.Key] = hash;
+        }
+        foreach (var zone in zones)
+        {
             pointBudget+=zone.Points.Count;
             if(zone.Points.Count==0 || pointBudget>100000) throw new InvalidDataException("The calculation grid is empty or exceeds 100,000 points. Adjust spacing, offset, or room selection.");
-            foreach(var lum in luminaires)
-                if(zone.ContainsPlan(lum.Position.X,lum.Position.Y)&&lum.Position.Z>=zone.BottomZ&&lum.Position.Z<=zone.TopZ)
-                {zone.LuminaireCount++;zone.Watts+=lum.Watts;zone.LuminaireTypeCounts[lum.TypeKey]=zone.LuminaireTypeCounts.TryGetValue(lum.TypeKey,out int n)?n+1:1;}
-            var solver=new LightingSolver(luminaires,options);
-            solver.Solve(zone,triangles,stage=>progress?.Invoke($"{zone.DisplayName}: {stage}"),cancel);
+        }
+
+        // One owning zone per source, for counts and power density (WWTools FixtureZoneCheck). BimGo has no Revit level or
+        // space per fixture, so ownership is geometric; stacked, buried and floor-mounted fixtures are still flagged.
+        var infos = luminaires.Select((l, i) => Info(l, input.Emitters[i], placements[i])).ToList();
+        var owners = FixtureZoneCheck.Run(zones, infos, (zone, p) => LightingReport.LuminaireInZone(zone, p) && !LuminairePlacement.OnFloorAbove(zone, p, allScene), log, runNotes);
+        foreach (var zone in fresh)
+            for (int i = 0; i < luminaires.Count; i++)
+            {
+                if (owners[infos[i]] != zone) continue;
+                var lum = luminaires[i];
+                zone.LuminaireCount++; zone.Watts += lum.Watts; zone.LuminaireTypeCounts[lum.TypeKey] = zone.LuminaireTypeCounts.TryGetValue(lum.TypeKey, out int n) ? n + 1 : 1;
+            }
+
+        var solved = NativeClusterSolve.Solve(fresh, luminaires, triangles, input.Set.Margin, options, log, runNotes, progress, cancel, out bool converged);
+        complete &= converged;
+        foreach (var zone in zones)
+        {
+            if (preservedStats.TryGetValue(zone, out var kept)) { stats.Add(kept); continue; }
             if(zone.Statistics.Count==0)throw new InvalidDataException($"{zone.DisplayName}: every calculation point lies inside an obstruction. Adjust the workplane/grid or exported geometry.");
-            if(options.Interreflection&&solver.LastIterations>=options.MaxIterations)complete=false;
-            zones.Add(zone);stats.Add(solver.LastStats);
+            var result = solved[zone]; stats.Add(result.Stats);
+            if (result.Stats.PointsInsideObstructions > 0)
+                runNotes.Add($"{zone.DisplayName}: {result.Stats.PointsInsideObstructions} point(s) fall inside casework, furniture or walls and are left out of the statistics.");
+            for (int k = 0; k < result.Luminaires.Count && k < result.Stats.PointsReachedByLuminaire.Length; k++)
+            {
+                var l = result.Luminaires[k]; int index = luminaires.IndexOf(l);
+                if (index >= 0 && owners[infos[index]] == zone && result.Stats.PointsReachedByLuminaire[k] == 0)
+                    log.Write($"  WARNING: luminaire {l.Id} {l.TypeName} at {l.Position} is inside {zone.DisplayName} but lights none of its points");
+            }
         }
         cancel.ThrowIfCancellationRequested(); progress?.Invoke("Preparing result revision and report");
         var adaptive=stats.Where(s=>s.PatchSize>options.PatchSize*1.001).ToArray();
         DateTime utc=DateTime.UtcNow;
         var data=CalcResultsFile.Build(new CalcResultsRun { Tool="BimGo calculation "+EngineIdentity.Version,CalcSetName=input.Set.Name,ModelTitle=input.Model??"",
-            RunUtc=utc,Quality=((CalcQuality)input.Set.Quality).ToString(),Interreflection=input.Set.Interreflection },zones,luminaires);
+            RunUtc=utc,Quality=((CalcQuality)input.Set.Quality).ToString(),Interreflection=input.Set.Interreflection,SharedSettings=SharedSettings(input) },zones,luminaires);
         if(adaptive.Length>0)data.Notes.Add("Patch-size adjustment was required by the domain budget; actual patch sizes are retained in result diagnostics.");
         var header=JsonNode.Parse(data.Json).AsObject();
         header["zoneRevisions"]=JsonSerializer.SerializeToNode(zoneRevisions);
@@ -169,7 +219,7 @@ public static class NativeCalculator
             ??throw new InvalidDataException("Native result conversion failed: "+error);
         foreach(var warning in input.Warnings.Concat(runNotes).Concat(data.Notes))display.Warnings.Add(warning);
         var report=new LightingReportData { ProjectName="BimGo calculation · "+input.Model,CalcSetName=input.Set.Name,RunAt=utc,Interreflection=input.Set.Interreflection,RoomPages=false,
-            Method="Pinned CPU scalar diffuse photometry/interreflection; exported model geometry" };
+            Method="Pinned CPU scalar diffuse photometry; interreflection solved once per storey cluster with a per-room final gather; exported model geometry" };
         report.Zones.AddRange(zones);report.Warnings.AddRange(input.Warnings);report.Warnings.AddRange(runNotes);report.Warnings.AddRange(data.Notes);
         report.LuminairePositions.AddRange(luminaires.Select(l=>l.Position));
         foreach (var group in Enumerable.Range(0,input.Emitters.Count).GroupBy(i=>new {
@@ -181,6 +231,9 @@ public static class NativeCalculator
                 Photometry=iesHash,Source=source.Provenance,Estimated=source.Estimated,Lumens=lum.Photometry.ComputedLumens,
                 LightLossFactor=source.Multiplier,Watts=lum.Watts,Count=group.Count()});
         }
+        string noWatts=LightingReport.NoWattageWarning(report.LuminaireTypes); if(noWatts!=null)report.Warnings.Add(noWatts);
+        var mounted=placements.Where(p=>p.HasValue).Select(p=>p.Value).ToList();
+        report.Settings.Add(new("Source placement",input.Set.CorrectRecessedSources?"Auto mounting"+(mounted.Count>0?": "+LuminaireMounting.Summary(mounted):""):"Exported source origins"));
         report.Settings.Add(new("Scenario SHA-256",hash));report.Settings.Add(new("Engine / physical model",EngineIdentity.Version+" / "+EngineIdentity.PhysicalModel+" / "+EngineIdentity.UpstreamCommit));
         report.Settings.Add(new("Status",header["calculationStatus"].ToString()));
         report.Settings.Add(new("Grid / workplane (ft)",$"{input.Set.Spacing:R} / {input.Set.Workplane:R}"));
@@ -194,10 +247,29 @@ public static class NativeCalculator
                 Patches=z.Surfaces.Select(p=>new { A=new[]{p.A.X,p.A.Y,p.A.Z},B=new[]{p.B.X,p.B.Y,p.B.Z},C=new[]{p.C.X,p.C.Y,p.C.Z},Normal=new[]{p.Normal.X,p.Normal.Y,p.Normal.Z},p.Reflectance,p.Illuminance,LuminanceCdM2=p.Exitance*10.763910/Math.PI,p.Covered }),
                 Statistics=new {z.Statistics.Count,z.Statistics.Average,z.Statistics.Minimum,z.Statistics.Maximum} }),Diagnostics=stats },CalculationInput.Json);
         return new NativeCalculationRun { ScenarioHash=hash,Complete=complete,RunUtc=utc,Input=input,Display=display,Header=headerBytes,Body=data.Body,SceneBytes=sceneBytes,
-            Zones=zones,Statistics=stats,ZoneRevisions=zoneRevisions,PointCsv=PointCsv(zones,hash),ReportData=report,
+            Zones=zones,Statistics=stats,ZoneRevisions=zoneRevisions,Log=log.Text,PointCsv=PointCsv(zones,hash),ReportData=report,
             ReportHtml=NativeLightingReport.Html(report,stats,display.ScaleMax,sources:input.Emitters),StructuredResults=structured };
     }
     static double? Finite(double v)=>double.IsFinite(v)?v:null;
+    /// <summary>The settings every zone shares, as "name: value"; a partial rerun is refused when any differ from the complete run.</summary>
+    static List<string> SharedSettings(CalculationInput i)
+    {
+        string R(double v)=>v.ToString("R",CultureInfo.InvariantCulture);
+        var s=i.Set;
+        return new() { "engine: "+EngineIdentity.UpstreamCommit,"grid: "+R(s.Spacing)+" ft","boundary offset: "+R(s.BoundaryOffset)+" ft","work plane: "+R(s.Workplane)+" ft",
+            "margin: "+R(s.Margin)+" ft","reflectances: "+R(s.Ceiling)+"/"+R(s.Wall)+"/"+R(s.Floor)+"/"+R(s.Furniture),"LLF: "+R(s.LightLossFactor),
+            "quality: "+s.Quality,"interreflection: "+s.Interreflection,"walking surfaces: "+s.WalkingSurfaces,"auto mounting: "+s.CorrectRecessedSources,
+            "furniture exclusion: "+s.AutoExcludeFurniture,"emergency: "+s.EmergencyOnly };
+    }
+    static FixtureRevitInfo Info(Luminaire l, CalculationEmitter source, MountingPlacement? placed)
+    {
+        Vec3 origin=V(source.OriginalPosition??source.Position,0);
+        string kind=source.Placement?.Split(':',',')[0];
+        return new FixtureRevitInfo { Id=l.Id,TypeName=l.TypeName,Position=l.Position,Origin=origin,
+            Pendant=kind=="pendant",CeilingMounted=kind is "recessed" or "surface",
+            HangsBelowOrigin=source.BodyMin!=null&&source.BodyMin[2]<origin.Z-LuminaireMounting.PlacedBelow,
+            MovedDownOutOfSolid=placed?.MovedDownOutOfSolid };
+    }
     static Vec3 V(double[] p,int i)=>new(p[i],p[i+1],p[i+2]);
     static bool Ordered(IReadOnlyList<double> a)=>a.Count>0&&a.All(double.IsFinite)&&Enumerable.Range(1,a.Count-1).All(i=>a[i]>a[i-1]);
     static string AnalyticIes(Func<double,double> shape,double lumens)

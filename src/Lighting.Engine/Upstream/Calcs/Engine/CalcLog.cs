@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace WWTools.Calcs.Engine
@@ -79,6 +80,40 @@ namespace WWTools.Calcs.Engine
             {
                 // ignore
             }
+        }
+
+        /// <summary>
+        /// Saves the run's log to <paramref name="path"/> as <see cref="SaveRunTo"/>, first moving an
+        /// existing log there into a "Calc Logs" folder beside it, named by when it was written, so a
+        /// rerun of a few zones doesn't lose the full run's log. Keeps the newest
+        /// <paramref name="keep"/> of them. Returns where the previous log went, or null.
+        /// </summary>
+        public string? SaveRunKeepingPrevious(string path, int keep = 20)
+        {
+            string? moved = null;
+            try
+            {
+                if (File.Exists(path))
+                {
+                    string folder = Path.Combine(Path.GetDirectoryName(path)!, "Calc Logs");
+                    Directory.CreateDirectory(folder);
+                    string stem = Path.GetFileNameWithoutExtension(path);
+                    string stamp = File.GetLastWriteTime(path).ToString("yyyy-MM-dd HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+                    string target = Path.Combine(folder, $"{stem} {stamp}{Path.GetExtension(path)}");
+                    for (int i = 2; File.Exists(target); i++) target = Path.Combine(folder, $"{stem} {stamp} ({i}){Path.GetExtension(path)}");
+                    File.Move(path, target);
+                    moved = target;
+                    foreach (FileInfo old in new DirectoryInfo(folder).GetFiles(stem + " *" + Path.GetExtension(path))
+                                 .OrderByDescending(f => f.LastWriteTimeUtc).ThenByDescending(f => f.Name, StringComparer.Ordinal).Skip(Math.Max(1, keep)))
+                        old.Delete();
+                }
+            }
+            catch
+            {
+                // the rolling log still has every line
+            }
+            SaveRunTo(path);
+            return moved;
         }
 
         private sealed class Scope : IDisposable
