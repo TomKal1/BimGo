@@ -36,7 +36,6 @@ namespace BimGo.Game
         /// <summary>Phase C: how old WW Tools' "View in BimGo" request may be.</summary>
         private static readonly TimeSpan CALC_OPEN_MAX_AGE = TimeSpan.FromMinutes(2);
 
-        private static readonly string[] CALC_MODE_OPTIONS = { "Off", "Illuminance", "Luminance", "Points", "Calculated" };
 
         private static readonly KeyHint HINT_CALC_CYCLE = new(() => $"{Key(InputAction.LightingCalcMode)}: off / illuminance / luminance / points");
 
@@ -613,110 +612,7 @@ namespace BimGo.Game
 
         #endregion
 
-        #region CALCS section (Pause → LIGHTS)
-
-        /// <summary>
-        /// Pause → LIGHTS, first: the calc sets (name, run time, zones), the view, what to draw, opacity, the scale, IMPORT…
-        /// </summary>
-        /// <returns>The bottom of the section (the fixture types follow).</returns>
-        private float BuildLightingCalcsSection(FontAtlas f, InputState input, float ix, float y, float iw)
-        {
-            if (!input.LeftDown && (_activeSlider == SLIDER_CALC_OPACITY || _activeSlider == SLIDER_CALC_SCALE)) { _activeSlider = -1; }
-            _ui.Text(f.Small, ix, y, "LIGHTING CALCS", UiTheme.ACCENT, S(0.5f));
-            y += S(20);
-            _ui.Text(f.Small, ix, y, HINT_CALC_CYCLE.Text, UiTheme.TEXT_FAINT); // its own line: beside the title it runs into it
-            y += S(22);
-
-            _ui.Text(f.Small, ix, y, "SAVED / IMPORTED RESULTS", UiTheme.ACCENT);
-            y += S(24);
-
-            if (_calcNames.Count == 0)
-            {
-                y += _ui.TextWrapped(f.Small, ix, y, iw, IsFileMode
-                    ? "No saved results. Choose a native set and RUN IN BIMGO, or IMPORT… a saved results file."
-                    : "Choose a native set and RUN IN BIMGO. WWTools saved runs can also be imported or reloaded from this model's results folder.",
-                    UiTheme.TEXT_FAINT, maxLines: 5) + S(6);
-                if (SmallButton(f, input, ix, y, S(110), S(26), "IMPORT…")) { ImportCalc(); }
-                y += S(34);
-                if (_calcNotice != null) { y += _ui.TextWrapped(f.Small, ix, y, iw, _calcNotice, UiTheme.MEASURE_LABEL, maxLines: 3) + S(6); }
-                return y + S(14);
-            }
-
-            if(DropdownButton(f,input,ix,y,iw,S(32),_calcLoad!=null?"Loading…":_calc?.SetName??"Select saved results",IsDropdownOpen(this,DROP_NATIVE_SET)))
-            {
-                var names=_calcNames.ToArray();
-                OpenDropdown(this,DROP_NATIVE_SET,ix,y,iw,S(32),names.Select(DisplayCalcName).ToArray(),Array.IndexOf(names,_calcName),
-                    i=>{if(names[i]!=_calcName||_calc==null)LoadCalc(names[i],_calcMode==CalcDisplayMode.Off?CalcDisplayMode.Illuminance:_calcMode,update:false);});
-            }
-            y += S(42);
-
-            // The view
-            int mode = Segmented(f, input, ix, y, iw, CALC_MODE_OPTIONS, (int)_calcMode);
-            if (mode != (int)_calcMode)
-            {
-                if (_calc == null && _calcNames.Count > 0) { LoadCalc(_calcNames[0], (CalcDisplayMode)mode, update: false); }
-                else { _calcMode = (CalcDisplayMode)mode; }
-                _calcBuildKey = int.MinValue;
-                RememberCalcView();
-            }
-            y += S(42);
-
-            // What to draw (two columns)
-            float half = (iw - S(12)) * 0.5f;
-            bool surfaces = Checkbox(f, input, ix, y, half, "Surfaces", _calcSurfaces);
-            bool points = Checkbox(f, input, ix + half + S(12), y, half, "Points", _calcPoints);
-            y += S(26);
-            bool values = Checkbox(f, input, ix, y, half, "Values near you", _calcValues);
-            bool isolines = Checkbox(f, input, ix + half + S(12), y, half, "Isolux lines", _calcIsolines);
-            y += S(30);
-            if (surfaces != _calcSurfaces || points != _calcPoints || values != _calcValues || isolines != _calcIsolines)
-            {
-                _calcSurfaces = surfaces;
-                _calcPoints = points;
-                _calcValues = values;
-                _calcIsolines = isolines;
-                RememberCalcView();
-            }
-
-            // Opacity and the scale's top (× the sheets' scale)
-            Text.Clear().Append(_calcOpacity * 100f, 0).Append(" %");
-            float opacity = _calcMode == CalcDisplayMode.Appearance ? _calcOpacity : Slider(f, input, SLIDER_CALC_OPACITY, ix, y, half, "Opacity", Text.Span, _calcOpacity, 0.3f, 1f);
-            if (_calcMode == CalcDisplayMode.Appearance) _ui.Text(f.Small,ix,y+S(14),"Calculated: opaque",UiTheme.TEXT_MUTED);
-            Text.Clear();
-            if (_calc != null) { Text.Append(LightingCalcs.Display(CalcScaleMax, CalcInLux), CalcInLux ? 0 : 1).Append(CalcInLux ? " lx" : " fc"); }
-            else { Text.Append(_calcScaleTop * 100f, 0).Append(" %"); }
-            float scale = Slider(f, input, SLIDER_CALC_SCALE, ix + half + S(12), y, half, "Scale top", Text.Span, _calcScaleTop, 0.25f, 2f);
-            y += S(48);
-            if (MathF.Abs(opacity - _calcOpacity) > 1e-4f || MathF.Abs(scale - _calcScaleTop) > 1e-4f)
-            {
-                _calcOpacity = opacity;
-                _calcScaleTop = MathF.Abs(scale - 1f) < 0.04f ? 1f : scale; // snaps to the sheets' scale
-                RememberCalcView();
-            }
-
-            if (SmallButton(f, input, ix, y, S(110), S(26), "IMPORT…")) { ImportCalc(); }
-            if (_calc != null && _calcZone == null && SmallButton(f, input, ix + S(118), y, S(150), S(26), "GO TO A ZONE"))
-            {
-                SetPaused(false);
-                StandInCalcZone(null);
-            }
-            y += S(34);
-
-            string about = _calc == null ? null
-                : $"{_calc.Tool} · {(_calc.Interreflections ? "with interreflections" : "direct light only")} · " +
-                  $"{_calc.PointCount:N0} points, {_calc.PatchCount:N0} surface patches · the scale is the sheets' ({LightingCalcs.Display(_calc.ScaleMax, CalcInLux):0.#} {(CalcInLux ? "lx" : "fc")} at 100 %)";
-            if (_calc?.IsNative == true) about = $"{(_nativeShown ? "BimGo calculation" : "Saved BimGo calculation · inputs not reverified")} · revision {_calc.ScenarioHash[..Math.Min(8,_calc.ScenarioHash.Length)]} · {_calc.CalculationStatus} · {_calc.PointCount:N0} points";
-            if (about != null) { y += _ui.TextWrapped(f.Small, ix, y, iw, about, UiTheme.TEXT_FAINT, maxLines: 4) + S(4); }
-            if (_calcNotice != null) { y += _ui.TextWrapped(f.Small, ix, y, iw, _calcNotice, UiTheme.MEASURE_LABEL, maxLines: 3) + S(4); }
-            y += _ui.TextWrapped(f.Small, ix, y, iw,
-                "Calculated uses fixed EV 0 and saved diffuse lighting with model hues. Uncovered geometry remains preview. Export images use the same CPU renderer as WWTools; no coloured bounce, glossy or glass transport.",
-                UiTheme.TEXT_FAINT, maxLines: 3);
-
-            // A divider before the fixture types
-            y += S(12);
-            _ui.Rect(ix, y, iw, MathF.Max(1f, UiScale), UiTheme.DIVIDER);
-            return y + S(14);
-        }
+        #region Saved results
 
         /// <summary>"Level 1 Offices" from "Level 1 Offices_d339c539" (the set id dropped).</summary>
         private static string DisplayCalcName(string name)

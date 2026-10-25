@@ -77,17 +77,12 @@ internal sealed partial class GameSession
             if (_nativeRun != null && _nativeShown)
             {
                 float bw = (contentW - S(16)) / 3;
-                if (SmallButton(f, input, x, cy, bw, S(28), "POINT CSV…")) ExportNativeCalculation(1);
-                if (SmallButton(f, input, x + bw + S(8), cy, bw, S(28), "RESULT JSON…")) ExportNativeCalculation(2);
-                if (SmallButton(f, input, x + 2 * (bw + S(8)), cy, bw, S(28), "INPUT SCENE…")) ExportNativeCalculation(3);
-                cy += S(40);
+                if (NativeButton(f, input, x, cy, bw, S(34), "Point CSV…")) ExportNativeCalculation(1);
+                if (NativeButton(f, input, x + bw + S(8), cy, bw, S(34), "Result JSON…")) ExportNativeCalculation(2);
+                if (NativeButton(f, input, x + 2 * (bw + S(8)), cy, bw, S(34), "Input scene…")) ExportNativeCalculation(3);
+                cy += S(44);
             }
-            if (_calc != null)
-            {
-                if (SmallButton(f,input,x,cy,contentW,S(30),"CALCULATED IMAGES · PNG…")) OpenCalculatedImages();
-                cy+=S(40);
-            }
-            cy = BuildLightingCalcsSection(f, input, x, cy, contentW);
+            cy = BuildCalcDisplayPanel(f, input, x, cy, contentW);
         }
         else if (_lightingTab == 4) cy = BuildLightsTab(f, input, x, cy, contentW);
         else cy = BuildNativeLightingSection(f, input, x, cy, contentW);

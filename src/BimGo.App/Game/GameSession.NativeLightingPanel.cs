@@ -5,6 +5,7 @@ using BimGo.Calculations;
 using BimGo.Format;
 using BimGo.Platform;
 using BimGo.Rendering;
+using BimGo.Scene;
 
 namespace BimGo.Game;
 
@@ -72,6 +73,8 @@ internal sealed partial class GameSession
             y += _ui.TextWrapped(f.Body, x, y, w, "Create a calculation set from exported rooms. No imported WWTools results are needed.", UiTheme.TEXT_MUTED, maxLines: 3) + S(12);
             return y;
         }
+        if (IsQuickSet(set))
+            y += _ui.TextWrapped(f.Body, x, y, w, $"Default settings for one-click calculations ({Key(InputAction.LightingCalcRun)}, Calculate rooms in view). Each quick run replaces this set's rooms.", UiTheme.ACCENT, maxLines: 3) + S(12);
         if (_lightingTab == 0)
         {
             y = BuildNativeRoomList(f, input, set, x, y, w);

@@ -7,6 +7,8 @@ public sealed class NativeLightingDocument
 {
     public int Version { get; set; } = 1;
     public string Selected { get; set; }
+    /// <summary>The set whose settings one-click calculations use; its rooms are replaced by each quick run.</summary>
+    public string QuickSetId { get; set; }
     public List<NativeLightingSet> Sets { get; set; } = new();
 }
 

@@ -334,11 +334,17 @@ namespace BimGo.Game
         /// <summary>Contextual keys and section handles; wheel over the dock is reserved for its scroll body.</summary>
         private void UpdateLightingReview(InputState input, float dt)
         {
-            if (input.Pressed(InputAction.Back)) { CloseLightingReview(); return; }
+            // Esc pauses on the LIGHTS tab, like the walkthrough; RESUME comes back to this view, RETURN TO WALK leaves it
+            if (input.Pressed(InputAction.Back))
+            {
+                if (!CloseOverlay()) { _rightTab = 3; _settingsScroll.Reset(); SetPaused(true); }
+                return;
+            }
             if (input.Pressed(InputAction.Fullscreen)) { _window.ToggleFullscreen(); }
             if (input.Pressed(InputAction.Help)) { _showHelp = !_showHelp; }
             if (input.Pressed(InputAction.Screenshot)) { RequestScreenshot(); }
             if (input.Pressed(InputAction.LightingCalcMode)) { CycleCalcMode(); }
+            if (input.Pressed(InputAction.LightingCalcRun) && _nativeJob == null) { QuickCalculateReviewRooms(); }
             if (input.Pressed(InputAction.SectionClear)) { ClearSection(); }
             if (input.Pressed(InputAction.SectionBox)) { _reviewEditBox = !_reviewEditBox; }
             if (_reviewListedCalc != _calc)
@@ -384,6 +390,9 @@ namespace BimGo.Game
             BuildToast(f, _window.Width);
         }
 
+        private static readonly string[] REVIEW_DOCK_TABS = { "RESULTS", "VIEW", "ROOMS" };
+        private int _reviewTab;
+
         private void BuildLightingReviewDock(FontAtlas f, InputState input)
         {
             BeginOverlays(input);
@@ -394,31 +403,60 @@ namespace BimGo.Game
             int view = Segmented(f, input, x, y, w, REVIEW_VIEWS, _reviewView);
             if (view != _reviewView) { ReviewChangeView(view); }
             y += S(42);
-            _ui.TextWrapped(f.Small, x, y, w, _reviewView == 3 ? HINT_REVIEW_FLY.Text
-                : _reviewView == 2 ? "Reflected ceiling plan · north up · floors cut away"
-                : _reviewView == 1 ? "Floor plan · north up · parallel projection" : "Parallel 3D view · drag the ViewCube to rotate", UiTheme.TEXT_MUTED, maxLines: 2);
-            y += S(38);
             if (Scene.Levels.Length > 0)
             {
-                _ui.Text(f.Small, x, y, "LEVEL", UiTheme.TEXT_SOFT);
-                y += S(22);
                 float levelWidth = w - S(76);
-                if (DropdownButton(f, input, x, y, levelWidth, S(30), _reviewLevel < 0 ? "All levels" : Scene.Levels[_reviewLevel].Name,
-                    IsDropdownOpen(_reviewScroll, DROP_REVIEW_LEVEL)))
+                if (DropdownButton(f, input, x, y, levelWidth, S(32), _reviewLevel < 0 ? "All levels" : Scene.Levels[_reviewLevel].Name,
+                    IsDropdownOpen(_reviewScroll, DROP_REVIEW_LEVEL), f.Body))
                 {
                     var levels = new List<string>(Scene.Levels.Length + 1) { "All levels" };
                     foreach (LevelInfo level in Scene.Levels) { levels.Add(level.Name); }
-                    OpenDropdown(_reviewScroll, DROP_REVIEW_LEVEL, x, y, levelWidth, S(30), levels, _reviewLevel + 1, i =>
+                    OpenDropdown(_reviewScroll, DROP_REVIEW_LEVEL, x, y, levelWidth, S(32), levels, _reviewLevel + 1, i =>
                     {
                         ResetReviewPointer();
                         _reviewLevel = i - 1;
                         ReviewBuilding();
                     });
                 }
-                if (SmallButton(f, input, x + levelWidth + S(8), y, S(30), S(30), "↓")) { ReviewStepLevel(-1); }
-                if (SmallButton(f, input, x + levelWidth + S(46), y, S(30), S(30), "↑")) { ReviewStepLevel(1); }
-                y += S(38);
+                if (SmallButton(f, input, x + levelWidth + S(8), y, S(30), S(32), "↓")) { ReviewStepLevel(-1); }
+                if (SmallButton(f, input, x + levelWidth + S(46), y, S(30), S(32), "↑")) { ReviewStepLevel(1); }
+                y += S(42);
             }
+
+            // One click: the rooms in view with the default settings
+            var visible = ReviewVisibleRooms();
+            float settingsW = S(92);
+            string calcLabel = visible.Count == 0 ? "No rooms in view" : visible.Count == 1 ? "Calculate 1 room in view" : $"Calculate {visible.Count} rooms in view";
+            if (NativeButton(f, input, x, y, w - settingsW - S(8), S(40), calcLabel, primary: true, enabled: visible.Count > 0 && _nativeJob == null)) { QuickCalculateReviewRooms(); }
+            if (NativeButton(f, input, x + w - settingsW, y, settingsW, S(40), "Settings…")) { OpenQuickCalcSettings(); }
+            y += S(46);
+            string status = QuickCalcStatus;
+            if (status != null)
+            {
+                bool working = _nativeJob != null || _nativeQueued;
+                y += _ui.TextWrapped(f.Body, x, y, w, status, working ? UiTheme.ACCENT : UiTheme.DANGER, maxLines: 3) + S(6);
+            }
+            y += S(4);
+
+            int tab = Tabs(f, input, x, y, w, REVIEW_DOCK_TABS, _reviewTab);
+            if (tab != _reviewTab) { _reviewTab = tab; _activeSlider = -1; CloseOverlay(); }
+            y += S(40);
+            if (_reviewTab == 0) { y = BuildCalcDisplayPanel(f, input, x, y, w); }
+            else if (_reviewTab == 1) { y = BuildReviewViewTab(f, input, x, y, w, half); }
+            else { y = BuildReviewRoomsTab(f, input, x, y, w, half); }
+            EndDockBody(_reviewScroll, input, y);
+            _reviewNotice = _reviewPin ? "Click a visible surface to pin a revision, then enter a comment."
+                : _calc != null && _reviewRoom != null && _reviewRoom.Zone == null ? $"No results for this room yet · {Key(InputAction.LightingCalcRun)} calculates the rooms in view"
+                : _reviewView == 3 ? "Left drag pans · middle drag looks · select fly destinations in the room list"
+                : "Left drag pans · middle drag orbits · click and release to select a room";
+            bool close = EndDock(d, _reviewNotice, null, closeLabel: "RETURN TO WALK") == DOCK_CLOSE;
+            DrawOverlays(f, input, d.X, d.Y, d.W, d.H);
+            if (close) { RememberCalcView(); CloseLightingReview(); }
+        }
+
+        /// <summary>The dock's VIEW tab: shading, the crop box, reference grids and the PNG export.</summary>
+        private float BuildReviewViewTab(FontAtlas f, InputState input, float x, float y, float w, float half)
+        {
             bool sceneLighting = Checkbox(f, input, x, y, w, "Use scene lighting", _reviewSceneLighting);
             if (sceneLighting != _reviewSceneLighting)
             {
@@ -426,66 +464,22 @@ namespace BimGo.Game
                 _renderer.ResetOcclusion();
                 _renderer.ReleaseReflectionHistory();
             }
-            y += S(32);
-            if (SmallButton(f, input, x, y, w, S(30), "CALCULATE THIS ROOM IN BIMGO"))
-            {
-                int selectedRoom = _reviewRoom?.Room ?? -1;
-                if (selectedRoom >= 0)
-                {
-                    if (NativeSet == null) CreateNativeSet();
-                    if (NativeSet != null) { SetNativeRooms(NativeSet, new[] { selectedRoom }); NativeSetupChanged(); RunNativeCalculation(); }
-                }
-                else { _reviewNotice = "Select an exported model room first, or open the lighting workspace."; }
-            }
-            y += S(38);
-            if(SmallButton(f,input,x,y,w,S(30),"LIGHTING WORKSPACE…"))OpenLightingWorkspace();
-            y+=S(38);
-            if (_calc != null)
-            {
-                _ui.Text(f.Small, x, y, "RESULT DISPLAY", UiTheme.ACCENT);
-                y += S(22);
-                // WW Tools' existing Points request is the material view with the point overlay too.
-                int currentMode = _calcMode == CalcDisplayMode.Appearance ? 3 : _calcMode == CalcDisplayMode.Points ? 0 : (int)_calcMode;
-                int mode = Segmented(f, input, x, y, w, REVIEW_RESULTS, currentMode);
-                if (mode != currentMode) { _calcMode = mode == 3 ? CalcDisplayMode.Appearance : (CalcDisplayMode)mode; RememberCalcView(); }
-                y += S(40);
-                _ui.TextWrapped(f.Small, x, y, w, _calc.SetName, UiTheme.TEXT_SOFT, maxLines: 1);
-                y += S(24);
-                UpdateCalcTexts();
-                y += _ui.TextWrapped(f.Small, x, y, w, _calcSurfaceCaption, UiTheme.TEXT_SOFT, maxLines: 2) + S(4);
-                y += _ui.TextWrapped(f.Small, x, y, w, _calcPointCaption, UiTheme.TEXT_SOFT, maxLines: 2) + S(12);
-                if (_calcMode == CalcDisplayMode.Illuminance || _calcMode == CalcDisplayMode.Luminance || _calcMode == CalcDisplayMode.Appearance)
-                {
-                    _calcSurfaces = Checkbox(f, input, x, y, half, "Surfaces", _calcSurfaces);
-                }
-                else { _ui.Text(f.Small, x, y + S(2), "Material colours", UiTheme.TEXT_MUTED); }
-                _calcPoints = Checkbox(f, input, x + half + S(8), y, half, "Points", _calcPoints);
-                y += S(26);
-                _calcValues = Checkbox(f, input, x, y, half, "Values", _calcValues);
-                _calcIsolines = Checkbox(f, input, x + half + S(8), y, half, "Isolux", _calcIsolines);
-                y += S(34);
-            }
-            else if (_calcLoad != null || _calcNames.Count > 0)
-            {
-                _ui.TextWrapped(f.Small, x, y, w, _calcLoad != null ? "Loading calculation results…" : "Select calculation results in Pause → LIGHTS.", UiTheme.TEXT_MUTED, maxLines: 2);
-                y += S(40);
-            }
-            _ui.Text(f.Small, x, y, "SECTION BOX", UiTheme.ACCENT);
-            y += S(22);
-            if (SmallButton(f, input, x, y, half, S(28), _section.BoxOn ? "CLIP: ON" : "CLIP: OFF"))
+            y += S(34);
+            y = NativeHeading(f, x, y, w, "CROP BOX");
+            if (NativeButton(f, input, x, y, half, S(34), _section.BoxOn ? "Crop: on" : "Crop: off", primary: _section.BoxOn))
             {
                 _section.BoxOn = !_section.BoxOn;
                 SectionChanged();
             }
-            if (SmallButton(f, input, x + half + S(8), y, half, S(28), "RESET CUT")) { ReviewFitCut(); }
-            y += S(36);
+            if (NativeButton(f, input, x + half + S(8), y, half, S(34), "Reset crop")) { ReviewFitCut(); }
+            y += S(44);
             _reviewEditBox = Checkbox(f, input, x, y, w, "Edit box faces / show handles", _reviewEditBox);
-            y += S(30);
-            _reviewShowGrids = Checkbox(f, input, x, y, w, "Show model grids (reference lines)", _reviewShowGrids);
-            y += S(30);
-            bool caps = Checkbox(f, input, x, y, w, "Show cut caps (solid cut faces)", _reviewShowCaps);
+            y += S(32);
+            _reviewShowGrids = Checkbox(f, input, x, y, w, "Show model grids", _reviewShowGrids);
+            y += S(32);
+            bool caps = Checkbox(f, input, x, y, w, "Show cut caps", _reviewShowCaps);
             if (caps != _reviewShowCaps) { _reviewShowCaps = caps; _renderer.ResetOcclusion(); }
-            y += S(30);
+            y += S(34);
             if (_reviewEditBox && _section.BoxOn)
             {
                 Vector3 min = _section.BoxMin - Scene.OriginOffset, max = _section.BoxMax - Scene.OriginOffset;
@@ -504,29 +498,28 @@ namespace BimGo.Game
                 }
                 if (min != oldMin || max != oldMax) { SetBoxLocal(min, max); }
             }
-            if (_calc != null)
-            {
-                if (SmallButton(f,input,x,y,w,S(30),"CALCULATED IMAGES · PNG…")) OpenCalculatedImages();
-                y+=S(38);
-            }
-            if (SmallButton(f, input, x, y, half, S(30), "EXPORT PNG")) { RememberCalcView(); RequestScreenshot(); }
-            if (SmallButton(f, input, x + half + S(8), y, half, S(30), _reviewPin ? "CANCEL PIN" : "PIN REVISION")) { _reviewPin = !_reviewPin; }
-            y += S(38);
-            Text.Clear().Append(_window.Width).Append(" × ").Append(_window.Height).Append(" px · PNG includes legend and visible values");
-            y += _ui.TextWrapped(f.Small, x, y, w, Text.Span, UiTheme.TEXT_FAINT, maxLines: 2) + S(14);
-            _ui.Text(f.Small, x, y, _calc != null ? "ROOMS / CALC ZONES" : "ROOMS", UiTheme.ACCENT);
-            y += S(24);
-            if (SmallButton(f, input, x, y, half, S(28), "FIND ROOM…"))
+            y = NativeHeading(f, x, y, w, "EXPORT");
+            if (NativeButton(f, input, x, y, half, S(34), "Export PNG")) { RememberCalcView(); RequestScreenshot(); }
+            if (NativeButton(f, input, x + half + S(8), y, half, S(34), _reviewPin ? "Cancel pin" : "Pin revision", primary: _reviewPin)) { _reviewPin = !_reviewPin; }
+            y += S(42);
+            Text.Clear().Append(_window.Width).Append(" × ").Append(_window.Height).Append(" px · includes the legend and visible values");
+            y += _ui.TextWrapped(f.Body, x, y, w, Text.Span, UiTheme.TEXT_FAINT, maxLines: 2) + S(8);
+            return y;
+        }
+
+        /// <summary>The dock's ROOMS tab: search and the room / calc zone list (a click frames the room).</summary>
+        private float BuildReviewRoomsTab(FontAtlas f, InputState input, float x, float y, float w, float half)
+        {
+            if (NativeButton(f, input, x, y, half, S(34), _reviewSearch.Length == 0 ? "Find room…" : "Find: " + _reviewSearch))
             {
                 BeginTextEdit("Find room (number, name or level)", _reviewSearch, 60, search => { _reviewSearch = search; FilterReviewRooms(); });
             }
-            if (SmallButton(f, input, x + half + S(8), y, half, S(28), "CLEAR SEARCH")) { _reviewSearch = string.Empty; FilterReviewRooms(); }
-            y += S(36);
+            if (NativeButton(f, input, x + half + S(8), y, half, S(34), "Clear search", enabled: _reviewSearch.Length > 0)) { _reviewSearch = string.Empty; FilterReviewRooms(); }
+            y += S(44);
             if (_reviewMatches.Count == 0)
             {
-                _ui.TextWrapped(f.Small, x, y, w, _reviewRooms.Count == 0 ? "This model has no rooms. Review the whole building or adjust the section box."
-                    : "No rooms match your search.", UiTheme.TEXT_MUTED, maxLines: 2);
-                y += S(38);
+                y += _ui.TextWrapped(f.Body, x, y, w, _reviewRooms.Count == 0 ? "This model has no rooms. Review the whole building or adjust the crop box."
+                    : "No rooms match your search.", UiTheme.TEXT_MUTED, maxLines: 2) + S(8);
             }
             foreach (ReviewRoom room in _reviewMatches)
             {
@@ -540,14 +533,7 @@ namespace BimGo.Game
                 }
                 y += S(50);
             }
-            EndDockBody(_reviewScroll, input, y);
-            _reviewNotice = _reviewPin ? "Click a visible surface to pin a revision, then enter a comment."
-                : _calc != null && _reviewRoom != null && _reviewRoom.Zone == null ? "This room has no results in the selected calculation set."
-                : _reviewView == 3 ? "Left drag pans · middle drag looks · select fly destinations in the room list"
-                : "Left drag pans · middle drag orbits · click and release to select a room";
-            bool close = EndDock(d, _reviewNotice, null, closeLabel: "RETURN TO WALK") == DOCK_CLOSE;
-            DrawOverlays(f, input, d.X, d.Y, d.W, d.H);
-            if (close) { RememberCalcView(); CloseLightingReview(); }
+            return y;
         }
 
         /// <summary>The export has the composed model, labels, scope and legend; no dock or section handles.</summary>

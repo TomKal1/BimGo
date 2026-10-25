@@ -909,6 +909,7 @@ namespace BimGo.Game
             }
             if (input.Pressed(InputAction.Lights)) { CycleLightMode(); }
             if (input.Pressed(InputAction.LightingCalcMode)) { CycleCalcMode(); } // fork build LC-B
+            if (input.Pressed(InputAction.LightingCalcRun)) { if (_nativeJob == null) { QuickCalculateCurrentRoom(); } else { Toast("A lighting calculation is already running.", 2.5f); } }
             if (input.Pressed(InputAction.Shadows))
             {
                 ToggleShadows();

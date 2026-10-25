@@ -160,6 +160,7 @@ internal sealed partial class GameSession
                         _nativeStatus = outcome.Canceled ? "Canceled · no result published"
                             : (outcome.NeedsInput ? "Inputs need attention: " : "Calculation incomplete: ") + outcome.Message;
                         if (outcome.Diagnostic != null) Utilities.Log_Utils.Write(outcome.Diagnostic);
+                        if (!_lightingOpen && !outcome.Canceled) Toast(_nativeStatus, 6f, important: true);
                     }
                 }
                 else if (!job.IsCanceled)
