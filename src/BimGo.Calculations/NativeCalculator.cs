@@ -166,10 +166,19 @@ public static class NativeCalculator
             cancel.ThrowIfCancellationRequested();
             // A zone spanning storeys (a two-storey unit with a loft) always takes walking surfaces: one flat work plane
             // over its lowest floor would leave its upper floors without points.
-            if(input.Set.WalkingSurfaces || WalkingSurfaces.Applies(zone))
+            bool walking = input.Set.WalkingSurfaces || WalkingSurfaces.Applies(zone);
+            if (walking)
+            {
                 foreach (string note in WalkingSurfaces.Generate(zone,allScene,input.Set.Spacing,input.Set.BoundaryOffset,walkable.Contains,stairs.Contains,WalkingSurfaces.ClaimedByOthers(zone,zones)))
                     log.Write($"  {zone.DisplayName}: {note}");
-            else
+                // Like WWTools: no exported floors, landings or treads to walk on, so the zone keeps a flat work plane.
+                if (zone.Points.Count == 0)
+                {
+                    runNotes.Add($"{zone.DisplayName}: no floors, landings or treads were found in the exported geometry, so a flat work plane was used.");
+                    walking = false;
+                }
+            }
+            if (!walking)
             {
                 if (zone.BottomZ+input.Set.Workplane>=zone.TopZ) throw new InvalidDataException($"Workplane lies above {zone.DisplayName}.");
                 zone.GenerateGrid(input.Set.Spacing,input.Set.BoundaryOffset);

@@ -273,7 +273,7 @@ public sealed partial class NativeLightingTests
         finally {if(File.Exists(path))File.Delete(path);}
     }
     /// <summary>A 12 x 10 ft room two storeys tall (L1 at 0, L2 at 10 ft), with a mezzanine floor over its west half.</summary>
-    static SceneData TwoStoreyScene()
+    static SceneData TwoStoreyScene(string floorCategory="floors")
     {
         var vertices=new List<SceneVertex>();var indices=new List<uint>();var elements=new List<ElementRecord>();
         int Cat(string name)=>CategoryCatalog.Find(name).Index;
@@ -285,7 +285,7 @@ public sealed partial class NativeLightingTests
             elements.Add(new ElementRecord {ElementId=elements.Count+1,UniqueId="slab-"+elements.Count,Name=category,FamilyType=category,
                 CategoryIndex=Cat(category),Bounds=bounds,OpaqueStart=start,OpaqueCount=indices.Count-start});
         }
-        Slab("floors",0,12,0,true);Slab("floors",0,6,10,true);Slab("floors",0,6,9.5f,false);Slab("ceilings",0,12,20,false);
+        Slab(floorCategory,0,12,0,true);Slab(floorCategory,0,6,10,true);Slab(floorCategory,0,6,9.5f,false);Slab("ceilings",0,12,20,false);
         int fixture=elements.Count;var position=new Vector3(3,5,18)*.3048f;
         string text=SceneCase.CosineIes(4000),hash=LightProfiles.HashOf(LightProfiles.KeyOf(text));
         elements.Add(new ElementRecord {ElementId=100,UniqueId="fixture-100",Name="Fixture",FamilyType="Test light",CategoryIndex=Cat("lightfixtures"),
@@ -312,6 +312,14 @@ public sealed partial class NativeLightingTests
         Assert.IsTrue(upper.All(i=>zone.Points[i].X<6),"upper points lie off the mezzanine");
         Assert.IsTrue(upper.Average(i=>zone.Illuminance[i])>lower.Where(i=>zone.Points[i].X<6).Average(i=>zone.Illuminance[i]),
             "the mezzanine under the fixture should be brighter than the floor it shades");
+    }
+    [TestMethod]
+    public void TwoStoreyRoomWithoutExportedFloorsFallsBackToAFlatWorkPlane()
+    {
+        var run=Run(Input(TwoStoreyScene("generic")));var zone=run.Zones[0];
+        Assert.IsTrue(zone.Points.Count>0);
+        Assert.IsTrue(zone.Points.All(p=>Math.Abs(p.Z-2.5)<1e-6),"the fallback work plane sits 2.5 ft over the lowest floor");
+        Assert.IsTrue(run.Display.Warnings.Any(w=>w.Contains("flat work plane was used",StringComparison.Ordinal)));
     }
     [TestMethod]
     public void NativeSetupRejectsUnsupportedVersionsNonfiniteRangesAndDuplicateIds()
