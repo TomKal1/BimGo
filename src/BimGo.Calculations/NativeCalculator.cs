@@ -36,6 +36,8 @@ public sealed class NativeCalculationRun
 /// <summary>Runs the pinned diffuse kernel entirely offline. Call on a worker with owned immutable input.</summary>
 public static class NativeCalculator
 {
+    /// <summary>Largest input scene stored with the results (the .bimgo reader and writer limit per scene).</summary>
+    public const int MaxRetainedScene = 64 * 1024 * 1024;
     public static NativeCalculationRun Run(CalculationInput request, Vector3 displayOrigin, Action<string> progress = null, CancellationToken cancel = default, NativeCalculationRun previous = null, IReadOnlyCollection<string> zoneKeys = null)
     {
         // Own every mutable input used by the kernel; callers cannot change an in-flight revision.
@@ -60,9 +62,9 @@ public static class NativeCalculator
         var options = input.Solver.ToOptions();
         // MaxPatches cannot reduce the mesh below its input triangle count. Preserve the physical mesh;
         // budget its transport storage instead of rejecting ordinary detailed BIM exports at 60k.
-        if(options.MaxPatches<triangles.Count)throw new InvalidDataException("The input mesh exceeds the declared patch budget; choose a reproducible larger domain budget.");
+        if(options.MaxPatches<triangles.Count)throw new CalculationTooLargeException("The input mesh exceeds the declared patch budget; choose a reproducible larger domain budget.");
         long transportBudget=4L*options.MaxPatches*Math.Max(8,options.PatchRays);
-        if(transportBudget>256L*1024*1024)throw new InvalidDataException("This quality/domain needs more than 256 MB of form-factor storage. Select fewer rooms or a lower quality.");
+        if(transportBudget>256L*1024*1024)throw new CalculationTooLargeException("This quality/domain needs more than 256 MB of form-factor storage. Select fewer rooms or a lower quality.");
         var photometry = new Dictionary<string,IesPhotometry>(StringComparer.Ordinal);
         var luminaires = new List<Luminaire>();
         // Auto mounting (WWTools LuminaireMounting): recessed in a ceiling of any thickness, pendants and surface fixtures from
@@ -122,7 +124,12 @@ public static class NativeCalculator
         input.SourcesResolved=true;
         input.Warnings=input.Warnings.Distinct(StringComparer.Ordinal).ToList();
         input.Validate(); string hash=input.ContentHash(); byte[] sceneBytes=input.Serialize();
-        if (sceneBytes.Length > 64 * 1024 * 1024) throw new InvalidDataException("The retained calculation input exceeds 64 MB. Run the complete set or reduce the selected domain.");
+        // The scene is kept beside the results only for exports and later sessions; a large domain still calculates.
+        if (sceneBytes.Length > MaxRetainedScene)
+        {
+            input.Warnings.Add($"The input scene ({sceneBytes.Length / (1024.0 * 1024):0} MB) is too large to keep with the model, so INPUT SCENE export is unavailable for this run.");
+            sceneBytes = null;
+        }
         var zones=new List<CalcZone>(); var stats=new List<SolveStats>(); bool complete=true; int pointBudget=0;
         TriangleScene allScene=new TriangleScene(triangles);
         var walkable=input.Triangles.Where(t=>t.Walkable).Select(t=>t.Tag).ToHashSet(); var stairs=input.Triangles.Where(t=>t.Stair).Select(t=>t.Tag).ToHashSet();
@@ -157,10 +164,21 @@ public static class NativeCalculator
         foreach (var zone in fresh)
         {
             cancel.ThrowIfCancellationRequested();
-            if(input.Set.WalkingSurfaces)
+            // A zone spanning storeys (a two-storey unit with a loft) always takes walking surfaces: one flat work plane
+            // over its lowest floor would leave its upper floors without points.
+            bool walking = input.Set.WalkingSurfaces || WalkingSurfaces.Applies(zone);
+            if (walking)
+            {
                 foreach (string note in WalkingSurfaces.Generate(zone,allScene,input.Set.Spacing,input.Set.BoundaryOffset,walkable.Contains,stairs.Contains,WalkingSurfaces.ClaimedByOthers(zone,zones)))
                     log.Write($"  {zone.DisplayName}: {note}");
-            else
+                // Like WWTools: no exported floors, landings or treads to walk on, so the zone keeps a flat work plane.
+                if (zone.Points.Count == 0)
+                {
+                    runNotes.Add($"{zone.DisplayName}: no floors, landings or treads were found in the exported geometry, so a flat work plane was used.");
+                    walking = false;
+                }
+            }
+            if (!walking)
             {
                 if (zone.BottomZ+input.Set.Workplane>=zone.TopZ) throw new InvalidDataException($"Workplane lies above {zone.DisplayName}.");
                 zone.GenerateGrid(input.Set.Spacing,input.Set.BoundaryOffset);

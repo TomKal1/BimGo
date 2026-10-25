@@ -32,7 +32,8 @@ public sealed class CalculationInput
     public string ContentHash() => Convert.ToHexString(SHA256.HashData(Serialize())).ToLowerInvariant();
     public static CalculationInput Parse(byte[] bytes)
     {
-        if (bytes == null || bytes.Length > 64 * 1024 * 1024) throw new InvalidDataException("Calculation scene exceeds 64 MB or is missing.");
+        // In-memory replay limit; the 250,000-triangle domain cap (about 100 MB of JSON) is the real bound.
+        if (bytes == null || bytes.Length > 256 * 1024 * 1024) throw new InvalidDataException("Calculation scene exceeds 256 MB or is missing.");
         var input = JsonSerializer.Deserialize<CalculationInput>(bytes, Json) ?? throw new InvalidDataException("Empty calculation scene.");
         input.Validate(); return input;
     }

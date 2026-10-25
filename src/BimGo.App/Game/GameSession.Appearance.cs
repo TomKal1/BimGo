@@ -502,6 +502,7 @@ namespace BimGo.Game
             float cardH = SettingsCardHeight(cardTop, doneReserve);
             float panelTop = pad - S(36), panelBottom = cardTop + cardH + doneReserve + S(12);
             _ui.Rect(x - S(16), panelTop, columnW + S(32), MathF.Min(panelBottom, height - S(8)) - panelTop, Rgba.Hex(0x101318, 0.55f));
+            BeginOverlays(input);
 
             _ui.Text(f.Small, x, panelTop + S(10), "PREVIEW", UiTheme.ACCENT, S(2f));
             _ui.TextRight(f.Small, x + columnW, panelTop + S(10), "ESC RETURNS", UiTheme.TEXT_MUTED, S(1.2f));
@@ -510,6 +511,7 @@ namespace BimGo.Game
 
             float doneY = cardTop + cardH + S(12);
             if (MenuButton(f, x, doneY, columnW, "DONE", false, false, height: S(36), compact: true)) { CloseMenuPreview(); }
+            DrawOverlays(f, input, x - S(16), panelTop, columnW + S(32), height - panelTop);
         }
 
         #endregion

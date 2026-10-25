@@ -87,6 +87,7 @@ namespace BimGo.Scene
         PathEditMode, // Round K-B
         FixtureProfile, // Round Y-C2: the aimed fixture's own light profile
         LightingCalcMode, // fork build LC-B: the lighting calc view (off / illuminance / luminance / points)
+        LightingCalcRun, // quick calc with the default settings: the room underfoot, or the rooms in the review view
         RoomTags, // Round Z-A: floating room tags on / off
 
         // Gun keys
@@ -376,6 +377,7 @@ namespace BimGo.Scene
             Add(InputAction.PathEditMode, c, "Camera path editor in 3D on / off", P, "Shift+K"); // Round K-B
             Add(InputAction.FixtureProfile, c, "Light profile of the aimed fixture (dock)", P, "Ctrl+K"); // Round Y-C2
             Add(InputAction.LightingCalcMode, c, "Lighting calc results: off / illuminance / luminance / points", P, "Shift+J"); // fork build LC-B
+            Add(InputAction.LightingCalcRun, c, "Calculate lighting: the room you stand in (model review: the rooms in view)", P, "Ctrl+J");
             Add(InputAction.RoomTags, c, "Room tags on / off (options: Find room → ROOM DATA)", P, "Shift+N"); // Round Z-A (N is the Measure gun's normal)
 
             // Gun keys (while that gun is selected)
@@ -821,7 +823,7 @@ namespace BimGo.Scene
                 new InputSituation(SIT_LIGHTING_REVIEW, new[] { InputContext.LightingReview }, Join(padMenu,
                     InputAction.MoveForward, InputAction.MoveBack, InputAction.MoveLeft, InputAction.MoveRight, InputAction.Run,
                     InputAction.ClashFlyUp, InputAction.ClashFlyDown, InputAction.SectionBox, InputAction.SectionClear,
-                    InputAction.LightingCalcMode, InputAction.Help, InputAction.Fullscreen, InputAction.Screenshot, InputAction.Click, InputAction.DragLook), new[]
+                    InputAction.LightingCalcMode, InputAction.LightingCalcRun, InputAction.Help, InputAction.Fullscreen, InputAction.Screenshot, InputAction.Click, InputAction.DragLook), new[]
                 {
                     H("Pan / fly", InputAction.MoveForward, InputAction.MoveLeft, InputAction.MoveBack, InputAction.MoveRight),
                     H("Orbit / look (drag)", InputAction.DragLook),
@@ -831,6 +833,7 @@ namespace BimGo.Scene
                     H("Show / hide section handles", InputAction.SectionBox),
                     H("Clear cuts", InputAction.SectionClear),
                     H("Cycle calculation display", InputAction.LightingCalcMode),
+                    H("Calculate the rooms in view", InputAction.LightingCalcRun),
                     H("Export PNG", InputAction.Screenshot),
                     click
                 }),
@@ -964,10 +967,10 @@ namespace BimGo.Scene
         /// K-A's media panel; 3: Round K-B's path editor; 4: Round X-B3's billboard resize (HoldScale); 5: Round X-E's
         /// Revit views from here (RevitViewNew, RevitViewUpdate); 6: Round Y-A's saved measurements (MeasureShowAll, MeasureExport); 7: Round Y-C2's
         /// fixture light profile dock (FixtureProfile); 8: Round Z-A's room tags (RoomTags); 9: Round Z-C's kiosk exit (KioskExit);
-        /// 10: fork build LC-B's lighting calc view (LightingCalcMode); 11: lighting review middle-button orbit (ReviewOrbit). Raise it when a default changes and add the changes to
+        /// 10: fork build LC-B's lighting calc view (LightingCalcMode); 11: lighting review middle-button orbit (ReviewOrbit); 12: quick lighting calc (LightingCalcRun). Raise it when a default changes and add the changes to
         /// <see cref="DefaultsChanges"/> (ControlsTests checks the table against the defaults).
         /// </summary>
-        public const int DEFAULTS_VERSION = 11;
+        public const int DEFAULTS_VERSION = 12;
 
         /// <summary>Every default that changed, by version (oldest first). <c>Was</c>: the old binding ("none" for none).</summary>
         public static readonly DefaultsChange[] DefaultsChanges =
@@ -1030,7 +1033,10 @@ namespace BimGo.Scene
             new(10, InputAction.LightingCalcMode, true, null),
 
             // Version 11: middle mouse orbit in the lighting review only (walking keeps its gun wheel).
-            new(11, InputAction.ReviewOrbit, true, null)
+            new(11, InputAction.ReviewOrbit, true, null),
+
+            // Version 12: Ctrl+J calculates lighting for the room underfoot (or the rooms in the review view)
+            new(12, InputAction.LightingCalcRun, true, null)
         };
 
         /// <summary>The changes made after a version the user saw (empty when it is current or newer).</summary>

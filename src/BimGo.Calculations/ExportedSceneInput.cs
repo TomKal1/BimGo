@@ -19,8 +19,10 @@ public static class ExportedSceneInput
         return "room:" + Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
     }
 
+    /// <param name="domainZoneKeys">Rooms whose surroundings make up the physical domain (all rooms when null). A split run
+    /// solves only these rooms and keeps the others' earlier results, so their geometry is not needed.</param>
     public static CalculationInput Build(SceneData scene, NativeLightingSet definition, CalculationEdits edits,
-        LightProfileDocument profiles, CancellationToken cancel = default)
+        LightProfileDocument profiles, CancellationToken cancel = default, IReadOnlyCollection<string> domainZoneKeys = null)
     {
         var set = NativeLightingFiles.Copy(definition); set.Validate();
         if (scene?.Vertices == null || scene.Indices == null || scene.Elements == null || scene.Rooms == null) throw new InvalidDataException("The model has no exported physical geometry/rooms.");
@@ -55,15 +57,16 @@ public static class ExportedSceneInput
             float top = room.TopZ + (float)(3*Feet);
             int above = Array.FindIndex(storeys, l => l.Elevation > ownElevation + 4*Feet && l.Elevation >= room.TopZ - 2*Feet);
             if (above >= 0) top = Math.Max(top, storeys[above].Elevation);
-            domain.Include(new Aabb(new Vector3(room.Min, room.BottomZ), new Vector3(room.Max, top)));
+            if (domainZoneKeys == null || domainZoneKeys.Contains(key)) domain.Include(new Aabb(new Vector3(room.Min, room.BottomZ), new Vector3(room.Max, top)));
         }
         domain.Min -= new Vector3((float)(set.Margin*Feet), (float)(set.Margin*Feet), (float)(1.5*Feet));
         domain.Max += new Vector3((float)(set.Margin*Feet), (float)(set.Margin*Feet), 0);
-        input.Warnings.Add($"Transport domain: selected room union plus {set.Margin:0.##} ft XY, 1.5 ft below and 3 ft above or up to the level above; connections outside this domain are not modeled.");
+        input.Warnings.Add($"Transport domain: {(domainZoneKeys == null ? "selected room union" : "union of the rooms solved in this part")} plus {set.Margin:0.##} ft XY, 1.5 ft below and 3 ft above or up to the level above; connections outside this domain are not modeled.");
         var instances = edits?.Instances ?? Array.Empty<CalculationInstance>();
         var instancesByElement = instances.ToLookup(d => d.Element);
         var lightsByElement = (scene.Lighting?.Lights ?? Array.Empty<LightSource>()).Select((l,k) => (Light:l, Index:k)).ToLookup(p => p.Light.Element);
         int proxies = 0; bool transparent = false;
+        var unlit = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < scene.Elements.Length; i++)
         {
             cancel.ThrowIfCancellationRequested(); var element = scene.Elements[i];
@@ -73,6 +76,8 @@ public static class ExportedSceneInput
         }
         if (proxies > 0) input.Warnings.Add($"{proxies} included element instance(s) use exported proxy geometry.");
         if (transparent) input.Warnings.Add("This domain includes transparent faces, omitted from the opaque transport mesh.");
+        // Like WWTools, a fixture family without a light source is not an emitter; it is reported, not a blocker.
+        if (unlit.Count > 0) input.Warnings.Add($"{unlit.Count} lighting fixture type(s) have no exported light source and contribute no light: {string.Join(", ", unlit.Take(8))}{(unlit.Count > 8 ? ", …" : "")}. Re-export with lighting data if they should emit.");
         if (input.Emitters.Count == 0 && set.EmergencyOnly) throw new InvalidDataException("No selected emergency fixtures with nonzero output are in this calculation domain.");
         if (input.Emitters.Count == 0) throw new InvalidDataException("No exported light sources are in this calculation domain. Include lighting fixtures/links in the BimGo export.");
         var missing = input.Emitters.Where(e => e.Estimated).ToArray();
@@ -95,7 +100,7 @@ public static class ExportedSceneInput
             double output = set.EmergencyOnly ? (fixture?.Emergency == true ? fixture.EmergencyOutput : 0) : 1;
             var bounds = TransformBounds(element.Bounds, transform);
             if (output > 0 && category == "lightfixtures" && bounds.Overlaps(domain) && !lightsByElement[index].Any())
-                throw new InvalidDataException($"{element.FamilyType}: this fixture has no exported light source. Re-export it with lighting data before calculating.");
+                unlit.Add(string.IsNullOrWhiteSpace(element.FamilyType) ? "Unnamed fixture" : element.FamilyType);
             foreach (var light in lightsByElement[index])
             {
                 if (output <= 0) continue;
@@ -149,7 +154,7 @@ public static class ExportedSceneInput
                 input.Triangles.Add(new CalculationTriangle { Vertices = World(a).Concat(World(b)).Concat(World(c)).ToArray(), Class = cls,
                     Colour = new[] { (scene.Vertices[ia].Colour & 255) / 255.0, ((scene.Vertices[ia].Colour >> 8) & 255) / 255.0, ((scene.Vertices[ia].Colour >> 16) & 255) / 255.0 },
                     Tag = index+1, SurfaceKey = identity + "/triangle:" + ((k-element.OpaqueStart)/3), Walkable = walkable, Stair = stair, Ceiling = category == "ceilings" });
-                if (input.Triangles.Count > 250000) throw new InvalidDataException("The physical domain exceeds 250,000 input triangles. Reduce the selected domain or re-export simpler physical geometry.");
+                if (input.Triangles.Count > 250000) throw new CalculationTooLargeException("The physical domain exceeds 250,000 input triangles. Reduce the selected domain or re-export simpler physical geometry.");
             }
         }
         double[] World(Vector3 p) => new[] { (p.X + (double)scene.OriginOffset.X)/Feet, (p.Y + (double)scene.OriginOffset.Y)/Feet, (p.Z + (double)scene.OriginOffset.Z)/Feet };

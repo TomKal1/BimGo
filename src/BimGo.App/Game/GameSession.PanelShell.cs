@@ -501,7 +501,7 @@ namespace BimGo.Game
         private bool PanelBack()
         {
             if (!_paused) { return false; }
-            if (AnyBigPanelOpen && CloseOverlay()) { return true; }
+            if (CloseOverlay()) { return true; } // the main menu has dropdowns too (Pause → LIGHTS)
             return CancelMarkupPanel() || CloseMenuPreview() || CloseLightingWorkspace() || ClosePush() || CloseComments() || CloseBookmarks() || CloseTextures() || CloseLibrary() || CloseRooms()
                 || CloseClashes() || CloseColourProfiles() || CloseGeometry() || CloseControls() || CloseMedia() || CloseEntourage();
         }

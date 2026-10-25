@@ -272,6 +272,55 @@ public sealed partial class NativeLightingTests
         }
         finally {if(File.Exists(path))File.Delete(path);}
     }
+    /// <summary>A 12 x 10 ft room two storeys tall (L1 at 0, L2 at 10 ft), with a mezzanine floor over its west half.</summary>
+    static SceneData TwoStoreyScene(string floorCategory="floors")
+    {
+        var vertices=new List<SceneVertex>();var indices=new List<uint>();var elements=new List<ElementRecord>();
+        int Cat(string name)=>CategoryCatalog.Find(name).Index;
+        void Slab(string category,float x0,float x1,float z,bool up)
+        {
+            int start=indices.Count;var normal=up?Vector3.UnitZ:-Vector3.UnitZ;var bounds=Aabb.Empty;
+            var c=new[]{new Vector3(x0,0,z),new Vector3(x1,0,z),new Vector3(x1,10,z),new Vector3(x0,10,z)}.Select(p=>p*.3048f).ToArray();
+            foreach(int k in up?new[]{0,1,2,0,2,3}:new[]{0,2,1,0,3,2}){indices.Add((uint)vertices.Count);vertices.Add(new(c[k],normal,0xffffffff));bounds.Include(c[k]);}
+            elements.Add(new ElementRecord {ElementId=elements.Count+1,UniqueId="slab-"+elements.Count,Name=category,FamilyType=category,
+                CategoryIndex=Cat(category),Bounds=bounds,OpaqueStart=start,OpaqueCount=indices.Count-start});
+        }
+        Slab(floorCategory,0,12,0,true);Slab(floorCategory,0,6,10,true);Slab(floorCategory,0,6,9.5f,false);Slab("ceilings",0,12,20,false);
+        int fixture=elements.Count;var position=new Vector3(3,5,18)*.3048f;
+        string text=SceneCase.CosineIes(4000),hash=LightProfiles.HashOf(LightProfiles.KeyOf(text));
+        elements.Add(new ElementRecord {ElementId=100,UniqueId="fixture-100",Name="Fixture",FamilyType="Test light",CategoryIndex=Cat("lightfixtures"),
+            Bounds=new(position-new Vector3(.05f),position+new Vector3(.05f)),Pivot=position,Movable=true});
+        return new SceneData {Vertices=vertices.ToArray(),Indices=indices.ToArray(),Elements=elements.ToArray(),
+            Levels=new[]{new LevelInfo("L1",0),new LevelInfo("L2",10*.3048f)},
+            Rooms=new[]{new RoomInfo {Number="201",Name="Loft",Min=Vector2.Zero,Max=new Vector2(12,10)*.3048f,BottomZ=0,TopZ=20*.3048f,
+                Loops=new[]{new[]{Vector2.Zero,new Vector2(12,0)*.3048f,new Vector2(12,10)*.3048f,new Vector2(0,10)*.3048f}}}},
+            Lighting=new LightingData {Lights=new[]{new LightSource {Element=fixture,Position=position,Ies=hash,Lumens=4000,Aim=-Vector3.UnitZ,Across=Vector3.UnitX}},
+                IesFiles=new[]{new LightIesFile(hash,"test.ies",text)}},
+            ModelTitle="Two storey test",Bounds=new(Vector3.Zero,new Vector3(12,10,20)*.3048f),Settings=new LaunchSettings(),
+            CategoryLoaded=Enumerable.Repeat(true,CategoryCatalog.All.Count).ToArray(),CategoryElementCounts=new int[CategoryCatalog.All.Count] };
+    }
+    [TestMethod]
+    public void TwoStoreyRoomGetsPointsOnEachFloorWithoutTheWalkingSurfaceOption()
+    {
+        var set=Set();Assert.IsFalse(set.WalkingSurfaces);
+        var run=Run(Input(TwoStoreyScene(),set));var zone=run.Zones[0];
+        Assert.IsTrue(zone.IsMultiLevel);
+        var upper=Enumerable.Range(0,zone.Points.Count).Where(i=>zone.Points[i].Z>11).ToArray();
+        var lower=Enumerable.Range(0,zone.Points.Count).Where(i=>zone.Points[i].Z<3).ToArray();
+        Assert.IsTrue(upper.Length>0,"the mezzanine has no calculation points");
+        Assert.IsTrue(lower.Length>0,"the floor below has no calculation points");
+        Assert.IsTrue(upper.All(i=>zone.Points[i].X<6),"upper points lie off the mezzanine");
+        Assert.IsTrue(upper.Average(i=>zone.Illuminance[i])>lower.Where(i=>zone.Points[i].X<6).Average(i=>zone.Illuminance[i]),
+            "the mezzanine under the fixture should be brighter than the floor it shades");
+    }
+    [TestMethod]
+    public void TwoStoreyRoomWithoutExportedFloorsFallsBackToAFlatWorkPlane()
+    {
+        var run=Run(Input(TwoStoreyScene("generic")));var zone=run.Zones[0];
+        Assert.IsTrue(zone.Points.Count>0);
+        Assert.IsTrue(zone.Points.All(p=>Math.Abs(p.Z-2.5)<1e-6),"the fallback work plane sits 2.5 ft over the lowest floor");
+        Assert.IsTrue(run.Display.Warnings.Any(w=>w.Contains("flat work plane was used",StringComparison.Ordinal)));
+    }
     [TestMethod]
     public void NativeSetupRejectsUnsupportedVersionsNonfiniteRangesAndDuplicateIds()
     {

@@ -499,6 +499,7 @@ namespace BimGo.Game
             }
 
             _ui.Rect(0, 0, width, height, UiTheme.MENU_BACKGROUND);
+            BeginOverlays(input);
 
             // Layout (review tools round, to keep the menu inside a 720 px high window): the buttons in two stacks
             // (session · review) when the window is wide enough, else one; the settings in two columns (profile, eye
@@ -534,7 +535,7 @@ namespace BimGo.Game
 
             // Stack 1: the session
             float x = leftX;
-            if (MenuButton(f, x, y, stackW, "RESUME", primary: true, danger: false, height: buttonH, compact: true)) { SetPaused(false); return; }
+            if (MenuButton(f, x, y, stackW, _reviewOpen ? "RESUME REVIEW" : "RESUME", primary: true, danger: false, height: buttonH, compact: true)) { SetPaused(false); return; }
             y += step;
             if (MenuButton(f, x, y, stackW, "RETURN HOME", false, false, height: buttonH, compact: true)) { _player.GoHome(); SetPaused(false); return; }
             y += step;
@@ -582,7 +583,7 @@ namespace BimGo.Game
                 x = leftX + stackW + stackGap;
                 y = buttonsTop;
             }
-            if (MenuButton(f, x, y, stackW, "ISO VIEW", false, false, height: buttonH, compact: true)) { OpenLightingReview(); return; }
+            if (MenuButton(f, x, y, stackW, _reviewOpen ? "RETURN TO WALK" : "ISO VIEW", false, false, height: buttonH, compact: true)) { if (_reviewOpen) { RememberCalcView(); CloseLightingReview(); SetPaused(false); } else { OpenLightingReview(); } return; }
             y += step;
             if (MenuButton(f, x, y, stackW, "LIGHTING", false, false, height: buttonH, compact: true)) { OpenLightingWorkspace(); return; }
             y += step;
@@ -658,6 +659,7 @@ namespace BimGo.Game
             Text.Clear().Append(DocumentName).Append(" · ").AppendGrouped(Scene.Elements.Length).Append(" elements · ").AppendGrouped(Scene.TriangleCount).Append(" tris · ")
                 .Append(_journal.Count).Append(_journal.Count == 1 ? " edit" : " edits");
             _ui.TextRight(f.Small, width - S(56), height - S(28), Text.Span, UiTheme.TEXT_FAINT, S(0.5f));
+            DrawOverlays(f, input, 0, 0, width, height);
         }
 
         /// <summary>
@@ -868,11 +870,12 @@ namespace BimGo.Game
             switch (_rightTab)
             {
                 case 1: BuildReflectionsTab(f, input, ix, y, iw); break;
-                case 2: BuildAppearanceTab(f, input, ix, y, iw); break;
-                case 3:
-                    _ui.TextWrapped(f.Body,ix,y,iw,"Calculation setup, results, reports and fixture photometry have their own lighting workspace.",UiTheme.TEXT_SOFT,maxLines:4);
-                    if(SmallButton(f,input,ix,y+S(90),iw,S(36),"OPEN LIGHTING WORKSPACE"))OpenLightingWorkspace();
+                case 2:
+                    float notice = _appearancePage == 0 ? BuildAppearanceCalcNotice(f, input, ix, y, iw) : 0f;
+                    BuildAppearanceTab(f, input, ix, y + notice, iw);
+                    bottom += notice;
                     break;
+                case 3: bottom = MathF.Max(bottom, BuildPauseLightsTab(f, input, ix, y, iw) + S(12)); break;
                 default: bottom = MathF.Max(bottom, BuildDisplayTab(f, input, ix, y, iw) + S(12)); break; // Y-D1: it can run long
             }
             EndScroll(_settingsScroll, input, bottom);
