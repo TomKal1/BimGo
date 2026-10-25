@@ -15,7 +15,8 @@ internal sealed partial class GameSession
     private float BuildNativeCalculationSelection(FontAtlas f, InputState input, float x, float y, float w)
     {
         var set = NativeSet;
-        bool emergency = Checkbox(f, input, x, y, w, "Emergency fixtures only", set.EmergencyOnly); y += S(29);
+        y = NativeHeading(f, x, y, w, "FIXTURES & EXCLUSIONS");
+        bool emergency = Checkbox(f, input, x, y, w, "Emergency fixtures only", set.EmergencyOnly); y += S(32);
         if (emergency != set.EmergencyOnly) { set.EmergencyOnly = emergency; NativeSetupChanged(); }
         var fixtures = new List<(string Key, string Label)>();
         foreach (int element in (Scene.Lighting?.Lights ?? Array.Empty<LightSource>()).Select(l => l.Element).Distinct())
@@ -28,10 +29,10 @@ internal sealed partial class GameSession
         }
         int selected = fixtures.FindIndex(fixture => fixture.Key == _nativeFixtureKey);
         if (selected < 0 && fixtures.Count > 0) { selected = 0; _nativeFixtureKey = fixtures[0].Key; }
-        if (DropdownButton(f, input, x, y, w, S(28), selected < 0 ? "NO EXPORTED FIXTURES" : fixtures[selected].Label, IsDropdownOpen(set, DROP_NATIVE_FIXTURES)))
-            OpenDropdown(set, DROP_NATIVE_FIXTURES, x, y, w, S(28), fixtures.Select(v => v.Label).ToArray(), selected,
+        if (DropdownButton(f, input, x, y, w, S(34), selected < 0 ? "NO EXPORTED FIXTURES" : fixtures[selected].Label, IsDropdownOpen(set, DROP_NATIVE_FIXTURES), f.Body))
+            OpenDropdown(set, DROP_NATIVE_FIXTURES, x, y, w, S(34), fixtures.Select(v => v.Label).ToArray(), selected,
                 i => _nativeFixtureKey = fixtures[i].Key);
-        y += S(34);
+        y += S(42);
         if (selected >= 0)
         {
             var setting = set.Luminaires.FirstOrDefault(l => l.Key == _nativeFixtureKey);
@@ -42,26 +43,26 @@ internal sealed partial class GameSession
                 if (value == null) { value = new NativeLuminaireSetting { Key = _nativeFixtureKey }; set.Luminaires = set.Luminaires.Append(value).ToArray(); }
                 return value;
             }
-            bool participates = Checkbox(f, input, x, y, w, "Selected fixture is emergency", setting?.Emergency == true); y += S(27);
+            bool participates = Checkbox(f, input, x, y, w, "Selected fixture is emergency", setting?.Emergency == true); y += S(32);
             if (participates != (setting?.Emergency == true)) { Edit().Emergency = participates; NativeSetupChanged(); }
             y = NativeNumberRow(f, input, x, y, w, "Emergency output (%)", (setting?.EmergencyOutput ?? 1) * 100, 0, 100, v => Edit().EmergencyOutput = v / 100);
-            bool previewPosition = Checkbox(f, input, x, y, w, "Use preview lens position", setting?.UsePreviewLensPosition == true); y += S(27);
+            bool previewPosition = Checkbox(f, input, x, y, w, "Use preview lens position", setting?.UsePreviewLensPosition == true); y += S(32);
             if (previewPosition != (setting?.UsePreviewLensPosition == true)) { Edit().UsePreviewLensPosition = previewPosition; NativeSetupChanged(); }
             y = NativeNumberRow(f, input, x, y, w, "Source height offset", setting?.HeightOffset ?? 0, -100, 100, v => Edit().HeightOffset = v, length: true);
         }
-        if (SmallButton(f, input, x, y, w, S(26), "PICK ELEMENT TO EXCLUDE IN ISO"))
+        if (NativeButton(f, input, x, y, w, S(34), "Pick element to exclude in ISO"))
         { _nativePickMode = 2; _nativeStatus = "Click a model element in ISO review to exclude it from the calculation only."; }
-        y += S(32);
+        y += S(42);
         var categories = CategoryCatalog.All;
-        if (DropdownButton(f, input, x, y, w, S(28), $"EXCLUDED CATEGORIES · {set.ExcludedCategories.Length}", IsDropdownOpen(set, DROP_NATIVE_CATEGORIES)))
-            OpenDropdown(set, DROP_NATIVE_CATEGORIES, x, y, w, S(28), categories.Select(c => (set.ExcludedCategories.Contains(c.Key) ? "Excluded · " : "Included · ") + c.Label).ToArray(), -1, i =>
+        if (DropdownButton(f, input, x, y, w, S(34), $"EXCLUDED CATEGORIES · {set.ExcludedCategories.Length}", IsDropdownOpen(set, DROP_NATIVE_CATEGORIES), f.Body))
+            OpenDropdown(set, DROP_NATIVE_CATEGORIES, x, y, w, S(34), categories.Select(c => (set.ExcludedCategories.Contains(c.Key) ? "Excluded · " : "Included · ") + c.Label).ToArray(), -1, i =>
             {
                 string key = categories[i].Key;
                 set.ExcludedCategories = set.ExcludedCategories.Contains(key) ? set.ExcludedCategories.Where(k => k != key).ToArray() : set.ExcludedCategories.Append(key).ToArray();
                 NativeSetupChanged();
             });
-        y += S(34);
-        if (set.ExcludedElements.Length > 0 && DropdownButton(f, input, x, y, w, S(28), $"RESTORE EXCLUDED ELEMENT · {set.ExcludedElements.Length}", IsDropdownOpen(set, DROP_NATIVE_ELEMENTS)))
+        y += S(42);
+        if (set.ExcludedElements.Length > 0 && DropdownButton(f, input, x, y, w, S(34), $"RESTORE EXCLUDED ELEMENT · {set.ExcludedElements.Length}", IsDropdownOpen(set, DROP_NATIVE_ELEMENTS), f.Body))
         {
             var keys = set.ExcludedElements.ToArray();
             string Label(string key)
@@ -70,11 +71,11 @@ internal sealed partial class GameSession
                 if (element < 0) element = Enumerable.Range(0, Scene.Elements.Length).FirstOrDefault(i => key == (LightProfileDocument.InstanceKeyOf(Scene, i) ?? "element:" + i) || key.StartsWith((LightProfileDocument.InstanceKeyOf(Scene, i) ?? "element:" + i) + "/instance:", StringComparison.Ordinal), -1);
                 return element < 0 ? "Unavailable element" : Scene.Elements[element].FamilyType + " · " + Scene.Elements[element].ElementId;
             }
-            OpenDropdown(set, DROP_NATIVE_ELEMENTS, x, y, w, S(28), keys.Select(Label).ToArray(), -1, i =>
+            OpenDropdown(set, DROP_NATIVE_ELEMENTS, x, y, w, S(34), keys.Select(Label).ToArray(), -1, i =>
             { set.ExcludedElements = set.ExcludedElements.Where(k => k != keys[i]).ToArray(); NativeSetupChanged(); });
         }
-        y += S(34);
-        y += _ui.TextWrapped(f.Small, x, y, w, "Calculation exclusions do not hide display geometry. Emergency output is a fraction of normal maintained output; LLF still applies. Source offsets are explicit, in model height.", UiTheme.TEXT_MUTED, maxLines: 5) + S(8);
+        y += S(42);
+        y += _ui.TextWrapped(f.Body, x, y, w, "Calculation exclusions do not hide display geometry. Emergency output is a fraction of normal maintained output; LLF still applies. Source offsets are explicit, in model height.", UiTheme.TEXT_MUTED, maxLines: 5) + S(8);
         return y;
     }
 

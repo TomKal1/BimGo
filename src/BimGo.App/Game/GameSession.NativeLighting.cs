@@ -202,6 +202,8 @@ internal sealed partial class GameSession
         _calcBuildKey = _calcTextKey = int.MinValue;
         _nativeStatus = (run.Complete ? "BimGo calculation complete" : "Calculation incomplete · iteration cap")
             + $" · {run.Display.PointCount:N0} points · revision {run.ScenarioHash[..8]}";
+        string unlit = run.Input.Warnings.FirstOrDefault(w => w.Contains("no exported light source", StringComparison.Ordinal));
+        if (unlit != null) _nativeStatus += " · " + unlit;
         _calcNotice = "BimGo calculation · exported geometry · scalar diffuse analysis";
         _nativeInputs[NativeLightingFiles.ScenePrefix+run.Input.Set.Id+".json"] = run.SceneBytes;
         _nativeRevision++;

@@ -37,38 +37,39 @@ internal sealed partial class GameSession
         float x = frame.Ix + leftW + gap, w = frame.Iw - leftW - gap, y = frame.BodyTop;
         _ui.Rect(x - gap / 2, y, MathF.Max(1, UiScale), frame.BodyHeight, UiTheme.DIVIDER);
         float half = (leftW - S(8)) / 2;
-        if (SmallButton(f, input, frame.Ix, y, half, S(28), "NEW SET")) CreateNativeSet();
-        if (SmallButton(f, input, frame.Ix + half + S(8), y, half, S(28), "DUPLICATE") && NativeSet != null && _nativeLighting.Sets.Count < 100)
+        if (NativeButton(f, input, frame.Ix, y, half, S(32), "New set")) CreateNativeSet();
+        if (NativeButton(f, input, frame.Ix + half + S(8), y, half, S(32), "Duplicate", enabled: NativeSet != null) && NativeSet != null && _nativeLighting.Sets.Count < 100)
         {
             var clone = NativeLightingFiles.Copy(NativeSet); clone.Id = Guid.NewGuid().ToString("N");
             clone.Name = (clone.Name.Length > 93 ? clone.Name[..93] : clone.Name) + " copy";
             _nativeLighting.Sets.Add(clone); SelectNativeSet(clone.Id);
         }
-        float listTop = y + S(76), listBottom = frame.BodyBottom - S(76);
-        if (SmallButton(f, input, frame.Ix, y + S(36), half, S(28), "RENAME") && NativeSet != null)
+        float listTop = y + S(108), listBottom = frame.BodyBottom - S(84);
+        if (NativeButton(f, input, frame.Ix, y + S(40), half, S(32), "Rename", enabled: NativeSet != null) && NativeSet != null)
             BeginTextEdit("CALCULATION NAME", NativeSet.Name, 100, text => { if (!string.IsNullOrWhiteSpace(text)) { NativeSet.Name = text.Trim(); NativeSetupChanged(); } });
-        if (SmallButton(f, input, frame.Ix + half + S(8), y + S(36), half, S(28), "DELETE") && NativeSet != null)
+        if (NativeButton(f, input, frame.Ix + half + S(8), y + S(40), half, S(32), "Delete", enabled: NativeSet != null) && NativeSet != null)
         {
             _nativeLighting.Sets.Remove(NativeSet); SelectNativeSet(_nativeLighting.Sets.FirstOrDefault()?.Id);
             _nativeStatus = "Set deleted · UNDO SETUP restores it";
         }
+        _ui.Text(f.Small, frame.Ix, y + S(86), $"CALCULATION SETS · {_nativeLighting.Sets.Count}", UiTheme.ACCENT, S(1.4f));
         float sy = BeginScroll(_lightingSetsScroll, input, frame.Ix, listTop, leftW, MathF.Max(S(50), listBottom - listTop), out _);
         foreach (var set in _nativeLighting.Sets)
         {
             bool active = set == NativeSet;
-            if (active) _ui.Rect(frame.Ix, sy, leftW - S(10), S(36), Rgba.WithAlpha(UiTheme.ACCENT, .15f));
-            if (SmallButton(f, input, frame.Ix, sy, leftW - S(12), S(32), set.Name) && !active) { SelectNativeSet(set.Id); _lightingBodyScroll.Reset(); }
-            sy += S(40);
+            if (NativeButton(f, input, frame.Ix, sy, leftW - S(12), S(48), set.Name, primary: active) && !active) { SelectNativeSet(set.Id); _lightingBodyScroll.Reset(); }
+            _ui.Text(f.Small, frame.Ix + S(10), sy + S(33), set.Rooms.Length == 1 ? "1 room" : $"{set.Rooms.Length} rooms", active ? UiTheme.ACCENT : UiTheme.TEXT_FAINT);
+            sy += S(54);
         }
         EndScroll(_lightingSetsScroll, input, sy);
-        if (SmallButton(f, input, frame.Ix, frame.BodyBottom - S(66), leftW, S(26), "UNDO SETUP")) UndoNativeSetup(false);
-        if (SmallButton(f, input, frame.Ix, frame.BodyBottom - S(32), leftW, S(26), "REDO SETUP")) UndoNativeSetup(true);
+        if (NativeButton(f, input, frame.Ix, frame.BodyBottom - S(76), leftW, S(32), "Undo setup", enabled: _nativeUndo.Count > 0)) UndoNativeSetup(false);
+        if (NativeButton(f, input, frame.Ix, frame.BodyBottom - S(36), leftW, S(32), "Redo setup", enabled: _nativeRedo.Count > 0)) UndoNativeSetup(true);
 
         int tab = Tabs(f, input, x, y, w, LIGHTING_TABS, _lightingTab);
         if (tab != _lightingTab) { _lightingTab = tab; _activeSlider = -1; CloseOverlay(); _lightingBodyScroll.Reset(); }
         y += S(42);
         string status = _nativeJob != null ? _nativeStatus + " · " + System.Threading.Volatile.Read(ref _nativeProgress) : _nativeStatus;
-        y += _ui.TextWrapped(f.Small, x, y, w, status, UiTheme.TEXT_SOFT, maxLines: 4) + S(16);
+        y = NativeStatusCallout(f, x, y, w, status) + S(14);
         float cy = BeginScroll(_lightingBodyScroll, input, x, y, w, MathF.Max(S(40), frame.BodyBottom - y), out _, wheel: _activeSlider < 0);
         float contentW = w - S(14);
         if (_lightingTab == 3)
@@ -91,7 +92,8 @@ internal sealed partial class GameSession
         else if (_lightingTab == 4) cy = BuildLightsTab(f, input, x, cy, contentW);
         else cy = BuildNativeLightingSection(f, input, x, cy, contentW);
         EndScroll(_lightingBodyScroll, input, cy);
-        int run = FooterAction(_nativeRun == null ? "RUN IN BIMGO" : "RECALCULATE", ShellStyle.Primary, NativeSet != null);
+        int rooms = NativeSet?.Rooms.Length ?? 0;
+        int run = FooterAction((_nativeRun == null ? "RUN " : "RECALCULATE ") + (rooms == 1 ? "1 ROOM" : $"{rooms} ROOMS"), ShellStyle.Primary, NativeSet != null);
         int cancel = FooterAction("CANCEL", enabled: _nativeJob != null || _nativeQueued);
         int review = FooterAction("REVIEW MODEL");
         int html = FooterAction("REPORT HTML…", enabled: _nativeRun != null && _nativeShown);
@@ -100,5 +102,20 @@ internal sealed partial class GameSession
         else if (action == cancel) CancelNativeCalculation();
         else if (action == review) ReviewFromLightingWorkspace();
         else if (action == html) ExportNativeCalculation(0);
+    }
+
+    /// <summary>The run status, tinted by kind so a blocking problem reads differently from progress.</summary>
+    private float NativeStatusCallout(FontAtlas f, float x, float y, float w, string status)
+    {
+        bool problem = status.StartsWith("Inputs need attention", StringComparison.Ordinal) || status.StartsWith("Calculation incomplete", StringComparison.Ordinal)
+            || status.Contains("failed", StringComparison.OrdinalIgnoreCase);
+        bool done = status.StartsWith("BimGo calculation complete", StringComparison.Ordinal);
+        uint tint = problem ? UiTheme.DANGER : done ? UiTheme.GOOD : _nativeJob != null ? UiTheme.ACCENT : UiTheme.TEXT_MUTED;
+        float pad = S(10), textH = _ui.TextWrapped(f.Body, 0, 0, w - pad * 2 - S(4), status, UiTheme.TEXT, maxLines: 5, draw: false);
+        float h = textH + pad * 2;
+        _ui.Rect(x, y, w, h, Rgba.WithAlpha(tint, .1f));
+        _ui.Rect(x, y, S(3), h, tint);
+        _ui.TextWrapped(f.Body, x + pad + S(4), y + pad, w - pad * 2 - S(4), status, problem ? UiTheme.DANGER : UiTheme.TEXT, maxLines: 5);
+        return y + h;
     }
 }

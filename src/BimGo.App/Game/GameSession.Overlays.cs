@@ -183,13 +183,14 @@ namespace BimGo.Game
         /// A dropdown's button: the current choice, left-aligned, and a chevron (drawn, so it needs no glyph).
         /// </summary>
         /// <returns>True when clicked (open the list then; a click while it is open closes it instead).</returns>
-        private bool DropdownButton(FontAtlas f, InputState input, float x, float y, float w, float h, string label, bool open)
+        private bool DropdownButton(FontAtlas f, InputState input, float x, float y, float w, float h, string label, bool open, UiFont font = null)
         {
+            font ??= f.Small;
             bool hover = Hover(input, x, y, w, h);
             _ui.Rect(x, y, w, h, open ? Rgba.Hex(0x22D3EE, 0.14f) : hover ? Rgba.Hex(0xFFFFFF, 0.1f) : UiTheme.CONTROL);
             _ui.Outline(x, y, w, h, MathF.Max(1f, UiScale), open ? UiTheme.ACCENT : UiTheme.CONTROL_BORDER);
             float chevron = S(20);
-            _ui.TextWrapped(f.Small, x + S(8), y + h * 0.5f - f.Small.LineHeight * 0.5f, w - chevron - S(12), label ?? string.Empty,
+            _ui.TextWrapped(font, x + S(8), y + h * 0.5f - font.LineHeight * 0.5f, w - chevron - S(12), label ?? string.Empty,
                 hover || open ? UiTheme.ACCENT : UiTheme.TEXT, maxLines: 1);
             DrawChevron(x + w - chevron * 0.5f - S(4), y + h * 0.5f, S(4.5f), open, hover || open ? UiTheme.ACCENT : UiTheme.TEXT_SOFT);
 
