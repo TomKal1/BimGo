@@ -24,6 +24,18 @@ Development only (not shipped): MSTest.Sdk 4.4.1, (c) Microsoft Corporation,
 MIT licence, https://github.com/microsoft/testfx
 
 --------------------------------------------------------------------------------
+WWTools lighting engine development snapshot (CA-0 / CA-1)
+
+Development builds now bundle Lighting.Engine 0.2.0. Its unchanged upstream
+sources are from TomKal1/WWTools commit d1542a8a68c4419f51a3a34d78b1caa465b4e9d5 (main).
+The upstream project declares Copyright (C) 2026 Wiley & Wilson. All rights
+reserved. No redistribution license was present in the inspected branch.
+These sources are excluded from the MIT-0/MIT statements above. The bundled
+UPSTREAM-NOTICE.md and upstream.lock.json preserve ownership and provenance;
+no license grant is implied here. Public packaging remains disabled pending
+the shared engine's redistribution terms.
+
+--------------------------------------------------------------------------------
 Proxy textures (Resources\Proxies, shipped beside BimGo.exe)
 
 Stand-in colour maps for materials whose own image is missing (Realistic mode).

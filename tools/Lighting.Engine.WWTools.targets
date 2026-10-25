@@ -1,0 +1,18 @@
+<Project>
+  <!-- CA-1 migration candidate. Import at the END of WWTools.csproj, supplying
+       LightingEngineAssembly from a pinned build artifact, never from BimGo's installation.
+       This replaces the source definitions together: airflow also uses the shared Calcs types.
+       The real Revit project and its existing tests still require validation before adoption. -->
+  <ItemGroup>
+    <Compile Remove="Calcs\Engine\**\*.cs;Calcs\ICalcSet.cs;Lighting\Engine\**\*.cs;Lighting\LightingSettings.cs;Lighting\StoredPhotometry.cs" />
+    <Reference Include="Lighting.Engine">
+      <HintPath>$(LightingEngineAssembly)</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <None Include="$(LightingEngineNotice)" Link="UPSTREAM-NOTICE.md" CopyToOutputDirectory="PreserveNewest" Condition="'$(LightingEngineNotice)' != ''" />
+  </ItemGroup>
+  <Target Name="CheckLightingEngineArtifact" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(LightingEngineAssembly)' == '' Or !Exists('$(LightingEngineAssembly)')"
+           Text="Supply LightingEngineAssembly as a pinned Lighting.Engine artifact. Do not resolve it from BimGo's install folder." />
+  </Target>
+</Project>

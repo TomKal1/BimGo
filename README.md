@@ -20,6 +20,7 @@ Publisher **Aussie BIM Guru** · licence **MIT No Attribution (MIT-0)**: use it 
 - **Comments as issues:** status, priority, assignee, replies, saved view and picture, markup; BCF 2.1 export / import; one adaptive **comment marker** per comment placed in the Revit model.
 - **Lighting:** sun and shadows from the model's site (time-of-day slider, location override), night sky with moon and stars, artificial lights from lighting fixtures with IES / Revit photometric profiles, ambient occlusion, bloom.
 - **Realistic mode:** Revit materials and textures (missing images reconciled or replaced by CC0 proxies), reflection probes, sharp reflections in stills, water ripples, grass blades, rain, snow and lightning.
+- **Lighting calculations** (TomKal1 fork): illuminance calculated in BimGo with the shared WWTools lighting engine, WW Tools results on the model, an isometric model review and calculated room images. See [lighting calculations](docs/lighting-calculations.md).
 - **Studies:** direct sun hours, daylight factor and illuminance on a room's surfaces, pass / fail against a target, CSV export.
 - **Review:** section box and plane with caps, colour profiles (by value, parameter ranges or search set), room data overlay with target checks, grids and levels with intersections, walkthrough-only hiding and isolating.
 - **Clash detection:** search sets, hard and clearance tests, clash mode with a docked list, statuses across runs, groups, comments / BCF, HTML and XML reports.

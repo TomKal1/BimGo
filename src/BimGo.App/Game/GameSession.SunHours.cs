@@ -80,6 +80,7 @@ namespace BimGo.Game
         /// </summary>
         private void OpenSunHours()
         {
+            CloseLightingReview();
             if (_sunHoursOpen) { return; }
             if (_paused) { SetPaused(false); }
             CloseSunPanel();
@@ -397,7 +398,7 @@ namespace BimGo.Game
             Vector4 far = Vector4.Transform(new Vector4(x, y, 1f, 1f), inverse);
             Vector3 a = new Vector3(near.X, near.Y, near.Z) / near.W;
             Vector3 b = new Vector3(far.X, far.Y, far.Z) / far.W;
-            origin = Camera.Position;
+            origin = Camera.IsOrthographic ? a : Camera.Position;
             direction = Vector3.Normalize(b - a);
         }
 

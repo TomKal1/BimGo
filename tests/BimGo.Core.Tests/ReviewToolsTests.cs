@@ -84,7 +84,7 @@ namespace BimGo.Tests
 
             var odd = new LaunchSettings { DisplayUnits = (UnitSystem)42 };
             odd.Sanitise();
-            Assert.AreEqual(UnitSystem.Metric, odd.DisplayUnits);
+            Assert.AreEqual(UnitSystem.Imperial, odd.DisplayUnits);
         }
 
         #endregion

@@ -17,6 +17,7 @@ detail.
 - [Comments, markup and BCF](comments-and-bcf.md)
 - [Review tools](review-tools.md): section box, colour profiles, room data, grids, hiding
 - [Lighting, sun and studies](studies.md): sun and shadows, sun hours, daylight
+- [Lighting calculations](lighting-calculations.md) (TomKal1 fork): native calculations, WW Tools results, model review, calculated images
 - [Photos, tours, paths and video](media.md)
 - [Clash detection](clash-detection.md)
 - [Kiosk mode](kiosk-mode.md): a model on a screen for visitors

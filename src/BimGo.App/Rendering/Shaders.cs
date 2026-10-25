@@ -2247,17 +2247,21 @@ layout(location = 4) in vec4 aColor;
 uniform mat4 uViewProj;
 uniform vec3 uEye;
 uniform float uHalfWidth;
+uniform int uOrthographic;
+uniform vec3 uForward;
 out vec4 vColor;
 out float vAlong;
+out vec3 vGridWorld;
 void main()
 {
-    vec3 toEye = uEye - aPos;
+    vec3 toEye = uOrthographic == 1 ? -uForward : uEye - aPos;
     vec3 side = cross(aDir, toEye);
     float sideLength = length(side);
     side = sideLength > 1e-6 ? side / sideLength : vec3(0.0);
-    float hw = uHalfWidth * max(length(toEye), 0.05);
+    float hw = uHalfWidth * (uOrthographic == 1 ? 1.0 : max(length(toEye), 0.05));
     vColor = aColor;
     vAlong = aAlong;
+    vGridWorld = aPos;
     gl_Position = uViewProj * vec4(aPos + side * (aSide * hw), 1.0);
 }";
 
@@ -2269,11 +2273,16 @@ void main()
         public const string GRID_FS = @"#version 330 core
 in vec4 vColor;
 in float vAlong;
+in vec3 vGridWorld;
 uniform float uAlpha;
 uniform int uDashed;
+uniform int uSectionCount;
+uniform vec4 uSectionPlanes[7];
 out vec4 oColor;
 void main()
 {
+    for (int i = 0; i < uSectionCount; ++i)
+        if (dot(uSectionPlanes[i].xyz, vGridWorld) > uSectionPlanes[i].w) discard;
     if (uDashed == 1 && vAlong >= 0.0 && fwidth(vAlong) < 0.1)
     {
         float t = mod(vAlong, 3.7);
@@ -2300,6 +2309,34 @@ uniform float uAlpha;
 out vec4 oColor;
 void main()
 {
+    oColor = vec4(vColor.rgb, vColor.a * uAlpha);
+}";
+
+        /// <summary>Calc results carry world positions so every section plane clips the colours, points and lines too.</summary>
+        public const string CALC_VS = @"#version 330 core
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec4 aColor;
+uniform mat4 uViewProj;
+out vec4 vColor;
+out vec3 vWorld;
+void main()
+{
+    vColor = aColor;
+    vWorld = aPos;
+    gl_Position = uViewProj * vec4(aPos, 1.0);
+}";
+
+        public const string CALC_FS = @"#version 330 core
+in vec4 vColor;
+in vec3 vWorld;
+uniform float uAlpha;
+uniform int uSectionCount;
+uniform vec4 uSectionPlanes[7];
+out vec4 oColor;
+void main()
+{
+    for (int i = 0; i < uSectionCount; ++i)
+        if (dot(uSectionPlanes[i].xyz, vWorld) > uSectionPlanes[i].w) discard;
     oColor = vec4(vColor.rgb, vColor.a * uAlpha);
 }";
 

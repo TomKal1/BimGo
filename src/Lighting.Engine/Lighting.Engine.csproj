@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Version>0.2.0</Version>
+    <AssemblyName>Lighting.Engine</AssemblyName>
+    <Description>WWTools diffuse compatibility engine, pinned source extraction for independent hosts.</Description>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Update="UPSTREAM-NOTICE.md" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="upstream.lock.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LightingEngineAssembly>$(MSBuildThisFileDirectory)..\..\src\Lighting.Engine\bin\Release\netstandard2.0\Lighting.Engine.dll</LightingEngineAssembly>
+    <LightingEngineNotice>$(MSBuildThisFileDirectory)..\..\src\Lighting.Engine\UPSTREAM-NOTICE.md</LightingEngineNotice>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Lighting.Baseline/SceneCase.cs" Link="SceneCase.cs" />
+  </ItemGroup>
+  <!-- Exercise the candidate binary consumer adapter, not a reference to either application. -->
+  <Import Project="../Lighting.Engine.WWTools.targets" />
+</Project>

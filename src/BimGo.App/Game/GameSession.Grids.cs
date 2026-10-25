@@ -124,6 +124,7 @@ namespace BimGo.Game
         /// </summary>
         private void OpenGridsPanel()
         {
+            CloseLightingReview();
             if (_gridsPanelOpen) { return; }
             CountGrids();
             if (!_clashModeOn)
@@ -221,9 +222,11 @@ namespace BimGo.Game
         /// </summary>
         private void DrawGrids(float widthScale = 1f)
         {
+            if (_reviewOpen && !_reviewShowGrids) { return; }
             UpdateGridLevels();
             if (_gridLevels.Count == 0) { return; }
-            _gridOverlay.Draw(Camera, _grids.DepthIndex, _grids.Opacity, _grids.Width * widthScale, _grids.DashDot);
+            _gridOverlay.Draw(Camera, _grids.DepthIndex, _grids.Opacity, _grids.Width * widthScale, _grids.DashDot,
+                _reviewOpen ? _sectionPlanes : null, _reviewOpen ? _sectionCount : 0);
             DrawGridNodes(); // grids round B
         }
 

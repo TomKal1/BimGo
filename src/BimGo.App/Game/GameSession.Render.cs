@@ -95,6 +95,7 @@ namespace BimGo.Game
             if (ThumbnailDue) { CaptureThumbnail(width, height); }
             if (_screenshotRequested)
             {
+                if (_reviewOpen) { QueueReviewExport(width); }
                 // Colour round B: the profile's legend in the screenshot when ticked
                 if (ProfileLegendInShots)
                 {
@@ -102,7 +103,15 @@ namespace BimGo.Game
                     QueueProfileLegendForShot(width, height);
                     _ui.Flush(width, height);
                 }
-                CaptureScreenshot(width, height);
+                if (CalcShowing) // fork build LC-B: the calc legend in the screenshot
+                {
+                    Gl.Viewport(0, 0, width, height);
+                    QueueCalcLegendForShot(height);
+                    _ui.Flush(width, height);
+                }
+                Gl.Viewport(0, 0, width, height);
+                _ui.Flush(width, height); // rendered review exports also carry their title when calc colours are off
+                CaptureScreenshot(width, height, _reviewOpen ? " lighting review" : null);
             }
             if (_sunShotRequested)
             {
@@ -119,7 +128,7 @@ namespace BimGo.Game
             float mapX = width - S(20) - S(220), mapY = S(20);
             _dockOverMap = _dockOverMapNext; // P-A2: last frame's dock sat over the minimap (a short window): it hides
             _dockOverMapNext = false;
-            if (_showMap && !_paused && !_uiHidden && !_photoOpen && !_clashModeOn && !_dockOverMap) { DrawMinimapPlan(mapX + S(8), mapY + S(30), S(204), S(170)); }
+            if (_showMap && !_paused && !_uiHidden && !_photoOpen && !_clashModeOn && !_reviewOpen && !_dockOverMap) { DrawMinimapPlan(mapX + S(8), mapY + S(30), S(204), S(170)); }
 
             BeginFocusFrame(); // polish round P-A2: the controls drawn now are the next frame's gamepad focus targets
             if (_paused)
@@ -202,7 +211,9 @@ namespace BimGo.Game
 
             // ---- Sun lighting and shadow maps (only changed cascades re-render). Clash pictures (C-B2) other than the real
             // model view draw without the sun, so they leave the cascades as the main view needs them
-            _renderer.Lighting = FrameLighting();
+            bool reviewMaterials = ReviewMaterialShading;
+            SunLighting lighting = FrameLighting();
+            _renderer.Lighting = reviewMaterials ? default : lighting;
             if (!photo) { timers.Stage(GpuTimers.SHADOWS); }
             bool clashShotUnlit = _clashShot && _clashView != CLASH_VIEW_REAL;
             string shadowError = clashShotUnlit ? null : _renderer.UpdateShadows(Camera, Scene.Bounds, ShadowSceneKey(), _groupVisible, Dynamics, _whitecard,
@@ -210,14 +221,17 @@ namespace BimGo.Game
             if (shadowError != null)
             {
                 OnShadowFailure(shadowError);
-                _renderer.Lighting = FrameLighting();
+                _renderer.Lighting = reviewMaterials ? default : FrameLighting();
             }
 
             // ---- Artificial lights for this frame (after the sun: daylight dims them), and their cached shadow maps
             // (unlit clash pictures keep the main view's picks, so no light shadow is re-rendered for them)
             if (!clashShotUnlit)
             {
-                UpdateArtificialLights(photo || _photoOpen || _allLightsLive); // X-C1: photos (and photo mode's preview), videos and stills light every fixture
+                // Cutaway overviews need readable materials rather than the sum of hundreds of unshadowed fixtures.
+                // Optional scene lighting uses the normal walking light budget, including in review PNGs.
+                if (reviewMaterials) { _renderer.Artificial.Clear(); }
+                else { UpdateArtificialLights(!_reviewOpen && (photo || _photoOpen || _allLightsLive)); }
                 string lightShadowError = _renderer.UpdateLightShadows(_groupVisible, Dynamics, ShadowSceneKey());
                 if (lightShadowError != null) { Toast(lightShadowError, 6f, important: true); }
             }
@@ -227,8 +241,8 @@ namespace BimGo.Game
             // Clash pictures (C-B2) draw the clash view in the photo pass, without AO or glow (their half-resolution
             // targets stay sized for the window instead of being remade for every picture)
             bool clashView = ClashViewActive && (!photo || _clashShot);
-            bool clashNoAo = clashView && _clashView != CLASH_VIEW_REAL; // the real model view keeps AO
-            int ssr = ScreenReflectionQuality(clashView, photo); // Round X-C1
+            bool clashNoAo = Camera.IsOrthographic || (clashView && _clashView != CLASH_VIEW_REAL); // AO assumes perspective depth
+            int ssr = Camera.IsOrthographic || reviewMaterials ? 0 : ScreenReflectionQuality(clashView, photo);
 
             // ---- Round Y-D1: occlusion culling (the main view only: last frame's answers decide what the passes skip)
             bool cull = !photo && !clashView && !_clashShot;
@@ -247,26 +261,26 @@ namespace BimGo.Game
 
             // ---- Reflection probes: a couple of faces per frame until baked, re-baked a moment after things change
             if (!photo) { timers.Stage(GpuTimers.REFLECTIONS); }
-            if (!photo) { UpdateReflectionProbes(); }
+            if (!photo && !reviewMaterials) { UpdateReflectionProbes(); }
 
             var p = new SceneDrawParams
             {
                 ViewProjection = Camera.ViewProjection,
                 Planes = Camera.Planes,
                 Eye = Camera.Position,
-                Whitecard = _whitecard,
-                Realistic = _realistic,
-                Reflections = _reflections,
+                Whitecard = _whitecard && !reviewMaterials,
+                Realistic = _realistic && !reviewMaterials,
+                Reflections = _reflections && !reviewMaterials,
                 ReflectThreshold = _reflectThreshold / 100f,
                 ReflectGain = _reflectStrength,
-                ReflectDebug = _reflectDebug,
+                ReflectDebug = reviewMaterials ? 0 : _reflectDebug,
                 Probes = _reflectProbes,
                 Time = _clock,
                 Tint = _tintMode,
                 Plan = false,
                 ClipZ = new Vector2(-1e7f, 1e7f),
-                FogDensity = 0.0022f * WeatherFog, // W-B: thicker in the rain / snow
-                Sun = true,
+                FogDensity = reviewMaterials ? 0f : 0.0022f * WeatherFog, // W-B: thicker in the rain / snow
+                Sun = !reviewMaterials,
                 Section = true,
                 ScreenReflections = ssr // Round X-C1
             };
@@ -319,7 +333,7 @@ namespace BimGo.Game
                 _renderer.DrawStatic(p, _groupVisible, transparent: false);
                 _renderer.DrawDynamic(p, Dynamics, transparent: false);
                 _renderer.EndDepthPrepass();
-                if (_sectionCount > 0)
+                if (_sectionCount > 0 && (!_reviewOpen || _reviewShowCaps))
                 {
                     // Fill the cut solids (stencil caps) before the ground
                     float extent = Scene.Bounds.Size.Length() + 50f;
@@ -341,7 +355,7 @@ namespace BimGo.Game
                 Gun active = _guns[_activeGun];
                 _highlights.Clear();
                 // Hidden UI: no tints either, unless a gun is in the middle of something (Gizmo / Clone holding an element)
-                if (!_unarmed && !photo && !_photoOpen && !_paused && !_tourActive && (!_uiHidden || active.CapturesInput)) { active.CollectHighlights(_highlights); }
+                if (!_unarmed && !photo && !_photoOpen && !_paused && !_tourActive && !_reviewOpen && (!_uiHidden || active.CapturesInput)) { active.CollectHighlights(_highlights); }
                 if (!photo && !_photoOpen && !_tourActive) { AddFixtureHighlight(_highlights); } // Round Y-C2: the fixture dock's fixture
                 if (_highlights.Count > 0)
                 {
@@ -375,7 +389,7 @@ namespace BimGo.Game
 
             // Round W-C: a lightning flash in the classic light (with sun lighting it lifted the sky light instead); drops on
             // the lens (the main view only: never photos, videos, thumbnails or screenshots)
-            if (!clashView) { DrawLightningFlash(); }
+            if (!clashView && !reviewMaterials) { DrawLightningFlash(); }
             if (!photo && !clashView) { DrawLensDrops(target); }
 
             // Photo exposure (the preview and the photo alike)
@@ -387,7 +401,7 @@ namespace BimGo.Game
             {
                 DrawRoomTint(); // Round Z-A: the check's floor tint (depth-tested only), under the markers
                 _overlay.Begin(Camera);
-                for (int i = 0; i < _guns.Length; i++) { _guns[i].DrawWorld(_overlay, i == _activeGun && !_unarmed); }
+                if (!_reviewOpen) { for (int i = 0; i < _guns.Length; i++) { _guns[i].DrawWorld(_overlay, i == _activeGun && !_unarmed); } }
                 DrawClashMarkers(_overlay);
                 DrawGrids(); // grids round A: the lines under the markers
                 _overlay.Draw(Camera, depthTest: true, alpha: 1f, additive: false);
@@ -402,9 +416,10 @@ namespace BimGo.Game
 
             // Sun hours grid (study results are content, so they show with the UI hidden too)
             DrawSunHoursCells();
+            DrawLightingCalcs(photo); // fork build LC-B: lighting calc results (content too)
 
             // Section box frame and handles (editor only)
-            if (!photo) { DrawSectionGizmo(); }
+            if (!photo && !(_reviewOpen && _screenshotRequested)) { DrawSectionGizmo(); }
             if (!photo) { timers.EndFrame(); } // Y-D1
         }
 
@@ -574,6 +589,12 @@ namespace BimGo.Game
             int width = _window.Width, height = _window.Height;
             Gun active = _guns[_activeGun];
 
+            if (_reviewOpen)
+            {
+                BuildLightingReviewHud(f, _window.Input);
+                return;
+            }
+
             // Clash mode (Round C-B): its own HUD (docked list, no crosshair or guns)
             if (_clashModeOn)
             {
@@ -597,6 +618,7 @@ namespace BimGo.Game
 
             // World-anchored labels (grids round A: grid bubbles and level tags first, under the rest)
             DrawGridLabels(f);
+            DrawCalcLabels(f); // fork build LC-B: the calc points' values near the eye
             DrawRoomTags(f); // Round Z-A: floating room tags, under the guns' labels
             for (int i = 0; i < _guns.Length; i++) { _guns[i].DrawLabels(_ui, i == _activeGun && !_unarmed); }
             DrawGridHoverLabel(f); // grids round B: the hovered node, over the other labels
@@ -630,6 +652,7 @@ namespace BimGo.Game
                 active.DrawPanel(_ui, panelX + S(14), panelTop + S(12), panelWidth - S(28));
             }
 
+            BuildReviewShortcut(f, _window.Input);
             BuildSunIcon(f, _window.Input);
             if (_sunPanelOpen) { BuildSunPanel(f, _window.Input); }
             if (_sunHoursOpen) { BuildSunHoursPanel(f, _window.Input); }
@@ -736,7 +759,7 @@ namespace BimGo.Game
         }
 
         /// <summary>True while one of the docks (sun, study, section box, grids) is open.</summary>
-        private bool AnyDockOpen => _sunPanelOpen || _sunHoursOpen || _sectionOpen || _gridsPanelOpen || _fixtureDockOpen;
+        private bool AnyDockOpen => _sunPanelOpen || _sunHoursOpen || _sectionOpen || _gridsPanelOpen || _fixtureDockOpen || _reviewOpen;
 
         /// <summary>
         /// Polish round P-A2: the left-hand column (information), stacked from the top: the status panel and the
@@ -766,6 +789,7 @@ namespace BimGo.Game
             if (help) { bottom = BuildHelp(f, height, top) - gap; }
             bool collapse = help && _showHelp;
 
+            if (sunLegend) { bottom = BuildCalcLegend(f, x, top, bottom, collapse); } // fork build LC-B
             if (sunLegend && _sunStudy.Hours != null && _sunLegendTitle != null)
             {
                 float full = S(78), small = S(UiTheme.LEGEND_COLLAPSED_HEIGHT);

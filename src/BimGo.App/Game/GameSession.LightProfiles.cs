@@ -49,6 +49,8 @@ namespace BimGo.Game
         // The tab's rows (made once) and its last message
         private List<LightTypeRow> _lightTypeRows;
         private string _lightNotice;
+        private string _lightingFixtureType;
+        private const int DROP_LIGHTING_FIXTURE=1202;
 
         // Round Y-C2: each light's fixture key (made once; null = no identity), the fixtures per type with a choice of
         // their own (counted on every change), and the polar plots by profile key (made once each)
@@ -366,9 +368,15 @@ namespace BimGo.Game
             }
             y += S(6);
 
+            int selected=Math.Max(0,rows.FindIndex(r=>r.FamilyType==_lightingFixtureType));
+            _lightingFixtureType=rows[selected].FamilyType;
+            if(DropdownButton(f,input,ix,y,iw,S(32),_lightingFixtureType,IsDropdownOpen(this,DROP_LIGHTING_FIXTURE)))
+                OpenDropdown(this,DROP_LIGHTING_FIXTURE,ix,y,iw,S(32),rows.Select(r=>$"{r.FamilyType} (×{r.Count})").ToArray(),selected,i=>_lightingFixtureType=rows[i].FamilyType);
+            y+=S(44);
+
             float bw = S(28), gap = S(6);
             float plot = S(58), rw = iw - plot - S(12); // Y-C2: the row's polar plot on the right
-            foreach (LightTypeRow row in rows)
+            foreach (LightTypeRow row in rows.Where(r=>r.FamilyType==_lightingFixtureType))
             {
                 _ui.TextWrapped(f.Body, ix, y, iw - S(56), row.FamilyType.Length == 0 ? "(no type)" : row.FamilyType, UiTheme.TEXT, maxLines: 1);
                 Text.Clear().Append('×').AppendGrouped(row.Count);

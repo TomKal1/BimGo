@@ -340,7 +340,9 @@ namespace BimGo.Game
             // capture reads the 3D view before the UI is drawn, so the text box isn't in it)
             string uniqueId = _editElement > 0 && _elementIndexById.TryGetValue(_editElement, out int elementIndex) ? Scene.Elements[elementIndex].UniqueId : null;
             CommentRecord added = Comments.Add(_editPoint, text, _editElement, _editLevel, uniqueId);
-            Comments.SetView(added, _player.Feet, _player.Yaw, _player.Pitch, _player.Flying, section: _section);
+            Comments.SetView(added, _reviewOpen ? Camera.Position - Vector3.UnitZ * _player.Controller.StandEye : _player.Feet,
+                _reviewOpen ? _reviewYaw : _player.Yaw, _reviewOpen ? (_reviewView == 1 ? -1.55f : _reviewView == 2 ? 1.55f : _reviewPitch) : _player.Pitch,
+                _reviewOpen || _player.Flying, section: _section);
             _commentThumbnailFor = added;
             _markupAfterCapture = added; // the markup editor opens once the picture is taken
             Sound.Play(SoundId.CommentPlace);
@@ -407,6 +409,7 @@ namespace BimGo.Game
         /// </summary>
         private void BuildPauseMenu()
         {
+            if (_lightingOpen) { BuildLightingWorkspace(); return; }
             // The markup editor, the push report and the comment list take over the whole menu while open
             if (IsMarkupOpen)
             {
@@ -524,7 +527,7 @@ namespace BimGo.Game
             bool libraryButton = HasLibrary;
             bool roomsButton = Scene.Rooms.Length > 0;
             int sessionButtons = 4 + (IsFileMode ? 4 : 1) + (_live != null ? 2 : 0); // + CONTROLS (input round B2), + Revit views (X-E), + kiosk shortcut (Z-C)
-            int reviewButtons = 7 + (hiddenThings > 0 ? 1 : 0) + (texturesButton ? 1 : 0) + (libraryButton ? 1 : 0) + (roomsButton ? 1 : 0);
+            int reviewButtons = 9 + (hiddenThings > 0 ? 1 : 0) + (texturesButton ? 1 : 0) + (libraryButton ? 1 : 0) + (roomsButton ? 1 : 0);
             int rows = twoStacks ? Math.Max(sessionButtons, reviewButtons) : sessionButtons + reviewButtons;
             float step = Math.Clamp((endY - S(12) - buttonsTop) / rows, S(32), S(44));
             float buttonH = step - S(6);
@@ -579,6 +582,10 @@ namespace BimGo.Game
                 x = leftX + stackW + stackGap;
                 y = buttonsTop;
             }
+            if (MenuButton(f, x, y, stackW, "ISO VIEW", false, false, height: buttonH, compact: true)) { OpenLightingReview(); return; }
+            y += step;
+            if (MenuButton(f, x, y, stackW, "LIGHTING", false, false, height: buttonH, compact: true)) { OpenLightingWorkspace(); return; }
+            y += step;
             if (MenuButton(f, x, y, stackW, CommentsMenuLabel(), false, false, height: buttonH, compact: true)) { OpenComments(); return; }
             y += step;
             if (MenuButton(f, x, y, stackW, BookmarksMenuLabel(), false, false, height: buttonH, compact: true)) { OpenBookmarks(); return; }
@@ -862,7 +869,10 @@ namespace BimGo.Game
             {
                 case 1: BuildReflectionsTab(f, input, ix, y, iw); break;
                 case 2: BuildAppearanceTab(f, input, ix, y, iw); break;
-                case 3: bottom = MathF.Max(bottom, BuildLightsTab(f, input, ix, y, iw) + S(12)); break; // X-D1: a list, so it can run long
+                case 3:
+                    _ui.TextWrapped(f.Body,ix,y,iw,"Calculation setup, results, reports and fixture photometry have their own lighting workspace.",UiTheme.TEXT_SOFT,maxLines:4);
+                    if(SmallButton(f,input,ix,y+S(90),iw,S(36),"OPEN LIGHTING WORKSPACE"))OpenLightingWorkspace();
+                    break;
                 default: bottom = MathF.Max(bottom, BuildDisplayTab(f, input, ix, y, iw) + S(12)); break; // Y-D1: it can run long
             }
             EndScroll(_settingsScroll, input, bottom);
@@ -1207,7 +1217,8 @@ namespace BimGo.Game
                 bool hover = Hover(input, sx, y, segment, h);
                 _ui.Rect(sx, y, segment, h, on ? UiTheme.ACCENT : hover ? Rgba.Hex(0xFFFFFF, 0.08f) : UiTheme.CONTROL);
                 _ui.Outline(sx, y, segment, h, MathF.Max(1f, UiScale), UiTheme.CONTROL_BORDER);
-                _ui.TextCentred(f.Body, sx + segment * 0.5f, y + h * 0.5f - f.Body.LineHeight * 0.5f, options[i], on ? Rgba.Hex(0x06232A) : UiTheme.TEXT);
+                var font = UiBatch.Measure(f.Body, options[i]) > segment - S(8) ? f.Small : f.Body; // a long label steps down rather than spill into its neighbours
+                _ui.TextCentred(font, sx + segment * 0.5f, y + h * 0.5f - font.LineHeight * 0.5f, options[i], on ? Rgba.Hex(0x06232A) : UiTheme.TEXT);
                 if (hover && input.LeftPressed && !on)
                 {
                     selected = i;

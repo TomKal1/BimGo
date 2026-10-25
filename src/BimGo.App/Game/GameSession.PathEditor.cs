@@ -119,6 +119,7 @@ namespace BimGo.Game
         /// </summary>
         private void EnterPathEditor(CameraPath path)
         {
+            CloseLightingReview();
             if (_player == null) { return; }
             if (path == null || !CameraPaths.Paths.Contains(path)) { path = CameraPaths.Paths.Count > 0 ? CameraPaths.Paths[0] : CameraPaths.AddPath(); }
             if (_clashModeOn) { ExitClashMode(); }

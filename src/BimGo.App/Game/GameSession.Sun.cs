@@ -362,6 +362,7 @@ namespace BimGo.Game
 
         private void OpenSunPanel()
         {
+            CloseLightingReview();
             if (_sunPanelOpen) { return; }
             CloseSunHours(); // one panel at a time
             CloseGridsPanel();

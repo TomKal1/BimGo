@@ -39,7 +39,7 @@ namespace BimGo.Rendering
         private int _capacityOnGpu;
         private uint _vao, _vbo;
         private ShaderProgram _program;
-        private int _viewProj, _eye, _halfWidth, _alpha, _dashed;
+        private int _viewProj, _eye, _halfWidth, _alpha, _dashed, _orthographic, _forward, _sectionPlanes, _sectionCount;
         private bool _uploaded;
 
         /// <summary>
@@ -53,6 +53,10 @@ namespace BimGo.Rendering
             _halfWidth = _program.Uniform("uHalfWidth");
             _alpha = _program.Uniform("uAlpha");
             _dashed = _program.Uniform("uDashed");
+            _orthographic = _program.Uniform("uOrthographic");
+            _forward = _program.Uniform("uForward");
+            _sectionPlanes = _program.Uniform("uSectionPlanes[0]");
+            _sectionCount = _program.Uniform("uSectionCount");
 
             _vao = Gl.GenVertexArray();
             Gl.BindVertexArray(_vao);
@@ -152,7 +156,7 @@ namespace BimGo.Rendering
         /// 1 depth-tested only, 2 x-ray (always on top). <paramref name="dashed"/>: the Revit-like dash-dot (grids round B;
         /// solid otherwise).
         /// </summary>
-        public void Draw(FpsCamera camera, int depthMode, float opacity, float widthPixels, bool dashed)
+        public void Draw(FpsCamera camera, int depthMode, float opacity, float widthPixels, bool dashed, Vector4[] sectionPlanes = null, int sectionCount = 0)
         {
             if (_count == 0 || _program == null) { return; }
             Gl.BindVertexArray(_vao);
@@ -176,6 +180,10 @@ namespace BimGo.Rendering
             Gl.Uniform3(_eye, camera.Position.X, camera.Position.Y, camera.Position.Z);
             Gl.Uniform1(_halfWidth, 0.5f * widthPixels * camera.PixelScale);
             Gl.Uniform1(_dashed, dashed ? 1 : 0);
+            Gl.Uniform1(_orthographic, camera.IsOrthographic ? 1 : 0);
+            Gl.Uniform3(_forward, camera.Forward.X, camera.Forward.Y, camera.Forward.Z);
+            Gl.Uniform1(_sectionCount, sectionCount);
+            if (sectionCount > 0) { Gl.Uniform4(_sectionPlanes, sectionCount, sectionPlanes); }
 
             Gl.Enable(Gl.BLEND);
             Gl.BlendFunc(Gl.SRC_ALPHA, Gl.ONE_MINUS_SRC_ALPHA);

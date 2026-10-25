@@ -18,7 +18,8 @@ namespace BimGo.Tests
         #region Sample files
 
         /// <summary>A 30° spot, bilateral (C 0–180), 0–90° gamma, 1000 lm lamp.</summary>
-        private const string SPOT = @"IESNA:LM-63-2002
+        // LF whatever the checkout's line endings: the tests edit it by "\n"
+        private static readonly string SPOT = @"IESNA:LM-63-2002
 [TEST] BimGo test file (hand-written, CC0)
 [MANUFAC] BimGo
 [LUMINAIRE] Test spot, 30 deg, bilateral 0-180
@@ -30,7 +31,7 @@ TILT=NONE
 2000 1800 900 300 80 20 0
 2000 1600 700 200 60 15 0
 2000 1400 500 150 40 10 0
-";
+".ReplaceLineEndings("\n");
 
         /// <summary>An even 100 cd source over the whole sphere (one C plane): 400π ≈ 1257 lm.</summary>
         private const string EVEN = "IESNA91\n[TEST] even\nTILT=NONE\n1,-1,1,3,1,1,2,0,0,0\n1 1 5\n0 90 180\n0\n100 100 100\n";

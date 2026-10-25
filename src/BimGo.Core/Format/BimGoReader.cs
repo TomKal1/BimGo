@@ -191,7 +191,10 @@ namespace BimGo.Format
                     Path = path,
                     ReadFormatVersion = manifest.FormatVersion,
                     Thumbnail = ReadThumbnail(zip),
-                    Clashes = ReadBytes(zip, BimGoFormat.ENTRY_CLASHES)
+                    Clashes = ReadBytes(zip, BimGoFormat.ENTRY_CLASHES),
+                    LightingCalcs = ReadLightingCalcs(zip), // fork build LC-B
+                    NativeLighting = ReadBytes(zip, NativeLightingFiles.Entry),
+                    LightingScenes = ReadNativeLightingScenes(zip)
                 };
             }
             catch (Exception ex)
@@ -490,6 +493,7 @@ namespace BimGo.Format
                 {
                     Element = light.Element,
                     Position = p,
+                    CalculationOrigin = light.CalculationOrigin is Vector3 sourceOrigin && float.IsFinite(sourceOrigin.X) && float.IsFinite(sourceOrigin.Y) && float.IsFinite(sourceOrigin.Z) ? sourceOrigin : null,
                     Lumens = float.IsFinite(light.Lumens) ? Math.Clamp(light.Lumens, 10f, 100000f) : 1000f,
                     Kelvin = float.IsFinite(light.Kelvin) ? Math.Clamp(light.Kelvin, 1000f, 15000f) : 3500f,
                     Downward = float.IsFinite(light.Downward) ? Math.Clamp(light.Downward, 0f, 1f) : 0.7f,
@@ -612,6 +616,49 @@ namespace BimGo.Format
         }
 
         /// <summary>An entry's bytes (capped at 64 MB), or null if absent or unreadable.</summary>
+        /// <summary>
+        /// Fork build LC-B: the lighting calc results entries (<c>lighting-calcs/*.json</c> + <c>.bin</c>) as raw bytes, up to
+        /// <see cref="LightingCalcFiles.MAX_EMBED_BYTES"/> together; null when there are none. Parsed when the CALCS view needs them.
+        /// </summary>
+        private static Dictionary<string, byte[]> ReadNativeLightingScenes(ZipArchive zip)
+        {
+            var scenes = new Dictionary<string, byte[]>();
+            long total = 0;
+            foreach (var entry in zip.Entries)
+            {
+                if (!NativeLightingFiles.IsSceneEntry(entry.FullName)) continue;
+                if (entry.Length > 64L * 1024 * 1024) throw new InvalidDataException("Native calculation input exceeds 64 MB.");
+                total += entry.Length;
+                if (total > 256L * 1024 * 1024) throw new InvalidDataException("Native calculation inputs exceed 256 MB.");
+                scenes[entry.FullName] = ReadBytes(zip, entry.FullName);
+            }
+            return scenes;
+        }
+
+        private static Dictionary<string, byte[]> ReadLightingCalcs(ZipArchive zip)
+        {
+            Dictionary<string, byte[]> entries = null;
+            long total = 0;
+            try
+            {
+                foreach (ZipArchiveEntry entry in zip.Entries)
+                {
+                    if (!LightingCalcFiles.IsEntryName(entry.FullName) || entry.Length <= 0) { continue; }
+                    if (total + entry.Length > LightingCalcFiles.MAX_EMBED_BYTES) { break; }
+                    byte[] bytes = new byte[entry.Length];
+                    using (Stream stream = entry.Open()) { stream.ReadExactly(bytes); }
+                    entries ??= new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+                    entries[entry.FullName] = bytes;
+                    total += entry.Length;
+                }
+            }
+            catch (Exception ex)
+            {
+                Utilities.Log_Utils.Write($"Lighting calc results in the file unreadable: {ex.Message}");
+            }
+            return entries;
+        }
+
         private static byte[] ReadBytes(ZipArchive zip, string name)
         {
             try

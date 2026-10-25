@@ -8,12 +8,13 @@ namespace BimGo.Game
     /// The app's current display units (review tools round) and allocation-free formatting into a
     /// <see cref="TextBuffer"/>. One walkthrough runs per app, and the choice is per machine, so it lives here rather
     /// than being passed to every gun and panel. Set from the settings when a session starts and when the pause menu
-    /// or the home screen changes it. Lux and daylight % never change with it.
+    /// or the home screen changes it. Daylight-study lux and daylight % never change with it;
+    /// imported lighting calculations display illuminance and luminance in the selected unit system.
     /// </summary>
     internal static class UnitFormat
     {
         /// <summary>Metric or imperial.</summary>
-        public static UnitSystem Current { get; private set; } = UnitSystem.Metric;
+        public static UnitSystem Current { get; private set; } = UnitSystem.Imperial;
 
         /// <summary>Imperial lengths as decimal feet rather than feet-inches.</summary>
         public static bool DecimalFeet { get; private set; }
@@ -29,7 +30,7 @@ namespace BimGo.Game
         /// </summary>
         public static void Set(UnitSystem system, bool decimalFeet)
         {
-            if (!Enum.IsDefined(system)) { system = UnitSystem.Metric; }
+            if (!Enum.IsDefined(system)) { system = UnitSystem.Imperial; }
             if (system == Current && decimalFeet == DecimalFeet) { return; }
             Current = system;
             DecimalFeet = decimalFeet;

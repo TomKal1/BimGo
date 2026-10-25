@@ -54,6 +54,12 @@ namespace BimGo.Platform
         /// <summary>Right button held.</summary>
         public bool RightDown => _down[KeyCodes.RIGHT_MOUSE];
 
+        /// <summary>Middle button held (also used to retain native mouse capture during a drag).</summary>
+        public bool MiddleDown => _down[KeyCodes.MIDDLE_MOUSE];
+
+        /// <summary>Position at the actual left-button press, retained even if press, move and release occur in one frame.</summary>
+        public Vector2 LeftPressPosition { get; private set; }
+
         /// <summary>Left button pressed this frame.</summary>
         public bool LeftPressed => _pressed[KeyCodes.LEFT_MOUSE];
 
@@ -166,7 +172,11 @@ namespace BimGo.Platform
         {
             if (code >= 256) { return; }
             if (down && !_injectingClick) { LastInputWasPad = false; }
-            if (down && !_down[code]) { _pressed[code] = true; }
+            if (down && !_down[code])
+            {
+                _pressed[code] = true;
+                if (code == KeyCodes.LEFT_MOUSE) { LeftPressPosition = MousePosition; }
+            }
             _down[code] = down;
         }
 

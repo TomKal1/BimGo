@@ -48,7 +48,7 @@ namespace BimGo.Game
             (_journal.Revision != _savedJournalRevision || Comments.Revision != _savedCommentRevision || Bookmarks.Revision != _savedBookmarkRevision || SunDirty || VisibilityDirty
              || _materialsRevision != _savedMaterialsRevision || ClashesDirty || (CameraPaths != null && CameraPaths.Revision != _savedPathRevision)
              || (Entourage != null && Entourage.Revision != _savedEntourageRevision) || _lightProfileRevision != _savedLightProfileRevision
-             || MeasurementsDirty);
+             || MeasurementsDirty || NativeLightingDirty);
 
         /// <summary>The document's display name (file name, or the Revit model title).</summary>
         public string DocumentName => IsFileMode && !string.IsNullOrEmpty(DocumentPath) ? Path.GetFileName(DocumentPath) : Scene.ModelTitle;
@@ -65,6 +65,7 @@ namespace BimGo.Game
             _savedPathRevision = CameraPaths?.Revision ?? 0;
             _savedEntourageRevision = Entourage?.Revision ?? 0;
             _savedLightProfileRevision = _lightProfileRevision;
+            _nativeSavedRevision = _nativeRevision;
             _savedMeasurementRevision = _measurementRevision; // Round Y-A
             _savedSunRevision = _sunRevision;
             _savedVisibilityRevision = _visibilityRevision;
@@ -427,6 +428,9 @@ namespace BimGo.Game
                 EntourageImages = Entourage?.ImagesForSave(),
                 LightProfiles = LightProfilesForSave(), // Round X-D1
                 Measurements = MeasurementsForSave(), // Round Y-A
+                LightingCalcs = LightingCalcsForSave(), // fork build LC-B
+                NativeLighting = NativeDefinitionsForSave(),
+                LightingScenes = new Dictionary<string,byte[]>(_nativeInputs),
                 Sun = _sun?.Copy(),
                 Visibility = ToVisibilitySettings(),
                 Materials = MaterialsChanged ? CurrentMaterials : null, // Textures panel: picked images are embedded

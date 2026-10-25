@@ -55,6 +55,7 @@ namespace BimGo.Game
         /// </summary>
         private void OpenFixtureDock()
         {
+            CloseLightingReview();
             if (Scene.Lighting.Lights.Length == 0)
             {
                 Sound.Play(SoundId.Error);

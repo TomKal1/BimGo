@@ -369,7 +369,7 @@ namespace BimGo.Game
             x = screenW - margin - width;
             top = margin;
             bottom = screenH - margin - S(UiTheme.SUN_ICON_SIZE) - S(10);
-            if (_showMap && !_photoOpen) // Y-B: the minimap hides in photo mode, so its dock starts at the top
+            if (_showMap && !_photoOpen && !_reviewOpen) // photo and lighting review hide the minimap
             {
                 float under = margin + S(UiTheme.MINIMAP_HEIGHT) + S(UiTheme.COLUMN_GAP);
                 if (bottom - under >= S(UiTheme.DOCK_MIN_HEIGHT)) { top = under; }
@@ -491,7 +491,7 @@ namespace BimGo.Game
 
         /// <summary>True while one of the panels that replace the pause menu is open.</summary>
         private bool AnyBigPanelOpen => IsCommentsPanelOpen || IsBookmarksPanelOpen || IsTexturesPanelOpen || IsLibraryPanelOpen || IsRoomsPanelOpen
-            || IsClashesPanelOpen || IsColourProfilesPanelOpen || IsGeometryPanelOpen || IsControlsPanelOpen || IsPushPanelOpen || IsMediaPanelOpen || IsEntouragePanelOpen || IsMarkupOpen;
+            || IsClashesPanelOpen || IsColourProfilesPanelOpen || IsGeometryPanelOpen || IsControlsPanelOpen || IsPushPanelOpen || IsMediaPanelOpen || IsEntouragePanelOpen || IsMarkupOpen || _lightingOpen;
 
         /// <summary>
         /// One level back (Esc, the gamepad's B, ← BACK): an open dropdown or confirm, then the markup editor (Y-B: it
@@ -502,7 +502,7 @@ namespace BimGo.Game
         {
             if (!_paused) { return false; }
             if (AnyBigPanelOpen && CloseOverlay()) { return true; }
-            return CancelMarkupPanel() || CloseMenuPreview() || ClosePush() || CloseComments() || CloseBookmarks() || CloseTextures() || CloseLibrary() || CloseRooms()
+            return CancelMarkupPanel() || CloseMenuPreview() || CloseLightingWorkspace() || ClosePush() || CloseComments() || CloseBookmarks() || CloseTextures() || CloseLibrary() || CloseRooms()
                 || CloseClashes() || CloseColourProfiles() || CloseGeometry() || CloseControls() || CloseMedia() || CloseEntourage();
         }
 

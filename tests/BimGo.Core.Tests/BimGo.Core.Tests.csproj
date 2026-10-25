@@ -17,6 +17,9 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\..\src\BimGo.Core\BimGo.Core.csproj" />
+		<ProjectReference Include="..\..\src\Lighting.Engine\Lighting.Engine.csproj" />
+		<ProjectReference Include="..\..\src\BimGo.Calculations\BimGo.Calculations.csproj" />
+		<Compile Include="..\..\tools\Lighting.Baseline\SceneCase.cs" Link="Lighting\SceneCase.cs" />
 	</ItemGroup>
 
 </Project>

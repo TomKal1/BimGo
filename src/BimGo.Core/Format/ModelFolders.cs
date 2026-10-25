@@ -75,6 +75,9 @@ namespace BimGo.Format
         /// <summary>Round Y-A: the Measure gun's saved measurements in a model folder.</summary>
         public const string MEASUREMENTS_FILE = "measurements.json";
 
+        /// <summary>Fork build LC-B: lighting calc results (WW Tools' Lighting Calc writes them; see <see cref="LightingCalcFiles"/>).</summary>
+        public const string LIGHTING_CALCS_FOLDER = "lighting-calcs";
+
         /// <summary>Texture choices in a model folder (machine-specific image paths: never shared).</summary>
         public const string TEXTURE_OVERRIDES_FILE = "texture-overrides.json";
 

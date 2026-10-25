@@ -65,6 +65,7 @@ namespace BimGo.Game
         /// <summary>M: opens photo mode (other panels close; the field of view is restored afterwards).</summary>
         private void OpenPhotoMode()
         {
+            CloseLightingReview();
             if (_photoOpen) { return; }
             if (_paused) { SetPaused(false); }
             CloseSunPanel();

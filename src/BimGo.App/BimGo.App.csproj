@@ -45,6 +45,9 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\BimGo.Core\BimGo.Core.csproj" />
+		<!-- CA-1: independently bundled CPU engine; calculation workspace integration follows. -->
+		<ProjectReference Include="..\Lighting.Engine\Lighting.Engine.csproj" />
+		<ProjectReference Include="..\BimGo.Calculations\BimGo.Calculations.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>

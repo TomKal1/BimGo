@@ -37,6 +37,12 @@ namespace BimGo.Rendering
         /// <summary>Viewport width in pixels.</summary>
         public float ViewportWidth = 1280f;
 
+        /// <summary>Vertical span in metres; zero selects perspective.</summary>
+        public float OrthographicHeight;
+
+        /// <summary>True when parallel projection is active.</summary>
+        public bool IsOrthographic => OrthographicHeight > 0f;
+
         /// <summary>Forward direction (includes pitch).</summary>
         public Vector3 Forward { get; private set; } = Vector3.UnitX;
 
@@ -109,10 +115,10 @@ namespace BimGo.Rendering
 
             float hfov = HorizontalFovDegrees * MathF.PI / 180f;
             FovY = 2f * MathF.Atan(MathF.Tan(hfov * 0.5f) / MathF.Max(Aspect, 0.1f));
-            PixelScale = 2f * MathF.Tan(FovY * 0.5f) / MathF.Max(ViewportHeight, 1f);
+            PixelScale = (IsOrthographic ? OrthographicHeight : 2f * MathF.Tan(FovY * 0.5f)) / MathF.Max(ViewportHeight, 1f);
 
             View = Matrix4x4.CreateLookAt(Position, Position + Forward, up);
-            Projection = Perspective(FovY, Aspect, NEAR, FAR);
+            Projection = IsOrthographic ? Orthographic(OrthographicHeight * Aspect, OrthographicHeight, NEAR, FAR) : Perspective(FovY, Aspect, NEAR, FAR);
             ViewProjection = View * Projection;
             InverseViewProjection = Matrix4x4.Invert(ViewProjection, out Matrix4x4 inverse) ? inverse : Matrix4x4.Identity;
             ExtractPlanes(ViewProjection, Planes);
@@ -136,11 +142,7 @@ namespace BimGo.Rendering
         /// </summary>
         public static Matrix4x4 Orthographic(float width, float height, float near, float far)
         {
-            return new Matrix4x4(
-                2f / width, 0f, 0f, 0f,
-                0f, 2f / height, 0f, 0f,
-                0f, 0f, -2f / (far - near), 0f,
-                0f, 0f, -(far + near) / (far - near), 1f);
+            return ReviewFraming.Orthographic(width, height, near, far);
         }
 
         /// <summary>
@@ -184,7 +186,7 @@ namespace BimGo.Rendering
         public bool WorldToScreen(Vector3 world, out Vector2 screen)
         {
             Vector4 clip = Vector4.Transform(new Vector4(world, 1f), ViewProjection);
-            if (clip.W <= 0.01f)
+            if (clip.W <= 0.01f || (IsOrthographic && (clip.Z < -clip.W || clip.Z > clip.W)))
             {
                 screen = default;
                 return false;

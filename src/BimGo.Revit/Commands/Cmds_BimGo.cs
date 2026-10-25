@@ -526,6 +526,8 @@ namespace BimGo.Commands.Cmds_BimGo
                     EntourageImages = entourageImages,
                     LightProfiles = lightProfiles,
                     Measurements = measurements,
+                    // Fork build LC-B: and the lighting calc results WW Tools wrote into the model folder (up to 100 MB)
+                    LightingCalcs = LightingCalcFiles.ReadForEmbedding(LightingCalcFiles.FolderFor(scene.CommentsPath), out _),
                     Journal = new EditJournal(),
                     CreatedUtc = scene.Provenance.ExtractedUtc,
                     Kind = FileKinds.EXPORT,

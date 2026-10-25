@@ -1,0 +1,19 @@
+{
+  "Kind": "Saved WWTools v1 result data agreement; no solver or appearance parity claim",
+  "HeaderSha256": "cda0f81f03d3ed835559d8ef7eb07145d3bd3492cbcdcdfb91da1333777b4ab2",
+  "BodySha256": "7e7f7c9d659a87cc4d70cff052113983dfe8c60e3efc565b818aa1a5bb130551",
+  "BodyBytes": 15407352,
+  "Tool": "WW Tools 1.0.0.0",
+  "RunUtc": "2026-10-21T23:42:10Z",
+  "Quality": "Normal",
+  "Interreflections": true,
+  "Zones": 80,
+  "Points": 11673,
+  "MissingPoints": 436,
+  "Patches": 252629,
+  "MaxStatisticsDeltaFc": 7.62939453125E-06,
+  "MaxCoordinateErrorMetres": 2.3132324216135203E-06,
+  "PointAndPatchPhotometricValues": "Exact float32 agreement, including NaN point sentinels",
+  "StatisticsTolerance": "1e-6 fc \u002B 2e-6 relative (JSON rounding and binary float32)",
+  "MissingInputs": "Full emitter photometry/openings, complete transport geometry and identities, patch/sample policy and engine version. Direct point records are present in v1 but current BimGo DTO discards them."
+}

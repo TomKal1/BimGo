@@ -299,6 +299,7 @@ namespace BimGo.Extraction
             {
                 Element = elementIndex,
                 Position = position,
+                CalculationOrigin = _fixtureTransform == null ? null : ToScenePoint(_fixtureTransform.Origin),
                 // Revit's lumens; without them the photometric file's own output (X-D1), else a guess
                 Lumens = _fixtureLumens ?? (_fixtureIesLumens >= 10f ? Math.Clamp(_fixtureIesLumens, 50f, 50000f) : DEFAULT_LUMENS),
                 Kelvin = _fixtureKelvin ?? DEFAULT_KELVIN,
@@ -655,6 +656,7 @@ namespace BimGo.Extraction
                 {
                     Element = elementIndex,
                     Position = InsideFixture(ToScenePoint(t.Origin) + orient.Aim * 0.02f, bounds, elementIndex),
+                    CalculationOrigin = ToScenePoint(t.Origin),
                     Lumens = lumens,
                     Kelvin = n.Kelvin ?? _fixtureKelvin ?? DEFAULT_KELVIN,
                     Downward = orient.Aim.Z < -0.5f ? 0.8f : orient.Aim.Z > 0.5f ? 0.15f : 0.4f,
