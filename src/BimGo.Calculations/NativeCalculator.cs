@@ -164,7 +164,9 @@ public static class NativeCalculator
         foreach (var zone in fresh)
         {
             cancel.ThrowIfCancellationRequested();
-            if(input.Set.WalkingSurfaces)
+            // A zone spanning storeys (a two-storey unit with a loft) always takes walking surfaces: one flat work plane
+            // over its lowest floor would leave its upper floors without points.
+            if(input.Set.WalkingSurfaces || WalkingSurfaces.Applies(zone))
                 foreach (string note in WalkingSurfaces.Generate(zone,allScene,input.Set.Spacing,input.Set.BoundaryOffset,walkable.Contains,stairs.Contains,WalkingSurfaces.ClaimedByOthers(zone,zones)))
                     log.Write($"  {zone.DisplayName}: {note}");
             else

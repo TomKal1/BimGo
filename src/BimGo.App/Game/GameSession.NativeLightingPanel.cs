@@ -110,7 +110,7 @@ internal sealed partial class GameSession
             y = NativeHeading(f, x, y, w, "OPTIONS");
             bool reflect = Checkbox(f, input, x, y, w, "Interreflection", set.Interreflection); y += S(32);
             if (reflect != set.Interreflection) { set.Interreflection = reflect; NativeSetupChanged(); }
-            bool walking = Checkbox(f, input, x, y, w, "Points on walking surfaces", set.WalkingSurfaces); y += S(32);
+            bool walking = Checkbox(f, input, x, y, w, "Walking-surface points in every room", set.WalkingSurfaces); y += S(32);
             if (walking != set.WalkingSurfaces) { set.WalkingSurfaces = walking; NativeSetupChanged(); }
             bool estimates = Checkbox(f, input, x, y, w, "Allow estimated photometry", set.AllowEstimatedPhotometry); y += S(32);
             if (estimates != set.AllowEstimatedPhotometry) { set.AllowEstimatedPhotometry = estimates; NativeSetupChanged(); }
