@@ -1,4 +1,5 @@
 using System.Numerics;
+using BimGo.Calculations;
 using BimGo.Format;
 using BimGo.Scene;
 
@@ -6,7 +7,7 @@ namespace BimGo.Game;
 
 /// <summary>
 /// One-click lighting calculations with the default settings: the room underfoot in the walkthrough (Ctrl+J), or the
-/// rooms in the model review's view (the level shown, or the rooms inside the crop box). The defaults are the quick
+/// rooms in the model review's view (the level shown, or the rooms inside the section box). The defaults are the quick
 /// set's settings, edited in the lighting workspace like any other set.
 /// </summary>
 internal sealed partial class GameSession
@@ -35,14 +36,80 @@ internal sealed partial class GameSession
     private void RunQuickCalculation(IReadOnlyList<int> rooms, string scope)
     {
         if (Scene.Rooms.Length == 0) { Toast("This model has no exported room boundaries. Re-export it with rooms to calculate lighting.", 4f, important: true); return; }
-        if (rooms.Count == 0) { Toast("No rooms in view to calculate. Show a level, select a room or widen the crop.", 4f, important: true); return; }
+        if (rooms.Count == 0) { Toast("No rooms in view to calculate. Show a level, select a room or widen the section box.", 4f, important: true); return; }
         var set = EnsureQuickSet(rooms[0]);
         if (set == null) { Toast(_nativeStatus, 4f, important: true); return; }
         if (NativeSet != set) SelectNativeSet(set.Id);
-        SetNativeRooms(set, rooms.Take(NATIVE_MAX_ROOMS).Distinct().ToArray());
-        NativeSetupChanged();
-        RunNativeCalculation();
+        EndQuickSplit();
+        _quickParts.Add(rooms.Take(NATIVE_MAX_ROOMS).Distinct().ToArray());
+        _quickPartCount = 1;
+        StartQuickPart();
         Toast($"Calculating lighting · {scope} · default settings", 3f);
+    }
+
+    // ---- Split runs: a domain over the size budget runs as spatial parts. The first part is a normal run; each later
+    // part is a partial rerun that solves its own rooms (with only their surroundings as geometry) and keeps the rooms
+    // already done, so the last part publishes one result holding every room.
+    private readonly List<int[]> _quickParts = new();
+    private readonly List<int> _quickDone = new();
+    private int _quickPartCount;
+
+    private bool QuickSplitActive => _quickParts.Count > 0;
+    private int QuickPartNumber => _quickPartCount - _quickParts.Count + 1;
+
+    private void StartQuickPart()
+    {
+        var set = QuickSet;
+        if (set == null || NativeSet != set) { EndQuickSplit(); return; }
+        int[] part = _quickParts[0];
+        SetNativeRooms(set, _quickDone.Concat(part).Distinct().ToArray());
+        NativeSetupChanged();
+        if (_quickDone.Count == 0) RunNativeCalculation();
+        else RunNativeCalculation(part.Select(i => ExportedSceneInput.RoomKey(Scene, i)).ToArray(), domainOnly: true);
+    }
+
+    /// <summary>A quick run published: the next part, or the end of the split.</summary>
+    private void QuickPartFinished()
+    {
+        if (!QuickSplitActive) return;
+        _quickDone.AddRange(_quickParts[0]);
+        _quickParts.RemoveAt(0);
+        if (_quickParts.Count > 0) { StartQuickPart(); return; }
+        if (_quickPartCount > 1) Toast($"Lighting calculated · {_quickDone.Count} rooms in {_quickPartCount} parts (too large for one run)", 4f);
+        EndQuickSplit();
+    }
+
+    /// <summary>
+    /// A run was over a size budget: halve its rooms spatially and run the first half. The quick set splits an automatic
+    /// recalculation the same way. False when it cannot split (a single room, or not the quick set).
+    /// </summary>
+    private bool SplitQuickCalculation(string reason)
+    {
+        var set = QuickSet;
+        if (set == null || NativeSet != set) return false;
+        if (!QuickSplitActive)
+        {
+            if (set.Rooms.Length < 2) return false;
+            _quickParts.Add(set.Rooms.ToArray());
+            _quickPartCount = 1;
+        }
+        int[] part = _quickParts[0];
+        if (part.Length < 2) return false; // one room alone is over budget: the failure is reported as it stands
+        var (first, second) = RoomGroups.Bisect(Scene, part);
+        _quickParts[0] = first;
+        _quickParts.Insert(1, second);
+        _quickPartCount++;
+        Utilities.Log_Utils.Write($"Quick calc split ({reason}): {first.Length} + {second.Length} rooms; {_quickPartCount} parts");
+        Toast($"Too large for one calculation · running {_quickPartCount} parts", 3f);
+        StartQuickPart();
+        return true;
+    }
+
+    private void EndQuickSplit()
+    {
+        _quickParts.Clear();
+        _quickDone.Clear();
+        _quickPartCount = 0;
     }
 
     /// <summary>Walkthrough (Ctrl+J, Pause → LIGHTS): the room the player stands in.</summary>
@@ -64,7 +131,7 @@ internal sealed partial class GameSession
     }
 
     /// <summary>
-    /// Rooms in the review view: with the crop box on, rooms whose floor is inside it and at least half of whose plan it
+    /// Rooms in the review view: with the section box on, rooms whose floor is inside it and at least half of whose plan it
     /// covers; otherwise the level shown (or every room). At most <see cref="NATIVE_MAX_ROOMS"/>, nearest the view centre.
     /// </summary>
     private List<int> ReviewVisibleRooms()
@@ -110,7 +177,8 @@ internal sealed partial class GameSession
     }
 
     /// <summary>What the quick calc is doing, for the review dock and Pause → LIGHTS (null when idle and nothing to report).</summary>
-    private string QuickCalcStatus => _nativeJob != null ? "Calculating · " + System.Threading.Volatile.Read(ref _nativeProgress)
+    private string QuickCalcStatus => _nativeJob != null ? (QuickSplitActive && _quickPartCount > 1 ? $"Calculating part {QuickPartNumber} of {_quickPartCount} · " : "Calculating · ")
+            + System.Threading.Volatile.Read(ref _nativeProgress)
         : _nativeQueued ? "Calculation queued"
         : _nativeStatus.StartsWith("Inputs need attention", StringComparison.Ordinal) || _nativeStatus.StartsWith("Calculation incomplete", StringComparison.Ordinal) ? _nativeStatus
         : null;

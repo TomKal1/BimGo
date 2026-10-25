@@ -136,16 +136,17 @@ internal sealed partial class GameSession
     private float BuildPauseLightsTab(FontAtlas f, InputState input, float x, float y, float w)
     {
         y = NativeHeading(f, x, y, w, "CALCULATE · DEFAULT SETTINGS");
-        float calcW = w - S(100);
+        // Full width: the narrow settings column cannot fit the label beside a second button
         string label = _reviewOpen ? "Calculate rooms in view" : "Calculate this room";
-        if (NativeButton(f, input, x, y, calcW, S(38), $"{label} ({Key(InputAction.LightingCalcRun)})", primary: true, enabled: _nativeJob == null))
+        if (NativeButton(f, input, x, y, w, S(38), $"{label} · {Key(InputAction.LightingCalcRun)}", primary: true, enabled: _nativeJob == null))
         {
             SetPaused(false);
             if (_reviewOpen) QuickCalculateReviewRooms(); else QuickCalculateCurrentRoom();
             return y;
         }
-        if (NativeButton(f, input, x + calcW + S(8), y, S(92), S(38), "Settings…")) OpenQuickCalcSettings();
         y += S(44);
+        if (NativeButton(f, input, x, y, w, S(34), "Default calculation settings…")) OpenQuickCalcSettings();
+        y += S(42);
         string status = QuickCalcStatus;
         if (status != null) y += _ui.TextWrapped(f.Body, x, y, w, status, _nativeJob != null || _nativeQueued ? UiTheme.ACCENT : UiTheme.DANGER, maxLines: 3) + S(6);
         y += S(8);
@@ -156,8 +157,8 @@ internal sealed partial class GameSession
         {
             if (NativeButton(f, input, x, y, half, S(34), "Return to walk")) { RememberCalcView(); CloseLightingReview(); SetPaused(false); }
         }
-        else if (NativeButton(f, input, x, y, half, S(34), "ISO review")) OpenLightingReview();
-        if (NativeButton(f, input, x + half + S(8), y, half, S(34), "Lighting workspace…")) OpenLightingWorkspace();
+        else if (NativeButton(f, input, x, y, half, S(34), "ISO view")) OpenLightingReview();
+        if (NativeButton(f, input, x + half + S(8), y, half, S(34), "Workspace…")) OpenLightingWorkspace();
         y += S(42);
         if (!_reviewOpen) y += _ui.TextWrapped(f.Body, x, y, w, HINT_CALC_CYCLE.Text, UiTheme.TEXT_FAINT, maxLines: 2) + S(4);
         return y;

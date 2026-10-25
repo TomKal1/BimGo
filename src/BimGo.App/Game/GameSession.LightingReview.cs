@@ -423,6 +423,15 @@ namespace BimGo.Game
                 y += S(42);
             }
 
+            // The section box sets what is in view (and so what the calculate button runs)
+            if (NativeButton(f, input, x, y, half, S(34), _section.BoxOn ? "Section box: on" : "Section box: off", primary: _section.BoxOn))
+            {
+                _section.BoxOn = !_section.BoxOn;
+                SectionChanged();
+            }
+            if (NativeButton(f, input, x + half + S(8), y, half, S(34), _reviewEditBox ? "Hide box handles" : "Edit box", primary: _reviewEditBox)) { _reviewEditBox = !_reviewEditBox; }
+            y += S(42);
+
             // One click: the rooms in view with the default settings
             var visible = ReviewVisibleRooms();
             float settingsW = S(92);
@@ -454,7 +463,7 @@ namespace BimGo.Game
             if (close) { RememberCalcView(); CloseLightingReview(); }
         }
 
-        /// <summary>The dock's VIEW tab: shading, the crop box, reference grids and the PNG export.</summary>
+        /// <summary>The dock's VIEW tab: shading, the section box, reference grids and the PNG export.</summary>
         private float BuildReviewViewTab(FontAtlas f, InputState input, float x, float y, float w, float half)
         {
             bool sceneLighting = Checkbox(f, input, x, y, w, "Use scene lighting", _reviewSceneLighting);
@@ -465,16 +474,9 @@ namespace BimGo.Game
                 _renderer.ReleaseReflectionHistory();
             }
             y += S(34);
-            y = NativeHeading(f, x, y, w, "CROP BOX");
-            if (NativeButton(f, input, x, y, half, S(34), _section.BoxOn ? "Crop: on" : "Crop: off", primary: _section.BoxOn))
-            {
-                _section.BoxOn = !_section.BoxOn;
-                SectionChanged();
-            }
-            if (NativeButton(f, input, x + half + S(8), y, half, S(34), "Reset crop")) { ReviewFitCut(); }
+            y = NativeHeading(f, x, y, w, "SECTION BOX");
+            if (NativeButton(f, input, x, y, w, S(34), "Reset box to the level / room")) { ReviewFitCut(); }
             y += S(44);
-            _reviewEditBox = Checkbox(f, input, x, y, w, "Edit box faces / show handles", _reviewEditBox);
-            y += S(32);
             _reviewShowGrids = Checkbox(f, input, x, y, w, "Show model grids", _reviewShowGrids);
             y += S(32);
             bool caps = Checkbox(f, input, x, y, w, "Show cut caps", _reviewShowCaps);
@@ -518,7 +520,7 @@ namespace BimGo.Game
             y += S(44);
             if (_reviewMatches.Count == 0)
             {
-                y += _ui.TextWrapped(f.Body, x, y, w, _reviewRooms.Count == 0 ? "This model has no rooms. Review the whole building or adjust the crop box."
+                y += _ui.TextWrapped(f.Body, x, y, w, _reviewRooms.Count == 0 ? "This model has no rooms. Review the whole building or adjust the section box."
                     : "No rooms match your search.", UiTheme.TEXT_MUTED, maxLines: 2) + S(8);
             }
             foreach (ReviewRoom room in _reviewMatches)

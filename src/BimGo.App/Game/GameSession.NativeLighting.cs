@@ -23,7 +23,8 @@ internal sealed partial class GameSession
     private long _nativeTicket;
     private string _nativeJobSet;
     private NativeCalculationRun _nativeRun, _nativePreviousRun;
-    private string _nativePartialRoomKey;
+    private string[] _nativePartialRoomKeys;
+    private bool _nativePartialDomainOnly;
     private byte[] _nativeOriginalSetup;
     private bool _nativeSetupUnreadable;
     private NativePhysicalState _nativeObserved, _nativeJobState;
@@ -108,12 +109,16 @@ internal sealed partial class GameSession
         _nativeShown = false; _nativeStatus = "Ready · run the selected BimGo set";
         NativeSetupChanged(physical:false);
     }
-    private void RunNativeCalculation(string zoneKey = null)
+    private void RunNativeCalculation(string zoneKey = null) => RunNativeCalculation(zoneKey == null ? null : new[] { zoneKey }, false);
+    /// <param name="zoneKeys">Rooms to solve; the set's other rooms keep their last results (null: the whole set).</param>
+    /// <param name="domainOnly">Take in only the solved rooms' surroundings (a split run), not the whole set's.</param>
+    private void RunNativeCalculation(string[] zoneKeys, bool domainOnly)
     {
         if (NativeSet == null) { CreateNativeSet(); if (NativeSet == null) return; }
-        if (zoneKey != null && (_nativePreviousRun == null || _nativePreviousRun.Input.Set.Id != NativeSet.Id))
+        if (zoneKeys != null && (_nativePreviousRun == null || _nativePreviousRun.Input.Set.Id != NativeSet.Id))
         { _nativeStatus = "Run this entire set once before rerunning a room."; return; }
-        _nativePartialRoomKey = zoneKey;
+        _nativePartialRoomKeys = zoneKeys;
+        _nativePartialDomainOnly = domainOnly && zoneKeys != null;
         _nativeShown = _nativeArmed = true;
         // An in-flight imported-file read can never overwrite a newly selected native run.
         _calcLoad = null;
@@ -124,6 +129,7 @@ internal sealed partial class GameSession
     {
         _nativeGate.Advance(); _nativeCancel?.Cancel(); _nativeQueued = _nativeArmed = false;
         _nativeRun = null; _nativeStatus = "Canceled · no result published";
+        EndQuickSplit();
     }
     private void LeaveNativeCalculation()
     {
@@ -153,9 +159,11 @@ internal sealed partial class GameSession
                 if (job.IsCompletedSuccessfully)
                 {
                     var outcome = job.Result;
-                    if (outcome.Run != null) PublishNativeCalculation(outcome.Run);
+                    if (outcome.Run != null) { PublishNativeCalculation(outcome.Run); QuickPartFinished(); }
+                    else if (outcome.TooLarge && SplitQuickCalculation(outcome.Message)) { /* the next, smaller part is queued */ }
                     else
                     {
+                        EndQuickSplit();
                         _nativeQueued = false;
                         _nativeStatus = outcome.Canceled ? "Canceled · no result published"
                             : (outcome.NeedsInput ? "Inputs need attention: " : "Calculation incomplete: ") + outcome.Message;
@@ -187,11 +195,11 @@ internal sealed partial class GameSession
             var profiles = System.Text.Json.JsonSerializer.Deserialize<LightProfileDocument>(System.Text.Json.JsonSerializer.Serialize(_lightProfileDoc));
             SceneData scene = Scene; Vector3 origin = scene.OriginOffset;
             var previous = _nativePreviousRun;
-            string[] zoneKeys = _nativePartialRoomKey == null ? null : new[] { _nativePartialRoomKey };
-            _nativePartialRoomKey = null;
+            string[] zoneKeys = _nativePartialRoomKeys; bool domainOnly = _nativePartialDomainOnly;
+            _nativePartialRoomKeys = null; _nativePartialDomainOnly = false;
             // Execute even if cancellation arrives before scheduling, so it also returns a handled outcome.
             _nativeJob = Task.Run(() => NativeCalculationJob.Execute(scene,definition,edits,profiles,origin,
-                stage => Volatile.Write(ref _nativeProgress,stage),cancel,previous,zoneKeys));
+                stage => Volatile.Write(ref _nativeProgress,stage),cancel,previous,zoneKeys,domainOnly));
         }
     }
 
@@ -206,7 +214,8 @@ internal sealed partial class GameSession
         string unlit = run.Input.Warnings.FirstOrDefault(w => w.Contains("no exported light source", StringComparison.Ordinal));
         if (unlit != null) _nativeStatus += " · " + unlit;
         _calcNotice = "BimGo calculation · exported geometry · scalar diffuse analysis";
-        _nativeInputs[NativeLightingFiles.ScenePrefix+run.Input.Set.Id+".json"] = run.SceneBytes;
+        string sceneEntry = NativeLightingFiles.ScenePrefix+run.Input.Set.Id+".json";
+        if (run.SceneBytes != null) _nativeInputs[sceneEntry] = run.SceneBytes; else _nativeInputs.Remove(sceneEntry);
         _nativeRevision++;
         try
         {
@@ -221,7 +230,8 @@ internal sealed partial class GameSession
                 Directory.CreateDirectory(_calcFolder); Directory.CreateDirectory(_nativeSceneFolder);
                 WriteNativeBytes(Path.Combine(_calcFolder,_calcName+".bin"),run.Body);
                 WriteNativeBytes(Path.Combine(_calcFolder,_calcName+".json"),run.Header);
-                WriteNativeBytes(Path.Combine(_nativeSceneFolder,run.Input.Set.Id+".json"),run.SceneBytes);
+                string scenePath = Path.Combine(_nativeSceneFolder,run.Input.Set.Id+".json");
+                if (run.SceneBytes != null) WriteNativeBytes(scenePath,run.SceneBytes); else if (File.Exists(scenePath)) File.Delete(scenePath);
                 SaveNativeLightingSettings();
             }
             ListCalcs(); RememberCalcView(); UpdateTitle();
@@ -237,6 +247,7 @@ internal sealed partial class GameSession
     {
         var run = _nativeRun;
         if (run == null || !_nativeShown || !CaptureNativeState().Same(_nativeJobState)) { _nativeStatus = "Run the current revision before exporting a report."; return; }
+        if (kind == 3 && run.SceneBytes == null) { _nativeStatus = "This run's input scene was too large to keep, so it cannot be exported."; return; }
         string extension = kind==0?".html":kind==1?".csv":".json";
         _window.Input.ReleaseAll();
         string path = Platform.FileDialogs.ShowSave(_window.Handle,"Export BimGo calculation",$"Calculation (*{extension})|*{extension}",SuggestedFolder(),DisplaySafe(run.Input.Set.Name)+extension,extension);

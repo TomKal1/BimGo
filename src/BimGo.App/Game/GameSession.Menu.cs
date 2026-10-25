@@ -583,7 +583,7 @@ namespace BimGo.Game
                 x = leftX + stackW + stackGap;
                 y = buttonsTop;
             }
-            if (MenuButton(f, x, y, stackW, _reviewOpen ? "BACK TO ISO VIEW" : "ISO VIEW", false, false, height: buttonH, compact: true)) { if (_reviewOpen) { SetPaused(false); } else { OpenLightingReview(); } return; }
+            if (MenuButton(f, x, y, stackW, _reviewOpen ? "RETURN TO WALK" : "ISO VIEW", false, false, height: buttonH, compact: true)) { if (_reviewOpen) { RememberCalcView(); CloseLightingReview(); SetPaused(false); } else { OpenLightingReview(); } return; }
             y += step;
             if (MenuButton(f, x, y, stackW, "LIGHTING", false, false, height: buttonH, compact: true)) { OpenLightingWorkspace(); return; }
             y += step;

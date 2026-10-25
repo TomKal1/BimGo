@@ -12,6 +12,8 @@ public sealed class NativeCalculationOutcome
     public bool Canceled { get; init; }
     public string Message { get; init; }
     public string Diagnostic { get; init; }
+    /// <summary>The domain exceeded a size budget; the same rooms in smaller groups may calculate.</summary>
+    public bool TooLarge { get; init; }
 }
 
 public static class NativeCalculationJob
@@ -19,17 +21,21 @@ public static class NativeCalculationJob
     /// <summary>Handle failures inside user code, before they escape into Task infrastructure.</summary>
     public static NativeCalculationOutcome Execute(SceneData scene, NativeLightingSet definition,
         CalculationEdits edits, LightProfileDocument profiles, Vector3 origin,
-        Action<string> progress = null, CancellationToken cancel = default, NativeCalculationRun previous = null, IReadOnlyCollection<string> zoneKeys = null)
+        Action<string> progress = null, CancellationToken cancel = default, NativeCalculationRun previous = null, IReadOnlyCollection<string> zoneKeys = null, bool zoneDomainOnly = false)
     {
         try
         {
             cancel.ThrowIfCancellationRequested();
-            var input = ExportedSceneInput.Build(scene, definition, edits, profiles, cancel);
+            var input = ExportedSceneInput.Build(scene, definition, edits, profiles, cancel, zoneDomainOnly ? zoneKeys : null);
             return new() { Run = NativeCalculator.Run(input, origin, progress, cancel, previous, zoneKeys) };
         }
         catch (OperationCanceledException) when (cancel.IsCancellationRequested)
         {
             return new() { Canceled = true };
+        }
+        catch (CalculationTooLargeException ex)
+        {
+            return new() { NeedsInput = true, TooLarge = true, Message = ex.Message, Diagnostic = ex.ToString() };
         }
         catch (Exception ex) when (ex is InvalidDataException or FormatException)
         {
