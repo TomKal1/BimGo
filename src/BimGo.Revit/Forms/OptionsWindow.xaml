@@ -436,6 +436,19 @@
                         <CheckBox x:Name="CheckSidecarsBesideModel" Content="Also write them beside the model when its folder is writable"/>
                         <TextBlock x:Name="TextSidecars" Margin="22,4,0,0" FontSize="12" Foreground="{StaticResource Muted}" TextWrapping="Wrap"
                                    Text="They are always kept in BimGo's own folder for this model (%LocalAppData%\BimGo\Models). Tick this to share them with colleagues on a shared drive: newer copies there are read at each Go. Cloud models can't share this way; use .bimgo files."/>
+
+                        <!-- Comment markers in the model -->
+                        <TextBlock Style="{StaticResource SectionHeader}" Margin="0,18,0,8" Text="COMMENT MARKERS IN REVIT"/>
+                        <CheckBox x:Name="CheckMarkersLive" Content="Live sessions keep a marker in the model for every comment"/>
+                        <CheckBox x:Name="CheckMarkersRemoveClosed" Margin="0,6,0,0" Content="Remove the markers of closed comments"/>
+                        <DockPanel Margin="0,8,0,0">
+                            <Button x:Name="ButtonMarkerFamily" DockPanel.Dock="Right" Content="Browse…" Style="{StaticResource SecondaryButton}" Height="28" Margin="8,0,0,0" Click="ButtonMarkerFamily_Click"/>
+                            <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,0,8,0" Text="Marker family"/>
+                            <TextBox x:Name="TextMarkerFamily" Height="28" Padding="6,0" VerticalContentAlignment="Center" BorderBrush="#B7BDC4"
+                                     ToolTip="The .rfa loaded when a model has no “BimGo Comment Marker” family. Empty: the one that comes with BimGo."/>
+                        </DockPanel>
+                        <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{StaticResource Muted}" TextWrapping="Wrap"
+                                   Text="Empty uses the family that comes with BimGo. The ribbon's Comment markers button places them from this model's comments (or a .bimgo file's) at any time; one undo entry each time."/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

@@ -54,13 +54,15 @@ namespace BimGo.Shell
         }
 
         /// <summary>
-        /// Second instance: hands a file or session to the running instance and brings its window forward.
+        /// Second instance: hands a file or session to the running instance and brings its window forward. Round Z-C: a
+        /// kiosk launch (desktop shortcut) only brings the window forward, so a second click on a kiosk shortcut never
+        /// queues the file or interrupts what is showing.
         /// </summary>
         public static void ForwardToRunningInstance(OpenTarget target)
         {
             try
             {
-                if (target != null)
+                if (target != null && !target.Kiosk)
                 {
                     var request = new OpenRequest
                     {

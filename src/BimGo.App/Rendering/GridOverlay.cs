@@ -42,9 +42,6 @@ namespace BimGo.Rendering
         private int _viewProj, _eye, _halfWidth, _alpha, _dashed, _orthographic, _forward, _sectionPlanes, _sectionCount;
         private bool _uploaded;
 
-        /// <summary>Segments in the buffer (stats).</summary>
-        public int SegmentCount => _count / 6;
-
         /// <summary>
         /// Creates the GL objects (once, with the renderer's context current).
         /// </summary>

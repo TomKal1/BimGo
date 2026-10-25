@@ -55,9 +55,8 @@ namespace BimGo.Extraction
         public static string FolderOf(Document doc) => ModelFolders.FolderFor(SafeTitle(doc), KeySource(doc));
 
         /// <summary>
-        /// Prepares the model's folder (model.json, one-time copy of older sidecars, shared files when sharing is on)
-        /// and returns the comments path in it. Falls back to the old per-title file in
-        /// <c>%LocalAppData%\BimGo\Comments</c> if the folder can't be created.
+        /// Prepares the model's folder (model.json, shared files when sharing is on) and returns the comments path in
+        /// it. Falls back to a per-title file in <c>%LocalAppData%\BimGo\Comments</c> if the folder can't be created.
         /// </summary>
         public static string PrepareCommentsPath(Document doc, LaunchSettings settings)
         {
@@ -65,7 +64,7 @@ namespace BimGo.Extraction
             string key = KeySource(doc);
             string folder = ModelFolders.FolderFor(title, key);
             string beside = BesideModelCommentsPath(doc);
-            string oldFallback = Path.Combine(Utilities.Log_Utils.Folder, "Comments", MakeSafeFileName(title) + BimGoFormat.SIDECAR_SUFFIX);
+            string fallback = Path.Combine(Utilities.Log_Utils.Folder, "Comments", MakeSafeFileName(title) + BimGoFormat.SIDECAR_SUFFIX);
 
             var info = new ModelFolderInfo
             {
@@ -75,11 +74,11 @@ namespace BimGo.Extraction
                 ShareBesideModel = settings?.SidecarsBesideModel == true && beside != null,
                 BesideCommentsPath = beside ?? string.Empty
             };
-            return ModelFolders.Prepare(folder, info, new[] { beside, oldFallback }) ?? oldFallback;
+            return ModelFolders.Prepare(folder, info) ?? fallback;
         }
 
         /// <summary>
-        /// The comments sidecar beside the model (pre-build-B location), or null for cloud / unsaved models or a
+        /// The comments sidecar beside the model (where sharing mirrors the folder's files), or null for cloud / unsaved models or a
         /// folder that doesn't exist.
         /// </summary>
         public static string BesideModelCommentsPath(Document doc)
@@ -110,10 +109,6 @@ namespace BimGo.Extraction
             catch { return "Model"; }
         }
 
-        private static string MakeSafeFileName(string name)
-        {
-            foreach (char c in Path.GetInvalidFileNameChars()) { name = name.Replace(c, '_'); }
-            return name;
-        }
+        private static string MakeSafeFileName(string name) => Utilities.FileNames.Safe(name);
     }
 }

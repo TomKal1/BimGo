@@ -50,51 +50,23 @@ namespace BimGo.Tests
         }
 
         [TestMethod]
-        public void Prepare_CopiesOldSidecarsOnce_AndLeavesTheOriginals()
+        public void Prepare_WritesTheInfo_AndNeverTouchesBesideFilesWithoutSharing()
         {
             using var temp = new TempFolder();
             string modelDir = Path.Combine(temp.Path, "Project");
             Directory.CreateDirectory(modelDir);
             string beside = Path.Combine(modelDir, "Tower" + BimGoFormat.SIDECAR_SUFFIX);
             File.WriteAllText(beside, "{\"comments\":[{\"id\":\"c1\",\"text\":\"Beside\"}]}");
-            File.WriteAllText(Path.Combine(modelDir, "Tower" + BimGoFormat.SUN_SIDECAR_SUFFIX), "{\"enabled\":true}");
-
-            // The old Comments folder has bookmarks the model folder doesn't
-            string oldDir = Path.Combine(temp.Path, "Comments");
-            Directory.CreateDirectory(oldDir);
-            string old = Path.Combine(oldDir, "Tower" + BimGoFormat.SIDECAR_SUFFIX);
-            File.WriteAllText(old, "{\"comments\":[{\"id\":\"c2\",\"text\":\"Old\"}]}");
-            File.WriteAllText(Path.Combine(oldDir, "Tower" + BimGoFormat.BOOKMARK_SIDECAR_SUFFIX), "{\"bookmarks\":[]}");
 
             string folder = Path.Combine(temp.Path, "Models", "Tower_abc");
-            var info = new ModelFolderInfo { Title = "Tower", Key = "local:x" };
-            string comments = ModelFolders.Prepare(folder, info, new[] { beside, old, null });
+            var info = new ModelFolderInfo { Title = "Tower", Key = "local:x", BesideCommentsPath = beside };
+            string comments = ModelFolders.Prepare(folder, info);
 
             Assert.AreEqual(Path.Combine(folder, ModelFolders.COMMENTS_FILE), comments);
-            Assert.AreEqual("Beside", CommentFiles.Read(comments, out _).Comments[0].Text, "The beside-model copy wins");
-            Assert.IsTrue(File.Exists(Path.Combine(folder, "sun.json")));
-            Assert.IsTrue(File.Exists(Path.Combine(folder, "bookmarks.json")), "Taken from the next candidate");
-            Assert.IsFalse(File.Exists(Path.Combine(folder, "visibility.json")));
-            Assert.IsTrue(File.Exists(beside), "Originals stay as a backup");
+            Assert.IsFalse(File.Exists(comments), "Nothing is copied in without sharing");
             Assert.AreEqual("Tower", ModelFolders.ReadInfo(folder).Title);
-
-            // A second Go never overwrites the folder's own files
-            File.WriteAllText(beside, "{\"comments\":[{\"id\":\"c3\",\"text\":\"Changed beside\"}]}");
-            ModelFolders.Prepare(folder, info, new[] { beside });
-            Assert.AreEqual("Beside", CommentFiles.Read(comments, out _).Comments[0].Text);
+            Assert.IsNull(ModelFolders.Prepare(null, info));
         }
-
-        [TestMethod]
-        public void Prepare_MigratesAnRvtGoCommentsFile()
-        {
-            using var temp = new TempFolder();
-            string beside = temp.File("Tower" + BimGoFormat.SIDECAR_SUFFIX);
-            File.WriteAllText(temp.File("Tower" + BimGoFormat.LEGACY_SIDECAR_SUFFIX), "{\"Version\":1,\"Comments\":[{\"Id\":\"old\",\"Text\":\"From RvtGo\"}]}");
-
-            string comments = ModelFolders.Prepare(Path.Combine(temp.Path, "Models", "T_1"), new ModelFolderInfo(), new[] { beside });
-            Assert.AreEqual("From RvtGo", CommentFiles.Read(comments, out _).Comments[0].Text);
-        }
-
         [TestMethod]
         public void Sharing_MirrorsWrites_AndTakesNewerCopies()
         {
@@ -104,7 +76,7 @@ namespace BimGo.Tests
             string beside = Path.Combine(modelDir, "Tower" + BimGoFormat.SIDECAR_SUFFIX);
             string folder = Path.Combine(temp.Path, "Models", "Tower_abc");
             var info = new ModelFolderInfo { Title = "Tower", ShareBesideModel = true, BesideCommentsPath = beside };
-            string comments = ModelFolders.Prepare(folder, info, new[] { beside });
+            string comments = ModelFolders.Prepare(folder, info);
 
             // Writes go beside the model too
             var document = new CommentDocument { Comments = new List<CommentRecord> { new() { Id = "a", Text = "Mine" } } };
@@ -117,7 +89,7 @@ namespace BimGo.Tests
             File.WriteAllText(beside, "{\"comments\":[{\"id\":\"b\",\"text\":\"Theirs\"}]}");
             File.SetLastWriteTimeUtc(comments, DateTime.UtcNow.AddMinutes(-10));
             File.SetLastWriteTimeUtc(beside, DateTime.UtcNow);
-            ModelFolders.Prepare(folder, info, new[] { beside });
+            ModelFolders.Prepare(folder, info);
             Assert.AreEqual("Theirs", CommentFiles.Read(comments, out _).Comments[0].Text);
         }
 
@@ -128,7 +100,7 @@ namespace BimGo.Tests
             string beside = temp.File("Tower" + BimGoFormat.SIDECAR_SUFFIX);
             string folder = Path.Combine(temp.Path, "Models", "Tower_abc");
             var info = new ModelFolderInfo { Title = "Tower", ShareBesideModel = false, BesideCommentsPath = beside };
-            string comments = ModelFolders.Prepare(folder, info, new[] { beside });
+            string comments = ModelFolders.Prepare(folder, info);
 
             var document = new CommentDocument { Comments = new List<CommentRecord> { new() { Id = "a", Text = "Private" } } };
             Assert.IsTrue(CommentFiles.Write(comments, document, out string error), error);
@@ -136,30 +108,22 @@ namespace BimGo.Tests
         }
 
         [TestMethod]
-        public void TextureOverrides_MoveIntoTheModelFolder()
+        public void TextureOverrides_LiveInTheModelFolder()
         {
             using var temp = new TempFolder();
-            string legacyDir = Path.Combine(temp.Path, "texture-overrides");
-            TextureOverrideSet legacy = TextureOverrideSet.Load("uid-123", legacyDir);
-            legacy.Set(TextureOverrideSet.HOST, "uid-carpet", "Carpet", TextureOverride.ForProxy("carpet"));
-            Assert.IsTrue(legacy.Save());
-
             string folder = Path.Combine(temp.Path, "Models", "Tower_abc");
-            TextureOverrideSet moved = TextureOverrideSet.LoadFromModelFolder(folder, "uid-123", legacyDir);
-            Assert.AreEqual("carpet", moved.Find(TextureOverrideSet.HOST, "uid-carpet", "Carpet")?.Proxy);
+            TextureOverrideSet set = TextureOverrideSet.LoadFromModelFolder(folder, "uid-123", temp.Path);
+            Assert.IsTrue(set.IsEmpty);
+            set.Set(TextureOverrideSet.HOST, "uid-brick", "Brick", TextureOverride.ForProxy("brick"));
+            Assert.IsTrue(set.Save());
             Assert.IsTrue(File.Exists(Path.Combine(folder, ModelFolders.TEXTURE_OVERRIDES_FILE)));
-            Assert.IsTrue(File.Exists(TextureOverrideSet.PathFor("uid-123", legacyDir)), "The old file stays as a backup");
+            Assert.IsFalse(File.Exists(TextureOverrideSet.PathFor("uid-123", temp.Path)), "Not the per-key file");
 
-            // Saves go to the folder
-            moved.Set(TextureOverrideSet.HOST, "uid-brick", "Brick", TextureOverride.ForProxy("brick"));
-            Assert.IsTrue(moved.Save());
-            TextureOverrideSet again = TextureOverrideSet.LoadFromModelFolder(folder, "uid-123", legacyDir);
+            TextureOverrideSet again = TextureOverrideSet.LoadFromModelFolder(folder, "uid-123", temp.Path);
             Assert.AreEqual("brick", again.Find(TextureOverrideSet.HOST, "uid-brick", "Brick")?.Proxy);
-            Assert.IsNull(TextureOverrideSet.Load("uid-123", legacyDir).Find(TextureOverrideSet.HOST, "uid-brick", "Brick"));
         }
-
         [TestMethod]
-        public void TextureOverrides_WithoutAFolder_UseTheOlderFile()
+        public void TextureOverrides_WithoutAFolder_UseThePerKeyFile()
         {
             using var temp = new TempFolder();
             TextureOverrideSet set = TextureOverrideSet.LoadFromModelFolder(null, "uid-9", temp.Path);

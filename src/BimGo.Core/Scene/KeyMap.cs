@@ -918,14 +918,14 @@ namespace BimGo.Scene
 
         #region README
 
-        /// <summary>The marker lines around the generated controls in README §3.</summary>
+        /// <summary>The marker lines around the generated controls tables in docs/controls.md.</summary>
         public const string README_BEGIN = "<!-- controls:begin (generated from the action map's defaults by tests/BimGo.Core.Tests/ControlsTests.cs: edit InputCatalog, not this table) -->";
 
         /// <summary>The closing marker.</summary>
         public const string README_END = "<!-- controls:end -->";
 
         /// <summary>
-        /// The default controls as Markdown tables, one per group (README §3).
+        /// The default controls as Markdown tables, one per group (docs/controls.md).
         /// </summary>
         public static string DefaultsMarkdown()
         {

@@ -217,6 +217,9 @@ namespace BimGo.Forms
             TextHelperKeywords.Text = string.Join(", ", _settings.HelperSubcategoryKeywords ?? LaunchSettings.DefaultHelperKeywords());
             LoadPhases();
             CheckSidecarsBesideModel.IsChecked = _settings.SidecarsBesideModel;
+            CheckMarkersLive.IsChecked = _settings.CommentMarkersLive; // Round Z-B
+            CheckMarkersRemoveClosed.IsChecked = _settings.CommentMarkersRemoveClosed;
+            TextMarkerFamily.Text = _settings.CommentMarkerFamily ?? string.Empty;
             Tabs.SelectedIndex = Math.Clamp(_settings.LastOptionsTab, 0, Tabs.Items.Count - 1);
 
             foreach (string name in _settings.ExtraParameters ?? new List<string>())
@@ -539,6 +542,9 @@ namespace BimGo.Forms
             _settings.ProbeResolution = _display.ProbeResolution;
 
             _settings.SidecarsBesideModel = CheckSidecarsBesideModel.IsChecked == true;
+            _settings.CommentMarkersLive = CheckMarkersLive.IsChecked == true; // Round Z-B
+            _settings.CommentMarkersRemoveClosed = CheckMarkersRemoveClosed.IsChecked == true;
+            _settings.CommentMarkerFamily = TextMarkerFamily.Text ?? string.Empty;
             _settings.LastOptionsTab = Math.Max(Tabs.SelectedIndex, 0);
             _settings.Sanitise();
 
@@ -581,6 +587,31 @@ namespace BimGo.Forms
         /// <summary>
         /// Lists the model's parameter names (sampled per category, instance and type parameters).
         /// </summary>
+        /// <summary>Round Z-B: picks the marker family file.</summary>
+        private void ButtonMarkerFamily_Click(object sender, Win.RoutedEventArgs e)
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "Comment marker family",
+                Filter = "Revit families (*.rfa)|*.rfa",
+                CheckFileExists = true
+            };
+            string current = TextMarkerFamily.Text?.Trim().Trim('"');
+            if (!string.IsNullOrEmpty(current))
+            {
+                try
+                {
+                    string folder = System.IO.Path.GetDirectoryName(current);
+                    if (System.IO.Directory.Exists(folder)) { dialog.InitialDirectory = folder; }
+                }
+                catch
+                {
+                    // A half-typed path: start wherever the dialog likes
+                }
+            }
+            if (dialog.ShowDialog(this) == true) { TextMarkerFamily.Text = dialog.FileName; }
+        }
+
         private void ButtonScanParameters_Click(object sender, Win.RoutedEventArgs e)
         {
             if (_scanParameterNames == null) { return; }

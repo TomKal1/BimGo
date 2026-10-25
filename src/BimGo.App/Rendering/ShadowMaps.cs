@@ -89,12 +89,6 @@ namespace BimGo.Rendering
         /// <summary>One texel in texture coordinates.</summary>
         public float Texel => 1f / Math.Max(_size, 1);
 
-        /// <summary>The depth texture array.</summary>
-        public uint DepthTexture => _depth;
-
-        /// <summary>The transmittance texture array.</summary>
-        public uint TransmitTexture => _transmit;
-
         /// <summary>True if glass transmittance is being rendered (the model has transparent geometry).</summary>
         public bool HasTransmit => _withTransmit && Ready;
 

@@ -54,12 +54,11 @@ namespace BimGo.Game
         }
 
         /// <summary>
-        /// Loads the sidecar (migrating a legacy RvtGo sidecar first). No-op for embedded stores.
+        /// Loads the comments file. No-op for embedded stores.
         /// </summary>
         public void Load()
         {
             if (IsEmbedded) { return; }
-            CommentFiles.MigrateLegacy(_path);
             CommentDocument document = CommentFiles.Read(_path, out string error);
             LastError = error;
             if (document != null) { LoadFrom(document); }

@@ -1,0 +1,18 @@
+<Project>
+
+	<!--
+		One place for BimGo's version and publisher (all three projects under src/ import this file).
+		To release a new version, change BimGoVersion here only (docs/releasing.md): the assemblies, the add-in, the
+		publish script and the installer all read it.
+	-->
+	<PropertyGroup>
+		<BimGoVersion>1.0.0</BimGoVersion>
+		<Version>$(BimGoVersion)</Version>
+		<AssemblyVersion>$(BimGoVersion).0</AssemblyVersion>
+		<FileVersion>$(BimGoVersion).0</FileVersion>
+		<Company>Aussie BIM Guru</Company>
+		<Authors>Aussie BIM Guru</Authors>
+		<Copyright>Copyright 2026 Aussie BIM Guru (MIT-0)</Copyright>
+	</PropertyGroup>
+
+</Project>

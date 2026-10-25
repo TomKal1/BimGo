@@ -38,8 +38,8 @@ namespace BimGo.Scene
 
     /// <summary>
     /// The texture choices for one Revit host model (and the links extracted with it), remembered per machine in
-    /// the model's BimGo folder (<c>texture-overrides.json</c>, UX round build B; older files in
-    /// <c>%AppData%\BimGo\texture-overrides\&lt;host model key&gt;.json</c> are copied in once). Written by the Revit "Review textures…"
+    /// the model's BimGo folder (<c>texture-overrides.json</c>; without a folder, in
+    /// <c>%AppData%\BimGo\texture-overrides\&lt;host model key&gt;.json</c>). Written by the Revit "Review textures…"
     /// window and by the app's Textures panel in a live session; read by every extraction of that model, so a fix made
     /// once is used on every Go / F5. Nothing is ever written into the Revit model.
     /// <para>Entries are keyed by document ("host", or a link's model key) and then by material UniqueId, with the
@@ -128,32 +128,18 @@ namespace BimGo.Scene
 
         /// <summary>
         /// Loads the overrides kept in a model's BimGo folder (<c>texture-overrides.json</c>, see
-        /// <see cref="Format.ModelFolders"/>). The first time, the older per-key file
-        /// (<c>%AppData%\BimGo\texture-overrides\&lt;key&gt;.json</c>) is copied in and left as a backup. With no
-        /// folder (an older snapshot), falls back to the per-key file. Never throws.
+        /// <see cref="Format.ModelFolders"/>). With no folder, uses the per-key file in <paramref name="fallbackFolder"/>.
+        /// Never throws.
         /// </summary>
         /// <param name="modelFolder">The model's BimGo folder, or null.</param>
-        /// <param name="legacyHostKey">The older key (<c>ProjectInformation.UniqueId</c>), for the one-time copy.</param>
-        /// <param name="legacyFolder">The older files' folder, or null for <see cref="DefaultFolder"/> (tests use their own).</param>
-        public static TextureOverrideSet LoadFromModelFolder(string modelFolder, string legacyHostKey, string legacyFolder = null)
+        /// <param name="hostKey">The host model key (<c>ProjectInformation.UniqueId</c>).</param>
+        /// <param name="fallbackFolder">The per-key files' folder without a model folder, or null for
+        /// <see cref="DefaultFolder"/> (tests use their own).</param>
+        public static TextureOverrideSet LoadFromModelFolder(string modelFolder, string hostKey, string fallbackFolder = null)
         {
-            if (string.IsNullOrWhiteSpace(modelFolder)) { return Load(legacyHostKey, legacyFolder); }
+            if (string.IsNullOrWhiteSpace(modelFolder)) { return Load(hostKey, fallbackFolder); }
             string path = Path.Combine(modelFolder, Format.ModelFolders.TEXTURE_OVERRIDES_FILE);
-            try
-            {
-                string legacy = string.IsNullOrWhiteSpace(legacyHostKey) ? null : PathFor(legacyHostKey, legacyFolder);
-                if (!File.Exists(path) && legacy != null && File.Exists(legacy))
-                {
-                    Directory.CreateDirectory(modelFolder);
-                    File.Copy(legacy, path, overwrite: false);
-                    Utilities.Log_Utils.Write($"Texture overrides copied into the model folder: {legacy} -> {path}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Utilities.Log_Utils.Write($"Texture overrides not migrated ({path}): {ex.Message}");
-            }
-            return LoadFile(path, legacyHostKey ?? string.Empty, null, path);
+            return LoadFile(path, hostKey ?? string.Empty, null, path);
         }
 
         private static TextureOverrideSet LoadFile(string path, string hostKey, string folder, string filePath)

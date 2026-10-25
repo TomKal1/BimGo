@@ -210,6 +210,15 @@ namespace BimGo.Live
 
         /// <summary>Revit → app (Round X-E): the ribbon asks for BimGo's camera (<see cref="RevitViewRequestPayload"/>).</summary>
         public const string VIEW_REQUEST = "view.request";
+
+        /// <summary>
+        /// app → Revit (Round Z-B): the comments as Revit markers (<see cref="MarkersSyncPayload"/>); one "BimGo: comment
+        /// markers" transaction when anything changes.
+        /// </summary>
+        public const string MARKERS_SYNC = "markers.sync";
+
+        /// <summary>Revit → app (Round Z-B): what the sync did (<see cref="MarkersResultPayload"/>).</summary>
+        public const string MARKERS_RESULT = "markers.result";
     }
 
     /// <summary>
@@ -347,6 +356,12 @@ namespace BimGo.Live
         /// (an older add-in leaves it out: the app then says the add-in needs updating).
         /// </summary>
         public bool RevitViews { get; set; }
+
+        /// <summary>
+        /// Optional (Round Z-B, additive): true from an add-in that keeps comment markers in the model (markers.sync);
+        /// false when its Options turned live markers off. An older add-in leaves it out: the app sends nothing.
+        /// </summary>
+        public bool CommentMarkers { get; set; }
     }
 
     public sealed class RefreshRequestPayload

@@ -78,7 +78,7 @@ namespace BimGo.Clashes
             document.Generator = null;
             document.ExportedUtc = null;
 
-            // Rules carry their operator and values, with the earlier fields in step for older builds
+            // Rules carry their operator and values
             foreach (SearchSet set in document.Sets ?? Enumerable.Empty<SearchSet>())
             {
                 set?.NormaliseRules(); // C-B4: groups too (empty groups list → left out of the file)
@@ -92,7 +92,7 @@ namespace BimGo.Clashes
 
         /// <summary>
         /// The clash file that goes with a live session's comments file (<c>clashes.json</c> in the model folder, or
-        /// <c>&lt;model&gt;.bimgo-clashes.json</c> beside an older sidecar), or null.
+        /// <c>&lt;model&gt;.bimgo-clashes.json</c> beside a comments sidecar), or null.
         /// </summary>
         public static string SidecarFor(string commentsSidecarPath) => SidecarJson.BesideComments(commentsSidecarPath, BimGoFormat.CLASH_SIDECAR_SUFFIX);
 

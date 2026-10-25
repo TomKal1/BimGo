@@ -67,9 +67,6 @@ namespace BimGo.Rendering
         /// <summary>A jump further than this (m) since the history (a teleport, a bookmark) skips the reflections for a frame.</summary>
         private const float SSR_JUMP = 3f;
 
-        /// <summary>True when the last frame's colour is kept for reflections (the session's status line).</summary>
-        public bool ScreenReflectionsReady => _ssrHistoryValid;
-
         private void InitialiseScreenReflections()
         {
             _sceneSsr = SsrUniforms.From(_sceneProgram);

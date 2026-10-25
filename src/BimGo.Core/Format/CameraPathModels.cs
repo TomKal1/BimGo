@@ -166,6 +166,7 @@ namespace BimGo.Format
                 Visibility.GroundOffset = null;
                 Visibility.Section = null;
                 Visibility.Appearance = null;
+                Visibility.Rooms = null; // Round Z-A: the room overlay belongs to the model
             }
             return true;
         }

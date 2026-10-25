@@ -2,8 +2,7 @@
 
 	<!--
 		BimGo.App: the standalone walkthrough app (BimGo.exe) and the engine (GL renderer, physics, guns, HUD).
-		No Revit references. Until live sessions arrive (phase 2) the Revit add-in also hosts this engine in-process
-		through GameHost, which is why this exe is referenced by BimGo.Revit.
+		No Revit references; the add-in launches it (live sessions) and never loads it.
 
 		UseWindowsForms only brings in-box framework pieces (System.Drawing for the font atlas, file dialogs).
 
@@ -23,10 +22,6 @@
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<RootNamespace>BimGo</RootNamespace>
 		<AssemblyName>BimGo</AssemblyName>
-		<AssemblyVersion>1.0.0.0</AssemblyVersion>
-		<FileVersion>1.0.0.0</FileVersion>
-		<Version>1.0.0</Version>
-		<Company>Author</Company>
 		<Product>BimGo</Product>
 		<GenerateDocumentationFile>True</GenerateDocumentationFile>
 		<NoWarn>$(NoWarn);CS1591</NoWarn>
@@ -72,10 +67,11 @@
 	</ItemGroup>
 
 	<!--
-		Install a copy of the build to %LocalAppData%\Programs\BimGo\ so the add-ins (all Revit years) can launch it.
-		Skipped quietly if BimGo.exe is running (the copy is retried on the next build).
+		Debug builds install a copy to %LocalAppData%\Programs\BimGo\ (where the installer puts it, and where every Revit
+		year's add-in looks for BimGo.exe). Skipped quietly if BimGo.exe is running (retried on the next build).
+		Release builds and publish copy nothing: build\publish.ps1 packages them.
 	-->
-	<Target Name="InstallBimGoApp" AfterTargets="Build" Condition="'$(BimGoInstallDir)' != ''">
+	<Target Name="InstallBimGoApp" AfterTargets="Build" Condition="'$(BimGoInstallDir)' != '' And '$(Configuration)' == 'Debug'">
 		<ItemGroup>
 			<BimGoAppFiles Include="$(TargetDir)**\*.*" Exclude="$(TargetDir)**\*.pdb" />
 		</ItemGroup>

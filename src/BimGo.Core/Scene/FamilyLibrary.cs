@@ -17,9 +17,6 @@ namespace BimGo.Scene
         /// <summary>Work-plane- or face-based: placed on the level's plane (hosted by the level's work plane).</summary>
         public const string WORK_PLANE = "workPlane";
 
-        /// <summary>Older name of <see cref="WORK_PLANE"/> (snapshots from the first library build; listed only).</summary>
-        public const string FACE_BASED = "faceBased";
-
         /// <summary>Anything else (two-level, line-based, adaptive…): listed, not placeable.</summary>
         public const string OTHER = "other";
     }

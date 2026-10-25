@@ -92,9 +92,6 @@ namespace BimGo.Scene
         /// <summary>True for Shift, Ctrl and Alt (which are also usable as keys on their own: Run, Crouch).</summary>
         public static bool IsModifier(ushort code) => code is SHIFT or CTRL or ALT or PAD_LB or PAD_RB;
 
-        /// <summary>True for mouse buttons and the wheel.</summary>
-        public static bool IsMouse(ushort code) => code is LEFT_MOUSE or RIGHT_MOUSE or MIDDLE_MOUSE or MOUSE4 or MOUSE5 or WHEEL_UP or WHEEL_DOWN;
-
         /// <summary>The modifier flag a modifier key stands for (None for other keys).</summary>
         public static KeyModifiers ModifierOf(ushort code) => code switch
         {
@@ -270,12 +267,6 @@ namespace BimGo.Scene
 
         /// <summary>True when unbound.</summary>
         public bool IsEmpty => Key == KeyCodes.NONE;
-
-        /// <summary>A letter or digit key with these modifiers.</summary>
-        public static KeyChord Of(char c, KeyModifiers modifiers = KeyModifiers.None) => new(KeyCodes.Letter(c), modifiers);
-
-        /// <summary>Number of modifiers it needs.</summary>
-        public int ModifierCount => System.Numerics.BitOperations.PopCount((uint)Modifiers);
 
         /// <summary>True for a gamepad button, trigger or stick direction.</summary>
         public bool IsPad => KeyCodes.IsPad(Key);

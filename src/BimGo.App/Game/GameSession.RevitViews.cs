@@ -42,7 +42,7 @@ namespace BimGo.Game
             }
             if (!_live.RevitViewsSupported)
             {
-                Toast("Revit views from BimGo need the BimGo add-in from build X-E or later in Revit", 4f, important: true);
+                Toast("Revit views from BimGo need an up-to-date BimGo add-in in Revit", 4f, important: true);
                 return;
             }
 

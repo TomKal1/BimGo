@@ -360,9 +360,6 @@ namespace BimGo.Game
 
         #region Panel: open, close, keys
 
-        /// <summary>True while the sun panel is open (cursor free, player still).</summary>
-        private bool IsSunPanelOpen => _sunPanelOpen;
-
         private void OpenSunPanel()
         {
             CloseLightingReview();

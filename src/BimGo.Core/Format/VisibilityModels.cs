@@ -41,13 +41,19 @@ namespace BimGo.Format
         /// </summary>
         public Scene.AppearanceSettings Appearance { get; set; }
 
+        /// <summary>
+        /// Round Z-A: the room data overlay (floating tags, shown parameters, target check), or null for the defaults
+        /// (tags off). Older readers ignore it.
+        /// </summary>
+        public Scene.RoomOverlaySettings Rooms { get; set; }
+
         /// <summary>Most the ground plane can move from its default (m), as the pause menu slider.</summary>
         public const float MAX_GROUND_OFFSET = 10f;
 
         /// <summary>True when nothing is hidden and the ground is at its default (the file then leaves the entry out).</summary>
         [JsonIgnore]
         public bool IsEmpty => (HiddenCategories?.Count ?? 0) == 0 && (HiddenLinks?.Count ?? 0) == 0 && (HiddenElements?.Count ?? 0) == 0
-            && GroundOffset == null && Section == null && Grids == null && Appearance == null;
+            && GroundOffset == null && Section == null && Grids == null && Appearance == null && Rooms == null;
 
         /// <summary>
         /// Drops null and blank entries (guards against hand-edited files).
@@ -67,6 +73,8 @@ namespace BimGo.Format
             if (Grids?.IsDefault == true) { Grids = null; }
             Appearance = Appearance?.Clean();
             if (Appearance?.IsDefault == true) { Appearance = null; }
+            Rooms = Rooms?.Clean();
+            if (Rooms?.IsDefault == true) { Rooms = null; }
             return this;
         }
 

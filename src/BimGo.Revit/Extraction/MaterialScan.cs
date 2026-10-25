@@ -877,7 +877,7 @@ namespace BimGo.Extraction
 
             string folder = Path.Combine(Log_Utils.LogFolder, "MaterialScans");
             Directory.CreateDirectory(folder);
-            string safeTitle = string.Concat(host.Title.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
+            string safeTitle = Utilities.FileNames.Safe(host.Title);
             string path = Path.Combine(folder, $"MaterialScan_{safeTitle}_{DateTime.Now:yyMMdd_HHmmss}.txt");
             File.WriteAllText(path, sb.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
 

@@ -141,10 +141,25 @@ namespace BimGo.Game
         {
             FontAtlas f = _ui.Atlas;
             InputState input = _window.Input;
-            Text.Clear().AppendGrouped(Scene.Rooms.Length).Append(" rooms · type a number, name or level");
-            PanelFrame frame = BeginPanel(PanelSize.Standard, "FIND ROOM", UiTheme.ACCENT, Text.Span);
+            Text.Clear().AppendGrouped(Scene.Rooms.Length).Append(_roomTab == 1 ? " rooms · tags, parameters and target checks" : " rooms · type a number, name or level");
+            // Round Z-A: FIND · ROOM DATA tabs in the header (as MEDIA's)
+            float tabsW = MathF.Min(S(240), _window.Width * 0.3f);
+            PanelFrame frame = BeginPanel(PanelSize.Standard, "FIND ROOM", UiTheme.ACCENT, Text.Span, headerControls: tabsW);
+            float tabsX = TakeHeaderSlot(ref frame, tabsW, S(UiTheme.GAP_SMALL));
+            int tab = Tabs(f, input, tabsX, frame.HeaderControlY + S(2), tabsW, ROOM_TABS, _roomTab);
+            if (tab != _roomTab)
+            {
+                _roomTab = tab;
+                _activeSlider = -1;
+            }
             float ix = frame.Ix, iw = frame.Iw;
             float cy = frame.BodyTop;
+            if (_roomTab == 1)
+            {
+                string notice = BuildRoomDataTab(f, input, ix, iw, cy, frame.BodyBottom);
+                EndPanel(frame, notice, "Type to filter · SHOW puts a parameter on the tags · saved with the model · Esc back");
+                return;
+            }
 
             // Search box (typing anywhere in the panel goes here; Enter goes to the first match)
             bool enter = TypeIntoRoomSearch(input);
@@ -162,6 +177,7 @@ namespace BimGo.Game
             cy += boxH + S(UiTheme.GAP);
 
             RefreshRoomMatches();
+            if (_roomOverlay.Checks) { RebuildRoomTexts(); } // Round Z-A: the rows' check dots
             RoomRow go = BuildRoomRows(f, input, ix, cy, iw, frame.BodyBottom);
             if (enter && _roomMatches.Count > 0) { go = _roomMatches[0]; }
 
@@ -205,6 +221,10 @@ namespace BimGo.Game
                 bool hover = Hover(input, x, ry, cw, rowH - S(4));
                 bool current = row.Room == _roomIndex;
                 _ui.Rect(x, ry, cw, rowH - S(4), hover ? UiTheme.HOVER : ((i & 1) == 0 ? UiTheme.ROW_STRIPE : 0u));
+                if (_roomOverlay.Checks && _roomCheck != null && (uint)row.Room < (uint)_roomCheck.Length && _roomCheck[row.Room] != RoomCheckStatus.None)
+                {
+                    _ui.Circle(x + S(5), ry + (rowH - S(4)) * 0.5f, S(3.5f), RoomCheckColour(_roomCheck[row.Room]), 12); // Round Z-A: the check
+                }
                 _ui.TextWrapped(f.Bold, x + S(12), ry + S(10), cw * 0.55f, row.Title, current ? UiTheme.ACCENT : UiTheme.TEXT, maxLines: 1);
                 _ui.TextRight(f.Body, x + cw - S(12), ry + S(11), row.Detail, UiTheme.TEXT_MUTED);
                 if (hover && input.LeftPressed)
@@ -288,14 +308,14 @@ namespace BimGo.Game
             for (int i = 0; i < Scene.Rooms.Length; i++)
             {
                 RoomInfo room = Scene.Rooms[i];
-                string level = LevelNameAt(room.BottomZ);
+                string level = string.IsNullOrWhiteSpace(room.LevelName) ? LevelNameAt(room.BottomZ) : room.LevelName; // Round Z-A: Revit's level
                 string link = room.Link > 0 && room.Link <= Scene.Links.Length ? " · " + Scene.Links[room.Link - 1].Name : string.Empty;
                 string title = string.IsNullOrWhiteSpace(room.Number) || room.Number == "—" ? room.Name : $"{room.Number} · {room.Name}";
                 rows.Add(new RoomRow
                 {
                     Room = i,
                     Title = title,
-                    Detail = $"{level} · {UnitFormat.Area(PlanArea(room))}{link}",
+                    Detail = $"{level} · {UnitFormat.Area(float.IsFinite(room.Area) ? room.Area : PlanArea(room))}{link}", // Z-A: Revit's area
                     Search = $"{room.Number} {room.Name} {level}{link}",
                     Elevation = room.BottomZ
                 });

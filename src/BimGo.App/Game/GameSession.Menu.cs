@@ -526,7 +526,7 @@ namespace BimGo.Game
             bool texturesButton = HasTexturePanel;
             bool libraryButton = HasLibrary;
             bool roomsButton = Scene.Rooms.Length > 0;
-            int sessionButtons = 4 + (IsFileMode ? 3 : 1) + (_live != null ? 2 : 0); // + CONTROLS (input round B2), + Revit views (X-E)
+            int sessionButtons = 4 + (IsFileMode ? 4 : 1) + (_live != null ? 2 : 0); // + CONTROLS (input round B2), + Revit views (X-E), + kiosk shortcut (Z-C)
             int reviewButtons = 9 + (hiddenThings > 0 ? 1 : 0) + (texturesButton ? 1 : 0) + (libraryButton ? 1 : 0) + (roomsButton ? 1 : 0);
             int rows = twoStacks ? Math.Max(sessionButtons, reviewButtons) : sessionButtons + reviewButtons;
             float step = Math.Clamp((endY - S(12) - buttonsTop) / rows, S(32), S(44));
@@ -551,6 +551,10 @@ namespace BimGo.Game
 
                 // Edits made offline go into the Revit model they came from
                 if (MenuButton(f, x, y, stackW, PushMenuLabel(), false, false, height: buttonH, compact: true)) { OpenPush(); return; }
+                y += step;
+
+                // Round Z-C: a desktop shortcut that opens the saved file in kiosk mode
+                if (MenuButton(f, x, y, stackW, "MAKE KIOSK SHORTCUT", false, false, height: buttonH, compact: true)) { MakeKioskShortcut(); return; }
                 y += step;
             }
             else

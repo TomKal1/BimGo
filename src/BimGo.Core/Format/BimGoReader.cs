@@ -36,6 +36,34 @@ namespace BimGo.Format
         }
 
         /// <summary>
+        /// Round Z-B: reads only a file's comments (manifest checked; no geometry), e.g. for Revit's COMMENT MARKERS.
+        /// </summary>
+        /// <returns>The comments (cleaned), or null with a reason.</returns>
+        public static CommentDocument ReadComments(string path, out string error)
+        {
+            error = null;
+            try
+            {
+                using ZipArchive zip = ZipFile.OpenRead(path);
+                ManifestDto manifest = ReadJson<ManifestDto>(zip, BimGoFormat.ENTRY_MANIFEST, required: true);
+                if (!string.Equals(manifest.Format, BimGoFormat.FORMAT_NAME, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidDataException("This is not a BimGo model.");
+                }
+                CommentDocument comments = ReadJson<CommentDocument>(zip, BimGoFormat.ENTRY_COMMENTS, required: false) ?? new CommentDocument();
+                comments.Comments ??= new List<CommentRecord>();
+                comments.Comments.RemoveAll(c => c == null || string.IsNullOrWhiteSpace(c.Text));
+                foreach (CommentRecord comment in comments.Comments) { comment.Clean(); }
+                return comments;
+            }
+            catch (Exception ex)
+            {
+                error = Describe(ex);
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Reads only a file's thumbnail.jpg (review tools round; cheap: one entry), or null when it has none.
         /// </summary>
         public static byte[] ReadThumbnail(string path)
@@ -105,6 +133,7 @@ namespace BimGo.Format
                 MaterialsDto materials = ReadOptionalJson<MaterialsDto>(zip, BimGoFormat.ENTRY_MATERIALS);
                 LibraryDto library = ReadOptionalJson<LibraryDto>(zip, BimGoFormat.ENTRY_LIBRARY);
                 GridsDto grids = ReadOptionalJson<GridsDto>(zip, BimGoFormat.ENTRY_GRIDS); // grids round A
+                RoomDataDto roomData = ReadOptionalJson<RoomDataDto>(zip, BimGoFormat.ENTRY_ROOMS); // Round Z-A
                 EntourageSlotsDto slots = ReadOptionalJson<EntourageSlotsDto>(zip, BimGoFormat.ENTRY_ENTOURAGE_SLOTS); // Round X-B2
                 CameraPathDocument paths = ReadOptionalJson<CameraPathDocument>(zip, BimGoFormat.ENTRY_PATHS)?.Clean(); // Round K
                 MeasurementDocument measurements = ReadOptionalJson<MeasurementDocument>(zip, BimGoFormat.ENTRY_MEASUREMENTS)?.Clean(); // Round Y-A
@@ -125,7 +154,7 @@ namespace BimGo.Format
 
                 MaterialData materialData = ReadMaterials(zip, materials, vertices.Length);
                 SceneData scene = BuildScene(path, manifest, model, elements, parameters, vertices, indices, settings ?? new LaunchSettings(), lighting, materialData,
-                    records => BuildLibrary(zip, library, records, vertices.Length), grids, slots);
+                    records => BuildLibrary(zip, library, records, vertices.Length), grids, slots, roomData);
                 comments.Comments ??= new List<CommentRecord>();
                 comments.Comments.RemoveAll(c => c == null || string.IsNullOrWhiteSpace(c.Text));
                 foreach (CommentRecord comment in comments.Comments)
@@ -180,7 +209,8 @@ namespace BimGo.Format
 
         private static SceneData BuildScene(string path, ManifestDto manifest, ModelDto model, ElementsDto elementsDto, ParametersDto parametersDto,
             SceneVertex[] vertices, uint[] indices, LaunchSettings settings, LightingDto lightingDto, MaterialData materials,
-            Func<ElementRecord[], LibraryData> buildLibrary = null, GridsDto gridsDto = null, EntourageSlotsDto slotsDto = null)
+            Func<ElementRecord[], LibraryData> buildLibrary = null, GridsDto gridsDto = null, EntourageSlotsDto slotsDto = null,
+            RoomDataDto roomDataDto = null)
         {
             IReadOnlyList<CategoryDef> catalog = CategoryCatalog.All;
             int genericIndex = CategoryCatalog.Find(CategoryCatalog.KEY_GENERIC)?.Index ?? 0;
@@ -259,8 +289,11 @@ namespace BimGo.Format
                 .ToArray();
 
             var rooms = new List<RoomInfo>();
-            foreach (RoomDto room in model.Rooms ?? new List<RoomDto>())
+            List<RoomDto> roomDtos = model.Rooms ?? new List<RoomDto>();
+            var roomPools = new RoomDataFiles.Pools(roomDataDto); // Round Z-A: rooms.json (rows aligned with model.json's rooms)
+            for (int r = 0; r < roomDtos.Count; r++)
             {
+                RoomDto room = roomDtos[r];
                 if (room?.Loops == null) { continue; }
                 var loops = new List<Vector2[]>();
                 var min = new Vector2(float.MaxValue);
@@ -287,7 +320,12 @@ namespace BimGo.Format
                     Max = max,
                     BottomZ = room.BottomZ,
                     TopZ = room.TopZ,
-                    Link = ValidLink(room.Link, links.Length)
+                    Link = ValidLink(room.Link, links.Length),
+                    UniqueId = string.IsNullOrWhiteSpace(room.UniqueId) ? null : room.UniqueId,
+                    ElementId = room.Id ?? -1,
+                    LevelName = string.IsNullOrWhiteSpace(room.Level) ? null : room.Level,
+                    Area = room.Area is float area && float.IsFinite(area) && area > 0f ? area : float.NaN,
+                    Parameters = roomPools.Row(r)
                 });
             }
 

@@ -101,9 +101,6 @@ namespace BimGo.Platform
         private static bool _winmmAvailable = true;
         private static readonly float[] GENERIC_ANALOG = new float[KeyCodes.PAD_COUNT];
 
-        /// <summary>An XInput controller is in use (1–4), or 0.</summary>
-        public static int ControllerNumber => _index + 1;
-
         /// <summary>True when a controller is in use (XInput, or a generic one).</summary>
         public static bool Connected => _index >= 0 || _genericId >= 0;
 

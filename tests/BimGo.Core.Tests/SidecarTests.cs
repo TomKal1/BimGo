@@ -7,8 +7,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BimGo.Tests
 {
     /// <summary>
-    /// The sidecars kept beside a Revit model (comments, bookmarks, sun, visibility): naming, round-trips and the
-    /// one-time RvtGo comment migration.
+    /// The sidecars kept beside a Revit model (comments, bookmarks, sun, visibility): naming and round-trips.
     /// </summary>
     [TestClass]
     public sealed class SidecarTests
@@ -21,7 +20,6 @@ namespace BimGo.Tests
             Assert.AreEqual(Path.Combine(folder, "Tower.bimgo-bookmarks.json"), BookmarkFiles.SidecarFor(comments));
             Assert.AreEqual(Path.Combine(folder, "Tower.bimgo-sun.json"), SunFiles.SidecarFor(comments));
             Assert.AreEqual(Path.Combine(folder, "Tower.bimgo-visibility.json"), VisibilityFiles.SidecarFor(comments));
-            Assert.AreEqual(Path.Combine(folder, "Tower.rvtgo.json"), CommentFiles.LegacyPathFor(comments));
             Assert.IsNull(BookmarkFiles.SidecarFor(null));
         }
 
@@ -41,19 +39,6 @@ namespace BimGo.Tests
             Assert.AreEqual(1, read.Comments.Count);
             Assert.AreEqual("Fix the handrail", read.Comments[0].Text);
             Assert.IsFalse(File.Exists(path + ".tmp"));
-        }
-
-        [TestMethod]
-        public void Comments_MigrateFromRvtGoOnce()
-        {
-            using var folder = new TempFolder();
-            string sidecar = folder.File("Tower.bimgo-comments.json");
-            // RvtGo wrote PascalCase; reads are case-insensitive
-            File.WriteAllText(folder.File("Tower.rvtgo.json"), "{\"Version\":1,\"Comments\":[{\"Id\":\"old\",\"Text\":\"From RvtGo\"}]}");
-
-            Assert.IsTrue(CommentFiles.MigrateLegacy(sidecar));
-            Assert.IsFalse(CommentFiles.MigrateLegacy(sidecar), "Only once: the new sidecar now exists");
-            Assert.AreEqual("From RvtGo", CommentFiles.Read(sidecar, out _).Comments[0].Text);
         }
 
         [TestMethod]

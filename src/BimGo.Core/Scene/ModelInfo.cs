@@ -278,11 +278,6 @@ namespace BimGo.Scene
         }
 
         /// <summary>
-        /// Discards the current element's values (the element was skipped).
-        /// </summary>
-        public void DiscardElement() => _current.Clear();
-
-        /// <summary>
         /// The finished table (empty if nothing was added).
         /// </summary>
         public ParameterTable Build()

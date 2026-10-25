@@ -269,6 +269,25 @@ namespace BimGo.Platform
         #endregion
 
         /// <summary>
+        /// Round Z-C (kiosk idle timer): anything a person did this frame: a key or mouse button down or pressed, the mouse
+        /// moving (raw look input), the wheel, or the gamepad (a button down, a stick or trigger off centre). The caller
+        /// adds cursor moves (<see cref="MousePosition"/>) itself.
+        /// </summary>
+        public bool AnyActivity()
+        {
+            if (MathF.Abs(MouseDeltaX) + MathF.Abs(MouseDeltaY) > 2f || Wheel != 0 || CharCount > 0) { return true; }
+            for (int i = 1; i < 256; i++)
+            {
+                if (_down[i] || _pressed[i]) { return true; }
+            }
+            for (int i = 0; i < KeyCodes.PAD_COUNT; i++)
+            {
+                if (_padDown[i] || _padPressed[i]) { return true; }
+            }
+            return PadLeftStick.LengthSquared() > 0.04f || PadRightStick.LengthSquared() > 0.04f;
+        }
+
+        /// <summary>
         /// Clears per-frame edges and deltas.
         /// </summary>
         public void EndFrame()

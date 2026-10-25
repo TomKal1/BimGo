@@ -75,9 +75,6 @@ namespace BimGo.Game
 
         #region Open / close
 
-        /// <summary>True while the study panel is open (cursor free, player still).</summary>
-        private bool IsSunHoursOpen => _sunHoursOpen;
-
         /// <summary>
         /// Opens the study panel. The first time (or when the selection is empty) it selects the room you stand in.
         /// </summary>

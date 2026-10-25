@@ -1512,7 +1512,12 @@ namespace BimGo.Extraction
                 Max = max,
                 BottomZ = bottom,
                 TopZ = top,
-                Link = _src.Link
+                Link = _src.Link,
+                UniqueId = room.UniqueId, // Round Z-A: identity, level, Revit's area and every parameter for the room overlay
+                ElementId = room.Id.Value,
+                LevelName = room.Level?.Name,
+                Area = (float)(room.Area * FT * FT),
+                Parameters = ReadRoomParameters(room)
             };
         }
 

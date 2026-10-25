@@ -26,9 +26,8 @@ namespace BimGo.Scene
     /// <see cref="SiteInfo"/>. Everything is double precision: shared coordinates are often grid coordinates in the
     /// hundreds of kilometres, where a float is only good to about half a metre.
     ///
-    /// Shared = Rz(angle) · internal + origin, where origin is the shared position of the internal origin. Files from
-    /// v5.1 on carry that transform (<see cref="SiteInfo.HasSharedTransform"/>); older files derive it from the survey
-    /// point and the true-north angle.
+    /// Shared = Rz(angle) · internal + origin, where origin is the shared position of the internal origin, captured
+    /// at extraction (<see cref="SiteInfo.HasSharedTransform"/>).
     /// </summary>
     public static class SiteCoordinates
     {
@@ -37,7 +36,7 @@ namespace BimGo.Scene
         /// </summary>
         public readonly struct SharedTransform
         {
-            public SharedTransform(double east, double north, double elevation, double angle, bool approximate)
+            public SharedTransform(double east, double north, double elevation, double angle)
             {
                 East = east;
                 North = north;
@@ -45,7 +44,6 @@ namespace BimGo.Scene
                 Angle = angle;
                 Cos = Math.Cos(angle);
                 Sin = Math.Sin(angle);
-                Approximate = approximate;
             }
 
             /// <summary>Shared position of the internal origin (metres).</summary>
@@ -57,9 +55,6 @@ namespace BimGo.Scene
             public double Angle { get; }
             public double Cos { get; }
             public double Sin { get; }
-
-            /// <summary>True when derived from float reference points (older files): sub-metre error is possible.</summary>
-            public bool Approximate { get; }
 
             /// <summary>
             /// An internal point (metres) in shared coordinates.
@@ -73,31 +68,13 @@ namespace BimGo.Scene
         }
 
         /// <summary>
-        /// The internal → shared transform for a site, or false if the site has neither a captured transform nor a
-        /// survey / base point to derive one from.
+        /// The internal → shared transform for a site, or false if the site has no captured transform.
         /// </summary>
         public static bool TryGetShared(SiteInfo site, out SharedTransform transform)
         {
             transform = default;
-            if (site == null) { return false; }
-
-            if (site.HasSharedTransform)
-            {
-                transform = new SharedTransform(site.SharedEast, site.SharedNorth, site.SharedElevation, site.SharedAngle, approximate: false);
-                return true;
-            }
-
-            // Older files: anchor on the survey point (else the project base point), rotation from true north
-            SitePoint anchor = site.SurveyPoint ?? site.ProjectBasePoint;
-            if (anchor == null) { return false; }
-
-            double angle = ChooseAngleSign(site, site.TrueNorthAngle);
-            Vector3 p = anchor.Position, s = anchor.SharedPosition;
-            double cos = Math.Cos(angle), sin = Math.Sin(angle);
-            double east = s.X - (p.X * cos - p.Y * sin);
-            double north = s.Y - (p.X * sin + p.Y * cos);
-            double elevation = s.Z - p.Z;
-            transform = new SharedTransform(east, north, elevation, angle, approximate: true);
+            if (site == null || !site.HasSharedTransform) { return false; }
+            transform = new SharedTransform(site.SharedEast, site.SharedNorth, site.SharedElevation, site.SharedAngle);
             return true;
         }
 
@@ -180,7 +157,7 @@ namespace BimGo.Scene
 
         private static double AnchorMisfit(SiteInfo site, SitePoint anchor, double angle)
         {
-            var transform = new SharedTransform(site.SharedEast, site.SharedNorth, site.SharedElevation, angle, approximate: false);
+            var transform = new SharedTransform(site.SharedEast, site.SharedNorth, site.SharedElevation, angle);
             transform.Apply(anchor.Position.X, anchor.Position.Y, anchor.Position.Z, out double east, out double north, out _);
             return Math.Abs(east - anchor.SharedPosition.X) + Math.Abs(north - anchor.SharedPosition.Y);
         }

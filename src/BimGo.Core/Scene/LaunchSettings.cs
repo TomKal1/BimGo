@@ -529,10 +529,21 @@ namespace BimGo.Scene
 
         /// <summary>
         /// Polish round P-B: the controls defaults version (<see cref="InputCatalog.DEFAULTS_VERSION"/>) the user has seen.
-        /// Older than the app's: a one-time toast and NEW / CHANGED tags in CONTROLS. A settings file without it (written
-        /// before P-B) reads as 0; a new install starts at the current version.
+        /// Older than the app's: a one-time toast and NEW / CHANGED tags in CONTROLS. A new install starts at the current
+        /// version.
         /// </summary>
         public int ControlsDefaultsVersion { get; set; } = InputCatalog.DEFAULTS_VERSION;
+
+        /// <summary>Round Z-E: the welcome card (first walkthrough) has been seen.</summary>
+        public bool WelcomeShown { get; set; }
+
+        /// <summary>
+        /// Round Z-E, safe start (BimGo.exe started with Shift held): this process reads default settings with the
+        /// Basic quality profile and never saves them, so a bad settings file or a heavy profile can't stop it starting.
+        /// Not stored. The add-in never sets it.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public static bool SafeStart { get; set; }
 
         /// <summary>Gamepad look speed (build B; 1 = about 170° a second at full tilt).</summary>
         public float PadLookSensitivity { get; set; } = 1f;
@@ -645,6 +656,17 @@ namespace BimGo.Scene
         /// </summary>
         public bool SidecarsBesideModel { get; set; }
 
+        /// <summary>
+        /// Round Z-B: live sessions keep the comments' markers in the Revit model (the add-in reads this at each sync).
+        /// </summary>
+        public bool CommentMarkersLive { get; set; } = true;
+
+        /// <summary>Round Z-B: closed comments get no marker (theirs are removed).</summary>
+        public bool CommentMarkersRemoveClosed { get; set; }
+
+        /// <summary>Round Z-B: the marker family to load when a model has none (empty: the one shipped with the add-in).</summary>
+        public string CommentMarkerFamily { get; set; } = string.Empty;
+
         /// <summary>The Options window's last tab (0 Load … 6 Player).</summary>
         public int LastOptionsTab { get; set; }
 
@@ -697,27 +719,25 @@ namespace BimGo.Scene
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BimGo", "settings.json");
 
         /// <summary>
-        /// The pre-BimGo settings file (%AppData%\RvtGo\settings.json), copied across once if no BimGo file exists.
-        /// </summary>
-        private static string LegacySettingsPath => Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RvtGo", "settings.json");
-
-        /// <summary>
         /// Loads saved settings, or defaults if none exist or the file can't be read.
         /// </summary>
         /// <returns>A LaunchSettings object.</returns>
         public static LaunchSettings LoadOrDefault()
         {
+            if (SafeStart)
+            {
+                var safe = new LaunchSettings();
+                QualityProfiles.Apply(safe, QualityProfile.Basic);
+                safe.Sanitise();
+                return safe;
+            }
             try
             {
-                MigrateLegacy();
                 if (File.Exists(SettingsPath))
                 {
                     string json = File.ReadAllText(SettingsPath);
                     if (JsonSerializer.Deserialize<LaunchSettings>(json, JSON_OPTIONS) is LaunchSettings loaded)
                     {
-                        // P-B: a file from before the controls defaults version saw version 0
-                        if (!json.Contains("\"" + nameof(ControlsDefaultsVersion) + "\"", StringComparison.Ordinal)) { loaded.ControlsDefaultsVersion = 0; }
                         loaded.Sanitise();
                         return loaded;
                     }
@@ -728,24 +748,6 @@ namespace BimGo.Scene
                 Utilities.Log_Utils.Write($"Settings could not be read, using defaults: {ex.Message}");
             }
             return new LaunchSettings();
-        }
-
-        /// <summary>
-        /// Copies the RvtGo settings file to the BimGo location once (the old file is left in place).
-        /// </summary>
-        private static void MigrateLegacy()
-        {
-            try
-            {
-                if (File.Exists(SettingsPath) || !File.Exists(LegacySettingsPath)) { return; }
-                Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath));
-                File.Copy(LegacySettingsPath, SettingsPath, overwrite: false);
-                Utilities.Log_Utils.Write("Settings migrated from RvtGo.");
-            }
-            catch (Exception ex)
-            {
-                Utilities.Log_Utils.Write($"Settings migration skipped: {ex.Message}");
-            }
         }
 
         /// <summary>
@@ -763,6 +765,11 @@ namespace BimGo.Scene
         /// </summary>
         public void Save()
         {
+            if (SafeStart)
+            {
+                Utilities.Log_Utils.Write("Safe start: settings not saved.");
+                return;
+            }
             try
             {
                 QualityProfile = QualityProfiles.Detect(this); // whoever saved, the profile matches the values
@@ -783,6 +790,7 @@ namespace BimGo.Scene
         public void Sanitise()
         {
             EnabledCategories ??= Scene.CategoryCatalog.DefaultEnabledKeys();
+            CommentMarkerFamily = CommentMarkerFamily?.Trim().Trim('"') ?? string.Empty; // Round Z-B
             ExtraParameters = (ExtraParameters ?? new List<string>())
                 .Where(n => !string.IsNullOrWhiteSpace(n))
                 .Select(n => n.Trim())

@@ -34,6 +34,7 @@ namespace BimGo.Format
     /// textures/…        embedded texture images (JPEG / PNG), referenced from materials.json (optional)
     /// library.json      family library: offered family types and the first template vertex (optional; live sessions)
     /// library/…         family library preview images (PNG), referenced from library.json (optional)
+    /// rooms.json        every room's parameters, pooled, aligned with model.json's rooms (optional, Round Z-A)
     /// </code>
     /// </summary>
     public static class BimGoFormat
@@ -71,9 +72,6 @@ namespace BimGo.Format
         /// <summary>Suffix of the clash sidecar beside a Revit model when sharing is on (Round C; <c>clashes.json</c> in the model folder).</summary>
         public const string CLASH_SIDECAR_SUFFIX = ".bimgo-clashes.json";
 
-        /// <summary>The pre-BimGo sidecar suffix (migrated on first use).</summary>
-        public const string LEGACY_SIDECAR_SUFFIX = ".rvtgo.json";
-
         /// <summary>The file dialog filter.</summary>
         public const string DIALOG_FILTER = "BimGo model (*.bimgo)|*.bimgo|All files (*.*)|*.*";
 
@@ -96,6 +94,9 @@ namespace BimGo.Format
 
         /// <summary>Optional (grids round A): the host's and extracted links' grids (<see cref="GridsDto"/>).</summary>
         internal const string ENTRY_GRIDS = "grids.json";
+
+        /// <summary>Optional (Round Z-A): every room's parameters (<see cref="RoomDataDto"/>), aligned with model.json's rooms.</summary>
+        internal const string ENTRY_ROOMS = "rooms.json";
 
         /// <summary>Optional picture of the view at the last save (review tools round: the start screen's card).</summary>
         internal const string ENTRY_THUMBNAIL = "thumbnail.jpg";

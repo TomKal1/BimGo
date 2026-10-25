@@ -356,8 +356,6 @@ namespace BimGo.Scene
 
         private static Rgb Mix(Rgb a, Rgb b, double t) => new((float)(a.R + (b.R - a.R) * t), (float)(a.G + (b.G - a.G) * t), (float)(a.B + (b.B - a.B) * t));
 
-        private static readonly Rgb BLACK = new(0f, 0f, 0f);
-
         /// <summary>xorshift32, seeded (the same numbers on every machine).</summary>
         private sealed class Rng
         {

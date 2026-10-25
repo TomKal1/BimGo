@@ -69,7 +69,7 @@ namespace BimGo.Shell
                     OpenTarget target = TakeNext() ?? _home.Run();
                     if (target == null) { return 0; }
 
-                    SessionEndReason reason = target.IsLive ? RunLive(target) : RunFile(target.Path);
+                    SessionEndReason reason = target.IsLive ? RunLive(target) : RunFile(target.Path, target.Kiosk);
                     if (reason == SessionEndReason.WindowClosed) { return 0; }
 
                     // A switch whose save prompt was cancelled must not fire later
@@ -106,7 +106,9 @@ namespace BimGo.Shell
         /// <summary>
         /// Opens and walks a .bimgo file.
         /// </summary>
-        private SessionEndReason RunFile(string path)
+        /// <param name="path">The file.</param>
+        /// <param name="kiosk">Round Z-C: start in kiosk mode (desktop kiosk shortcut).</param>
+        private SessionEndReason RunFile(string path, bool kiosk = false)
         {
             BimGoDocument document = LoadFile(path);
             if (document == null) { return SessionEndReason.EndedByUser; }
@@ -119,7 +121,8 @@ namespace BimGo.Shell
                 Writer = Writer,
                 OnOpenRequest = QueueFile,
                 OnSaved = saved => _recent.Touch(saved),
-                PollNotices = PollInbox
+                PollNotices = PollInbox,
+                Kiosk = kiosk
             };
             return RunSession(document.Scene, options, out _);
         }
@@ -207,7 +210,10 @@ namespace BimGo.Shell
                 Pose = target.Pose,
                 OnOpenRequest = QueueFile,
                 OnSaved = saved => _recent.Touch(saved),
-                PollNotices = PollInbox
+                PollNotices = PollInbox,
+                StartNotice = target.Pose == null && !VersionCheck.SameRelease(info.AddinVersion, Program.Version)
+                    ? VersionCheck.Mismatch(info.AddinVersion, Program.Version)
+                    : null // Round Z-E: once per session, not on every reload
             };
 
             _currentSessionId = sessionId;

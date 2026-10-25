@@ -210,9 +210,6 @@ namespace BimGo.Rendering
         /// <summary>The shadow maps (state, presets, last error).</summary>
         public ShadowMaps Shadows => _shadows;
 
-        /// <summary>The ambient occlusion / glow targets (state, last error).</summary>
-        public ScreenEffects Effects => _effects;
-
         /// <summary>Half-size of the ground plane quad (m).</summary>
         private const float GROUND_HALF = 2500f;
 

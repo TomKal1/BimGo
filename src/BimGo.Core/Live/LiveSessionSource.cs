@@ -70,6 +70,13 @@ namespace BimGo.Live
 
         /// <summary>Round X-E: Revit's ribbon asked for the camera (the walkthrough answers with <see cref="MakeRevitView"/>).</summary>
         bool TryTakeViewRequest(out RevitViewAction action);
+
+        /// <summary>Round Z-B: true once Revit said it keeps comment markers (hello.ack).</summary>
+        bool CommentMarkersSupported { get; }
+
+        /// <summary>Round Z-B: sends the comments as Revit markers (the result comes back as a notice when it changed something).</summary>
+        /// <returns>False if not connected.</returns>
+        bool SyncCommentMarkers(MarkersSyncPayload payload);
     }
 
     /// <summary>
@@ -276,6 +283,16 @@ namespace BimGo.Live
         public bool TryTakeViewRequest(out RevitViewAction action) => _viewRequests.TryDequeue(out action);
 
         /// <inheritdoc/>
+        public bool CommentMarkersSupported { get; private set; }
+
+        /// <inheritdoc/>
+        public bool SyncCommentMarkers(MarkersSyncPayload payload)
+        {
+            if (!Connected || payload == null) { return false; }
+            return _channel.Send(MessageTypes.MARKERS_SYNC, payload) != null;
+        }
+
+        /// <inheritdoc/>
         public bool ShowLinkedElement(long linkInstanceId, long elementId)
         {
             if (!Connected || linkInstanceId <= 0) { return false; }
@@ -299,11 +316,17 @@ namespace BimGo.Live
                     HelloAckPayload ack = envelope.Read<HelloAckPayload>();
                     Utilities.Log_Utils.Write($"Revit acknowledged: {ack?.DocTitle} (Revit {ack?.RevitVersion}{(ack?.RevitViews == true ? ", makes views" : string.Empty)}).");
                     if (ack?.RevitViews == true) { RevitViewsSupported = true; }
+                    CommentMarkersSupported = ack?.CommentMarkers == true; // Round Z-B
                     break;
 
                 case MessageTypes.VIEW_RESULT:
                     MessagePayload made = envelope.Read<MessagePayload>();
                     if (made != null && !string.IsNullOrEmpty(made.Message)) { _notices.Enqueue(made.Message); }
+                    break;
+
+                case MessageTypes.MARKERS_RESULT: // Round Z-B: said only when the model changed or it failed
+                    MarkersResultPayload markers = envelope.Read<MarkersResultPayload>();
+                    if (markers != null && (!markers.Success || markers.Changed) && !string.IsNullOrEmpty(markers.Message)) { _notices.Enqueue(markers.Message); }
                     break;
 
                 case MessageTypes.VIEW_REQUEST:

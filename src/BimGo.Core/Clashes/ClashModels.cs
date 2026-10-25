@@ -118,8 +118,7 @@ namespace BimGo.Clashes
 
         /// <summary>
         /// Colour round A: one of the extra parameters picked in Revit Options → Parameters (the rule's
-        /// <see cref="SetRule.Parameter"/> names it; instance value, else the type's, as display text). Older builds
-        /// read the field as "Revit category" (the rule then matches nothing they know of).
+        /// <see cref="SetRule.Parameter"/> names it; instance value, else the type's, as display text).
         /// </summary>
         public const string PARAMETER = "parameter";
 
@@ -200,9 +199,6 @@ namespace BimGo.Clashes
         /// <summary>Labels for buttons and lists (<see cref="All"/> order).</summary>
         public static readonly string[] Labels = { "IS", "IS ONE OF", "IS NOT", "IS NOT ANY OF", "CONTAINS", "DOES NOT CONTAIN", "AT LEAST (≥)", "AT MOST (≤)", "BETWEEN" };
 
-        /// <summary>True for a known operator word (case ignored).</summary>
-        public static bool IsKnown(string op) => IndexOf(op) >= 0;
-
         /// <summary>The index of an operator in <see cref="All"/>, or −1.</summary>
         public static int IndexOf(string op)
         {
@@ -219,9 +215,6 @@ namespace BimGo.Clashes
             int index = IndexOf(op);
             return index < 0 ? IS : All[index];
         }
-
-        /// <summary>The operator an older rule meant (C-A / C-B1: contains + exclude switches).</summary>
-        public static string FromLegacy(bool contains, bool exclude) => contains ? (exclude ? NOT_CONTAINS : CONTAINS) : (exclude ? IS_NOT : IS);
 
         /// <summary>True when matching elements are taken out of the set.</summary>
         public static bool IsNegative(string op) => op is IS_NOT or IS_NOT_ANY_OF or NOT_CONTAINS;
@@ -260,41 +253,26 @@ namespace BimGo.Clashes
 
         /// <summary>
         /// Colour round A: the parameter's name when <see cref="Field"/> is <see cref="RuleField.PARAMETER"/>, else null
-        /// (not written). Older builds ignore it.
+        /// (not written).
         /// </summary>
         public string Parameter { get; set; }
 
-        /// <summary>
-        /// The operator (<see cref="RuleOp"/>); null in files from C-A / C-B1 builds, which used <see cref="Contains"/>
-        /// and <see cref="Exclude"/> instead (<see cref="Normalise"/> converts them).
-        /// </summary>
+        /// <summary>The operator (<see cref="RuleOp"/>; unknown or missing reads as <see cref="RuleOp.IS"/>).</summary>
         public string Op { get; set; }
 
         /// <summary>The values (one for is / is not / contains / does not contain; any number for the list operators).</summary>
         public List<string> Values { get; set; } = new();
 
-        /// <summary>
-        /// Earlier form, still written (kept in step by <see cref="Normalise"/>) so older builds read a rule as nearly
-        /// as they can: true for the text operators.
-        /// </summary>
-        public bool Contains { get; set; }
-
-        /// <summary>Earlier form: the first value.</summary>
-        public string Value { get; set; } = string.Empty;
-
-        /// <summary>Earlier form: true for the "not" operators.</summary>
-        public bool Exclude { get; set; }
-
-        /// <summary>The operator in effect (an older rule's from its switches).</summary>
+        /// <summary>The operator in effect.</summary>
         [JsonIgnore]
-        public string Operator => RuleOp.IsKnown(Op) ? RuleOp.Normalise(Op) : RuleOp.FromLegacy(Contains, Exclude);
+        public string Operator => RuleOp.Normalise(Op);
 
-        /// <summary>How many values the rule compares with (an older rule has its one value).</summary>
+        /// <summary>How many values the rule compares with.</summary>
         [JsonIgnore]
-        public int ValueCount => RuleOp.IsKnown(Op) ? Values?.Count ?? 0 : 1;
+        public int ValueCount => Values?.Count ?? 0;
 
-        /// <summary>One of the values (no allocation; an older rule's <see cref="Value"/>).</summary>
-        public string ValueAt(int index) => RuleOp.IsKnown(Op) ? Values[index] ?? string.Empty : Value ?? string.Empty;
+        /// <summary>One of the values (no allocation).</summary>
+        public string ValueAt(int index) => Values[index] ?? string.Empty;
 
         /// <summary>
         /// True when the rule takes part in matching: it has a value (a text operator: some text).
@@ -327,25 +305,17 @@ namespace BimGo.Clashes
         }
 
         /// <summary>
-        /// Makes the rule explicit (an older rule's switches become <see cref="Op"/> and <see cref="Values"/>), trims a
-        /// single-value operator to one value, and keeps the earlier fields in step. Returns itself.
+        /// Makes the rule explicit (a known operator, no null values) and trims a single-value operator to one value.
+        /// Returns itself.
         /// </summary>
         public SetRule Normalise()
         {
             Field = RuleField.Normalise(Field);
             Parameter = Field == RuleField.PARAMETER ? (Parameter ?? string.Empty).Trim() : null;
-            if (!RuleOp.IsKnown(Op))
-            {
-                Op = RuleOp.FromLegacy(Contains, Exclude);
-                Values = new List<string> { Value ?? string.Empty };
-            }
             Op = RuleOp.Normalise(Op);
             Values = (Values ?? new List<string>()).Select(v => v ?? string.Empty).ToList();
             int keep = RuleOp.MaxValues(Op);
             if (Values.Count > keep) { Values.RemoveRange(keep, Values.Count - keep); }
-            Contains = RuleOp.IsText(Op);
-            Exclude = RuleOp.IsNegative(Op);
-            Value = Values.Count > 0 ? Values[0] : string.Empty;
             return this;
         }
 
@@ -416,10 +386,7 @@ namespace BimGo.Clashes
             Field = Field,
             Parameter = Parameter,
             Op = Op,
-            Values = Values == null ? new List<string>() : new List<string>(Values),
-            Contains = Contains,
-            Value = Value,
-            Exclude = Exclude
+            Values = Values == null ? new List<string>() : new List<string>(Values)
         };
     }
 
@@ -467,7 +434,7 @@ namespace BimGo.Clashes
             // In place (the editor holds these lists)
             Rules ??= new List<SetRule>();
             Rules.RemoveAll(r => r == null);
-            foreach (SetRule rule in Rules) { rule.Normalise(); } // older rules: switches → operator + values
+            foreach (SetRule rule in Rules) { rule.Normalise(); }
             Groups?.RemoveAll(g => g == null);
             foreach (RuleGroup group in Groups ?? Enumerable.Empty<RuleGroup>()) { group.Normalise(); }
             if (Groups != null && Groups.Count == 0) { Groups = null; }
@@ -933,7 +900,7 @@ namespace BimGo.Clashes
             {
                 if (string.IsNullOrWhiteSpace(set.Id) || !setIds.Add(set.Id)) { set.Id = Guid.NewGuid().ToString("N"); setIds.Add(set.Id); }
                 set.Name = string.IsNullOrWhiteSpace(set.Name) ? "Set" : set.Name.Trim();
-                set.NormaliseRules(); // older rules: switches → operator + values; C-B4 groups
+                set.NormaliseRules(); // groups too
             }
 
             var testIds = new HashSet<string>(StringComparer.Ordinal);

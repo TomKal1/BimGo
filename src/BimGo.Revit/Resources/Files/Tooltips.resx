@@ -137,6 +137,11 @@ Shows whether BimGo is connected, and lets you bring it to the front, send a fre
 
 BimGo sends its camera; Revit makes "BimGo 01", "BimGo 02"… with BimGo's eye, direction and field of view, and opens it. One undo entry. BimGo's pause menu and Shift+F5 do the same.</value>
   </data>
+  <data name="BimGo_Markers" xml:space="preserve">
+    <value>Place BimGo's comments in this model as markers ("BimGo Comment Marker": a sphere per comment, coloured by status, with the comment's text in its parameters).
+
+Reads this model's BimGo comments (or a .bimgo file's), then places, updates, moves and removes markers in one undo entry. Live sessions keep them in step by themselves (Options → Player). A marker you delete stays gone until you tick "put back deleted markers".</value>
+  </data>
   <data name="BimGo_UpdateView" xml:space="preserve">
     <value>Put BimGo's camera on the active perspective 3D view (live session).
 

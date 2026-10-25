@@ -335,9 +335,6 @@ namespace BimGo.Rendering
         private int _clipDepth;
         private float _clipX0, _clipY0, _clipX1, _clipY1;
 
-        /// <summary>True while a clip rectangle is in force.</summary>
-        public bool ClipActive => _clipDepth > 0;
-
         /// <summary>
         /// Clips what is queued next to a rectangle (intersected with the clip already in force) until
         /// <see cref="PopClip"/>.

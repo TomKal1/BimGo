@@ -138,6 +138,11 @@ namespace BimGo.Game
                 BuildPauseMenu();
                 if (IsEditingComment) { BuildCommentEditor(); }
             }
+            else if (_kiosk)
+            {
+                // Round Z-C: kiosk mode: the key hint (or the idle tour's fades and line) and the exit bar only
+                BuildKioskHud(width, height);
+            }
             else if (_photoOpen)
             {
                 // Photo mode: a clean frame, the grid and the photo panel only
@@ -155,6 +160,7 @@ namespace BimGo.Game
                 if (_uiHidden) { BuildHiddenHud(width); }
                 else { BuildHud(mapX, mapY); }
                 if (IsEditingComment) { BuildCommentEditor(); }
+                if (_welcomeOpen) { BuildWelcome(width, height); } // Round Z-E
             }
             _ui.ResetClip(); // polish round P-A1: a scroll region left open by an early return never outlives the frame
             EndFocusFrame(); // P-A2: the focus ring, over everything
@@ -393,6 +399,7 @@ namespace BimGo.Game
             // UI is hidden or in photo mode: clean views)
             if (!_uiHidden && !photo && !_photoOpen)
             {
+                DrawRoomTint(); // Round Z-A: the check's floor tint (depth-tested only), under the markers
                 _overlay.Begin(Camera);
                 if (!_reviewOpen) { for (int i = 0; i < _guns.Length; i++) { _guns[i].DrawWorld(_overlay, i == _activeGun && !_unarmed); } }
                 DrawClashMarkers(_overlay);
@@ -612,6 +619,7 @@ namespace BimGo.Game
             // World-anchored labels (grids round A: grid bubbles and level tags first, under the rest)
             DrawGridLabels(f);
             DrawCalcLabels(f); // fork build LC-B: the calc points' values near the eye
+            DrawRoomTags(f); // Round Z-A: floating room tags, under the guns' labels
             for (int i = 0; i < _guns.Length; i++) { _guns[i].DrawLabels(_ui, i == _activeGun && !_unarmed); }
             DrawGridHoverLabel(f); // grids round B: the hovered node, over the other labels
 

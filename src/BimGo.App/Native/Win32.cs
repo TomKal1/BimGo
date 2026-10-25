@@ -198,6 +198,10 @@ namespace BimGo.Native
         [DllImport("user32.dll")]
         public static extern bool DestroyWindow(nint hwnd);
 
+        /// <summary>Round Z-E: a key's state right now (high bit = down), read once at start for safe start.</summary>
+        [DllImport("user32.dll")]
+        public static extern short GetAsyncKeyState(int vk);
+
         [DllImport("user32.dll")]
         public static extern bool ShowWindow(nint hwnd, int cmdShow);
 

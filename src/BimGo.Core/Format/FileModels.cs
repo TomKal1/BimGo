@@ -196,6 +196,37 @@ namespace BimGo.Format
 
         /// <summary>Boundary loops in plan, each flattened as [x0, y0, x1, y1, ...] (scene-local metres).</summary>
         public List<float[]> Loops { get; set; } = new();
+
+        /// <summary>Round Z-A: the room's Revit UniqueId (absent in older files).</summary>
+        public string UniqueId { get; set; }
+
+        /// <summary>Round Z-A: the room's Revit ElementId value (absent in older files).</summary>
+        public long? Id { get; set; }
+
+        /// <summary>Round Z-A: the room's level name (absent in older files).</summary>
+        public string Level { get; set; }
+
+        /// <summary>Round Z-A: Revit's computed area in m² (absent in older files).</summary>
+        public float? Area { get; set; }
+    }
+
+    /// <summary>
+    /// Round Z-A: <c>rooms.json</c> in a .bimgo (optional; written when rooms have parameters): every room's parameters,
+    /// pooled like parameters.json. Older readers ignore it.
+    /// </summary>
+    public sealed class RoomDataDto
+    {
+        /// <summary>Pooled parameter names.</summary>
+        public string[] Names { get; set; } = Array.Empty<string>();
+
+        /// <summary>Pooled display values.</summary>
+        public string[] Values { get; set; } = Array.Empty<string>();
+
+        /// <summary>Aligned with <see cref="Values"/>: the value as a number in display units, or null when it isn't numeric.</summary>
+        public double?[] Numbers { get; set; } = Array.Empty<double?>();
+
+        /// <summary>Aligned with model.json's rooms: [name0, value0, name1, value1, ...] indices, or null.</summary>
+        public int[][] Rows { get; set; } = Array.Empty<int[]>();
     }
 
     public sealed class CategoryDto

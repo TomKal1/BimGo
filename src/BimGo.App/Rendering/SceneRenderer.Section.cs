@@ -89,13 +89,17 @@ namespace BimGo.Rendering
         /// <param name="box">True when the first six planes are the box's faces (+X, −X, +Y, −Y, +Z, −Z).</param>
         public void SetSection(Vector4[] planes, int count, bool box)
         {
-            _clipCount = Math.Clamp(count, 0, _clipPlanes.Length);
-            for (int i = 0; i < _clipCount; i++) { _clipPlanes[i] = planes[i]; }
+            count = Math.Clamp(count, 0, _clipPlanes.Length);
+            bool changed = count != _clipCount || (box && count >= 6) != _clipBox;
+            for (int i = 0; i < count; i++)
+            {
+                changed |= _clipPlanes[i] != planes[i];
+                _clipPlanes[i] = planes[i];
+            }
+            _clipCount = count;
             _clipBox = box && _clipCount >= 6;
+            if (changed) { ResetOcclusion(); } // what was hidden behind the cut geometry shows at once
         }
-
-        /// <summary>True when a cut is set.</summary>
-        public bool HasSection => _clipCount > 0;
 
         /// <summary>Uploads the cut (or none) to the current program.</summary>
         private void ApplyClip(int countLocation, int planesLocation, bool on)

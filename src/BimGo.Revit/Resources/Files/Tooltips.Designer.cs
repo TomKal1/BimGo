@@ -79,6 +79,15 @@ namespace BimGo.Resources.Files {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Place BimGo's comments in this model as markers..
+        /// </summary>
+        internal static string BimGo_Markers {
+            get {
+                return ResourceManager.GetString("BimGo_Markers", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Make a new perspective 3D view from where you stand in BimGo (live session)..
         /// </summary>
         internal static string BimGo_NewView {

@@ -175,6 +175,40 @@ namespace BimGo.Shell
             }
         }
 
+        /// <summary>
+        /// Round Z-C: writes a desktop shortcut that opens a saved .bimgo in kiosk mode (<c>BimGo.exe --kiosk "file"</c>),
+        /// with BimGo's icon and the exe's folder as the working directory. Nothing in the file changes. An existing
+        /// shortcut of the same name is replaced.
+        /// </summary>
+        /// <param name="bimgoPath">The saved .bimgo.</param>
+        /// <param name="shortcutPath">The .lnk written (or that would have been).</param>
+        /// <returns>Null on success, else a reason.</returns>
+        public static string CreateKioskShortcut(string bimgoPath, out string shortcutPath)
+        {
+            shortcutPath = null;
+            try
+            {
+                string exe = Path.GetFullPath(CurrentExe);
+                string file = Path.GetFullPath(bimgoPath);
+                if (!File.Exists(file)) { return "the file isn't saved yet"; }
+
+                string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                if (string.IsNullOrEmpty(desktop)) { return "no desktop folder was found"; }
+                shortcutPath = Path.Combine(desktop, KioskShortcutName(file));
+                return WriteShortcut(shortcutPath, exe, $"--kiosk \"{file}\"", $"BimGo kiosk: {Path.GetFileNameWithoutExtension(file)}");
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+
+        /// <summary>Round Z-C: the kiosk shortcut's file name ("&lt;model&gt; (BimGo kiosk).lnk", invalid characters replaced).</summary>
+        internal static string KioskShortcutName(string bimgoPath)
+        {
+            return Utilities.FileNames.Safe(Path.GetFileNameWithoutExtension(bimgoPath ?? string.Empty)).Trim() + " (BimGo kiosk).lnk";
+        }
+
         #endregion
 
         #region Helpers
@@ -199,7 +233,14 @@ namespace BimGo.Shell
         /// Creates (or replaces) the Start-menu shortcut.
         /// </summary>
         /// <returns>Null on success, else a reason.</returns>
-        private static string CreateShortcut(string exe)
+        private static string CreateShortcut(string exe) => WriteShortcut(ShortcutPath, exe, null, "BimGo: walk through BIM models");
+
+        /// <summary>
+        /// Writes (or replaces) a shortcut to the exe: arguments (or none), BimGo's icon, the exe's folder as the working
+        /// directory (Round Z-C: shared by the Start-menu and kiosk shortcuts).
+        /// </summary>
+        /// <returns>Null on success, else a reason.</returns>
+        private static string WriteShortcut(string shortcutPath, string exe, string arguments, string description)
         {
             object link = null;
             try
@@ -207,12 +248,13 @@ namespace BimGo.Shell
                 link = new ShellLinkCoClass();
                 var shellLink = (IShellLinkW)link;
                 shellLink.SetPath(exe);
+                if (!string.IsNullOrEmpty(arguments)) { shellLink.SetArguments(arguments); }
                 shellLink.SetWorkingDirectory(Path.GetDirectoryName(exe));
-                shellLink.SetDescription("BimGo: walk through BIM models");
+                shellLink.SetDescription(description);
                 shellLink.SetIconLocation(exe, 0);
 
-                Directory.CreateDirectory(Path.GetDirectoryName(ShortcutPath));
-                ((IPersistFile)link).Save(ShortcutPath, true);
+                Directory.CreateDirectory(Path.GetDirectoryName(shortcutPath));
+                ((IPersistFile)link).Save(shortcutPath, true);
                 return null;
             }
             catch (Exception ex)

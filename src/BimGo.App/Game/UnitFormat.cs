@@ -92,9 +92,6 @@ namespace BimGo.Game
         /// <summary>An area as a string.</summary>
         public static string Area(double squareMetres, int decimals = 1) => Units.Area(squareMetres, Current, decimals);
 
-        /// <summary>"m" or "ft" (column headers, axis notes).</summary>
-        public static string LengthSymbol => Current == UnitSystem.Metric ? "m" : "ft";
-
         /// <summary>"Metric" / "Imperial".</summary>
         public static string Label => Current == UnitSystem.Metric ? "Metric" : DecimalFeet ? "Imperial (decimal feet)" : "Imperial";
     }

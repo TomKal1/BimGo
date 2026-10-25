@@ -84,16 +84,15 @@ namespace BimGo.Game
 
         #endregion
 
-        /// <summary>True while a bookmark tour is playing (or paused mid-tour).</summary>
-        private bool IsTourActive => _tourActive;
-
         #region Start / stop
 
         /// <summary>
         /// Starts the tour from the first bookmark that isn't left out. Closes the pause menu and any panel.
         /// </summary>
-        /// <returns>False (with a notice) when there is nothing to play.</returns>
-        private bool StartTour()
+        /// <param name="kiosk">Round Z-C: kiosk mode's idle tour: looping and UI-free whatever the tour settings say, and
+        /// quiet (no notice or error sound) when there is nothing to play.</param>
+        /// <returns>False (with a notice, unless kiosk) when there is nothing to play.</returns>
+        private bool StartTour(bool kiosk = false)
         {
             if (_tourActive || _player == null) { return false; }
             FlushTourDraft();
@@ -105,6 +104,7 @@ namespace BimGo.Game
             }
             if (records.Count == 0)
             {
+                if (kiosk) { return false; } // Round Z-C: the kiosk goes to the home view instead
                 _bookmarksNotice = _mediaNotice = Bookmarks.Bookmarks.Count == 0
                     ? $"No bookmarks to tour yet: press {Key(InputAction.AddBookmark)} where you want a stop"
                     : "Every bookmark is left out of the tour (MEDIA → TOUR ticks them back in)";
@@ -113,6 +113,11 @@ namespace BimGo.Game
             }
 
             TourSettings run = Bookmarks.Tour.Copy().Clean();
+            if (kiosk)
+            {
+                run.Loop = true;
+                run.ShowUi = false;
+            }
             SaveWalkthroughForTour();
 
             // Round K-C: SMOOTH plays the stops as a camera path (one player); one stop alone fades in and out
@@ -261,6 +266,29 @@ namespace BimGo.Game
             Toast(path
                 ? finished ? "Path finished: back where you were" : "Path stopped: back where you were"
                 : finished ? "Tour finished: back where you were" : "Tour stopped: back where you were", 2.4f);
+        }
+
+        /// <summary>
+        /// Round Z-C (kiosk mode): a visitor takes over the idle tour right where it is: the pose, and the stop's sun, cut,
+        /// visibility, eye height and colour profile, stay (flying when the stop's bookmark was flown). What the tour
+        /// remembered of the walkthrough is kept, so the next idle tour (or leaving kiosk mode) can put it back.
+        /// </summary>
+        private void ReleaseTourHere()
+        {
+            if (!_tourActive) { return; }
+            EndTourSunBlend(); // the stop's own sun (while the tour is still active)
+            int stop = _tourAppliedStop;
+            bool fly = _tourRecords != null && stop >= 0 && stop < _tourRecords.Length && _tourRecords[stop].Flying;
+
+            _tourActive = false;
+            _tourPaused = false;
+            if (fly != _player.Flying) { _player.ToggleFly(); }
+            _player.TeleportTo(_tourPose.Feet, _tourPose.Yaw, _tourPose.Pitch);
+
+            _tour = null;
+            _tourRecords = null;
+            _tourPath = null;
+            Utilities.Log_Utils.Write($"Kiosk: a visitor took over the tour at stop {stop + 1}.");
         }
 
         #endregion

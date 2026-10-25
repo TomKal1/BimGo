@@ -10,7 +10,7 @@ namespace BimGo.Tests
 {
     /// <summary>
     /// Input round B2: the action catalogue, default clashes, the modifier rule, rebinding with swap, storage, keymap
-    /// files and the generated README §3 controls.
+    /// files and the generated controls tables (docs/controls.md).
     /// </summary>
     [TestClass]
     public sealed class ControlsTests
@@ -803,7 +803,7 @@ namespace BimGo.Tests
                 InputCatalog.SIT_WALKING, InputCatalog.SIT_SCAN, InputCatalog.SIT_MEASURE, InputCatalog.SIT_COMMENT, InputCatalog.SIT_DEMOLISH,
                 InputCatalog.SIT_GIZMO, InputCatalog.SIT_HOLDING, InputCatalog.SIT_MARKUP, InputCatalog.SIT_SECTION, InputCatalog.SIT_PHOTO,
                 InputCatalog.SIT_SUN_PANEL, InputCatalog.SIT_STUDY, InputCatalog.SIT_TOUR, InputCatalog.SIT_CLASHES, InputCatalog.SIT_GRIDS,
-                InputCatalog.SIT_VIDEO, InputCatalog.SIT_START, InputCatalog.SIT_PAUSE, InputCatalog.SIT_PATH
+                InputCatalog.SIT_VIDEO, InputCatalog.SIT_START, InputCatalog.SIT_PAUSE, InputCatalog.SIT_PATH, InputCatalog.SIT_KIOSK
             })
             {
                 Assert.IsNotNull(InputCatalog.Situation(name), $"no situation called {name}");
@@ -839,7 +839,38 @@ namespace BimGo.Tests
         }
 
         [TestMethod]
-        public void PathEditor_ReservedAndClashFree()
+        public void Kiosk_ExitIsHeldModifiedAndOnlyInKiosk()
+        {
+            // Round Z-C: Ctrl+Shift+Q, held (so a visitor mashing keys doesn't leave), live only in kiosk mode
+            ActionDef exit = InputCatalog.Get(InputAction.KioskExit);
+            Assert.IsNotNull(exit);
+            Assert.AreEqual(InputContext.Kiosk, exit.Context);
+            Assert.AreEqual(ActionKind.Hold, exit.Kind);
+            Assert.AreEqual(KeyChord.Parse("Ctrl+Shift+Q"), new KeyMap().Primary(InputAction.KioskExit));
+            Assert.IsTrue(InputCatalog.KIOSK_EXIT_HOLD_SECONDS >= 1f);
+
+            InputSituation kiosk = InputCatalog.Situation(InputCatalog.SIT_KIOSK);
+            Assert.IsNotNull(kiosk);
+            foreach (InputSituation other in InputCatalog.Situations)
+            {
+                if (!ReferenceEquals(other, kiosk)) { Assert.IsFalse(other.Contains(InputAction.KioskExit), $"KioskExit is live in {other.Name}"); }
+            }
+
+            // Visitors walk, fly and look; nothing that edits, saves or opens a panel is live there
+            foreach (InputAction action in new[] { InputAction.MoveForward, InputAction.Fly, InputAction.Jump, InputAction.Run, InputAction.LookLeft })
+            {
+                Assert.IsTrue(kiosk.Contains(action), $"{action} should be live in kiosk mode");
+            }
+            foreach (InputAction action in new[] { InputAction.Save, InputAction.Help, InputAction.Gun1, InputAction.GunPrimary, InputAction.HideUi,
+                InputAction.MediaPanel, InputAction.Fullscreen, InputAction.AddBookmark, InputAction.Undo })
+            {
+                Assert.IsFalse(kiosk.Contains(action), $"{action} should not be live in kiosk mode");
+            }
+            Assert.AreEqual("Kiosk mode", InputCatalog.ContextName(InputContext.Kiosk));
+        }
+
+        [TestMethod]
+        public void PathEditor_KeysLiveOnlyInTheEditor()
         {
             InputSituation path = InputCatalog.Situation(InputCatalog.SIT_PATH);
             Assert.IsNotNull(path);
@@ -862,7 +893,7 @@ namespace BimGo.Tests
             {
                 Assert.AreEqual(0, map.FindClashes(action, map.Primary(action)).Count, $"{action} clashes");
             }
-            Assert.AreEqual("Path editor (Round K)", InputCatalog.ContextName(InputContext.PathEditor));
+            Assert.AreEqual("Path editor", InputCatalog.ContextName(InputContext.PathEditor));
         }
 
         [TestMethod]
@@ -942,8 +973,8 @@ namespace BimGo.Tests
         }
 
         /// <summary>
-        /// README §3's controls tables are generated from the defaults. When they are out of date this test rewrites
-        /// the block between the markers and reports Inconclusive: review and commit the README change.
+        /// The controls tables in docs/controls.md are generated from the defaults. When they are out of date this test rewrites
+        /// the block between the markers and reports Inconclusive: review and commit the change.
         /// </summary>
         [TestMethod]
         public void Readme_ControlsTablesAreCurrent()
@@ -951,14 +982,14 @@ namespace BimGo.Tests
             string readme = FindReadme();
             if (readme == null)
             {
-                Assert.Inconclusive("README.md not found above the test folder.");
+                Assert.Inconclusive("docs/controls.md not found above the test folder.");
                 return;
             }
 
             string text = File.ReadAllText(readme);
             int begin = text.IndexOf(KeyMap.README_BEGIN, StringComparison.Ordinal);
             int end = text.IndexOf(KeyMap.README_END, StringComparison.Ordinal);
-            Assert.IsTrue(begin >= 0 && end > begin, "README.md lacks the controls markers");
+            Assert.IsTrue(begin >= 0 && end > begin, "docs/controls.md lacks the controls markers");
 
             string newline = text.Contains("\r\n") ? "\r\n" : "\n";
             string generated = KeyMap.DefaultsMarkdown().Replace("\r\n", "\n").Replace("\n", newline) + newline;
@@ -967,7 +998,7 @@ namespace BimGo.Tests
             if (Normalise(current) == Normalise(generated)) { return; }
 
             File.WriteAllText(readme, text.Substring(0, start) + generated + text.Substring(end));
-            Assert.Inconclusive("README §3 controls were out of date and have been regenerated: review and commit README.md.");
+            Assert.Inconclusive("docs/controls.md was out of date and has been regenerated: review and commit it.");
         }
 
         private static string Normalise(string text) => text.Replace("\r\n", "\n").Trim();
@@ -977,7 +1008,7 @@ namespace BimGo.Tests
             var folder = new DirectoryInfo(AppContext.BaseDirectory);
             while (folder != null)
             {
-                string candidate = Path.Combine(folder.FullName, "README.md");
+                string candidate = Path.Combine(folder.FullName, "docs", "controls.md"); // Round Z-E: moved out of the README
                 if (File.Exists(candidate) && Directory.Exists(Path.Combine(folder.FullName, "src", "BimGo.Core"))) { return candidate; }
                 folder = folder.Parent;
             }

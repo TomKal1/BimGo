@@ -66,9 +66,6 @@ namespace BimGo.Rendering
         private readonly Vector4[] _planarFrustum = new Vector4[6];
         private readonly (int Plane, float Score)[] _planarPicks = new (int, float)[PLANAR_MAX];
 
-        /// <summary>Glass / mirror planes found in the model.</summary>
-        public int ReflectivePlaneCount => _reflectivePlanes.Length;
-
         /// <summary>Mirrored views drawn this frame.</summary>
         public int PlanarCount => _planarCount;
 

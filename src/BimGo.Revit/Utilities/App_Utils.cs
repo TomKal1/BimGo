@@ -15,6 +15,22 @@ namespace BimGo.Utilities
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "BimGo", "BimGo.exe");
 
         /// <summary>
+        /// Round Z-E: an exe's file version ("1.0.0.0"), or empty when it can't be read.
+        /// </summary>
+        public static string ExeVersion(string exe)
+        {
+            try
+            {
+                return string.IsNullOrEmpty(exe) ? string.Empty : System.Diagnostics.FileVersionInfo.GetVersionInfo(exe).FileVersion ?? string.Empty;
+            }
+            catch (Exception ex)
+            {
+                Log_Utils.Write($"BimGo.exe version unreadable: {ex.Message}");
+                return string.Empty;
+            }
+        }
+
+        /// <summary>
         /// The BimGo.exe to use: the shared install, else one beside the add-in, else null.
         /// </summary>
         public static string FindExe()

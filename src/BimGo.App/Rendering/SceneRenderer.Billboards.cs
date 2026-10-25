@@ -34,9 +34,6 @@ namespace BimGo.Rendering
         private uint _billboardArray, _billboardVao, _billboardVbo;
         private int _billboardLayers, _billboardCount, _billboardCapacity;
 
-        /// <summary>Billboards uploaded (drawn this frame when the pictures are there).</summary>
-        public int BillboardCount => _billboardArray != 0 ? _billboardCount : 0;
-
         #endregion
 
         #region Setup

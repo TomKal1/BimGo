@@ -141,22 +141,6 @@ namespace BimGo.Shell
         }
 
         /// <summary>
-        /// Shows a status line on an otherwise empty frame (used while loading a file).
-        /// </summary>
-        public void DrawStatus(string title, string message)
-        {
-            BeginFrame();
-            FontAtlas f = _ui.Atlas;
-            float cx = _window.Width * 0.5f, cy = _window.Height * 0.5f;
-            _ui.TextCentred(f.Title, cx, cy - S(40), "BIMGO", UiTheme.TEXT, S(4));
-            _ui.TextCentred(f.Bold, cx, cy + S(14), title, UiTheme.TEXT, S(0.5f));
-            _ui.TextCentred(f.Body, cx, cy + S(42), message, UiTheme.TEXT_MUTED);
-            _ui.Flush(_window.Width, _window.Height);
-            _window.Swap();
-            _window.PumpMessages();
-        }
-
-        /// <summary>
         /// Sets the message line.
         /// </summary>
         public void SetMessage(string message, bool error)

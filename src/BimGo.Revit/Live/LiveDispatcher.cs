@@ -201,7 +201,8 @@ namespace BimGo.Live
                         RevitVersion = host.Info.RevitVersion,
                         PhaseName = host.Info.PhaseName,
                         ExistingPhaseName = host.Info.ExistingPhaseName,
-                        RevitViews = true // Round X-E: makes / updates views from BimGo's camera
+                        RevitViews = true, // Round X-E: makes / updates views from BimGo's camera
+                        CommentMarkers = true // Round Z-B: keeps comment markers (Options can turn live markers off)
                     }, envelope.Id);
                     MarkStatusDirty();
                     break;
@@ -237,6 +238,16 @@ namespace BimGo.Live
                         // Asked from the ribbon: say it here too (the app shows it as well)
                         new UI.TaskDialog("BimGo") { MainInstruction = "No view from BimGo", MainContent = made.Message, CommonButtons = UI.TaskDialogCommonButtons.Close }.Show();
                     }
+                    break;
+
+                case MessageTypes.MARKERS_SYNC: // Round Z-B
+                    MarkersSyncPayload markers = envelope.Read<MarkersSyncPayload>();
+                    if (markers == null) { break; }
+                    LaunchSettings markerSettings = LaunchSettings.LoadOrDefault();
+                    MarkersResultPayload synced = markerSettings.CommentMarkersLive
+                        ? Bridge.MarkerSync.Sync(host.Document, markers, markerSettings)
+                        : new MarkersResultPayload { Success = true }; // turned off in Options: nothing to say
+                    host.Send(MessageTypes.MARKERS_RESULT, synced, envelope.Id);
                     break;
 
                 case MessageTypes.JOURNAL_APPLY:

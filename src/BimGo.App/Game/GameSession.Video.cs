@@ -51,9 +51,6 @@ namespace BimGo.Game
 
         #endregion
 
-        /// <summary>True while a video is being recorded (or its file finished).</summary>
-        private bool IsRecordingVideo => _video != null;
-
         /// <summary>Videos\BimGo.</summary>
         private static string VideoFolder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "BimGo");
 

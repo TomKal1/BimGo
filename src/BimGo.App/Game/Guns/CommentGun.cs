@@ -33,9 +33,6 @@ namespace BimGo.Game.Guns
 
         public override float PanelHeight => 96f;
 
-        /// <summary>The marker under the crosshair (any gun).</summary>
-        public CommentRecord Hovered => _hovered;
-
         public override void Tick(float dt)
         {
             _clock += dt;

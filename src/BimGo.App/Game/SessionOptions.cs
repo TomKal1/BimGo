@@ -77,5 +77,17 @@ namespace BimGo.Game
         /// Polled about once a second; returns a message to show (e.g. "file queued") or null.
         /// </summary>
         public Func<string> PollNotices { get; init; }
+
+        /// <summary>
+        /// Round Z-C: start in kiosk mode (files only): visitors walk, fly and look; no menus, guns, panels, edits or saving;
+        /// an idle tour after two minutes; Ctrl+Shift+Q held leaves into the normal walkthrough.
+        /// </summary>
+        public bool Kiosk { get; init; }
+
+        /// <summary>
+        /// Round Z-E: a notice for the start of the walkthrough, shown as an important toast (e.g. the add-in is from
+        /// another release), or null.
+        /// </summary>
+        public string StartNotice { get; init; }
     }
 }

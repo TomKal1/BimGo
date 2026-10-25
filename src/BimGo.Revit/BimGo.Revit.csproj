@@ -18,14 +18,10 @@
 			Release R25;Release R26;Release R27
 		</Configurations>
 
-		<!-- Common addin metadata -->
-		<AssemblyVersion>1.0.0.0</AssemblyVersion>
-		<FileVersion>1.0.0.0</FileVersion>
-		<Version>1.0.0</Version>
-		<Company>Author</Company>
+		<!-- Common add-in metadata (version and publisher: src/Directory.Build.props) -->
 		<RootNamespace>BimGo</RootNamespace>
 		<AssemblyName>BimGo.Revit</AssemblyName>
-		<!-- Add-in folder and .addin file name under %AppData%\Autodesk\Revit\Addins\<year>\ -->
+		<!-- Add-in folder and .addin name (bundle: Contents\<year>\BimGo.addin + BimGo\; Addins\<year>\ only to remove older copies) -->
 		<AddinName>BimGo</AddinName>
 		<BinRoot>bin</BinRoot>
 		<RevitAddinsRoot>$(AppData)\Autodesk\Revit\Addins</RevitAddinsRoot>
@@ -97,11 +93,14 @@
 	<ItemGroup>
 		<None Remove="Resources\Icons16\*.png" />
 		<None Remove="Resources\Icons32\*.png" />
+		<None Remove="Resources\Families\*.rfa" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<EmbeddedResource Include="Resources\Icons16\*.png" />
 		<EmbeddedResource Include="Resources\Icons32\*.png" />
+		<!-- Round Z-B: the comment marker family, written to %LocalAppData%\BimGo\Families when a model needs it -->
+		<EmbeddedResource Include="Resources\Families\BimGo_Comment_Marker.rfa" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -120,52 +119,49 @@
 	</ItemGroup>
 
 
-	<!-- Building process -->
+	<!--
+		Building process. Every build lays out bin\<config>\<year>\ as the installer needs it: BimGo.addin + BimGo\ (the dll,
+		BimGo.Core.dll, no .pdb). Debug builds then deploy it as the installer does, into the per-user Autodesk bundle
+		(%AppData%\Autodesk\ApplicationPlugins\BimGo.bundle\Contents\<year>\), and remove any older copy under
+		Addins\<year>\ (Revit refuses an add-in id loaded twice). Release builds copy nothing: build\publish.ps1 packages them.
+	-->
 	<Target Name="CopyToRevitAddins" AfterTargets="Build" Condition="'$(RevitVersion)' != ''">
 
-		<!-- Building directories for bin/addin -->
 		<PropertyGroup>
 			<BinRoot>$(TargetDir)</BinRoot>
 			<BinAddinDir>$(TargetDir)$(AddinName)\</BinAddinDir>
-			<RevitAddinDir>$(RevitAddinsRoot)\$(RevitVersion)\$(AddinName)</RevitAddinDir>
-			<RevitAddinFile>$(RevitAddinsRoot)\$(RevitVersion)\$(AddinName).addin</RevitAddinFile>
+			<BundleDir>$(AppData)\Autodesk\ApplicationPlugins\$(AddinName).bundle</BundleDir>
+			<BundleYearDir>$(BundleDir)\Contents\$(RevitVersion)</BundleYearDir>
+			<BundleTemplate>$(MSBuildThisFileDirectory)..\..\installer\PackageContents.xml</BundleTemplate>
 		</PropertyGroup>
 
-		<!-- Create folders if not created yet -->
+		<!-- bin\<year>\: move the build output into the add-in sub-folder, no .pdb, the .addin beside it -->
 		<MakeDir Directories="$(BinAddinDir)" />
-		<MakeDir Directories="$(RevitAddinDir)" />
-
-		<!-- Move bin items to version/add-in sub-folder -->
 		<ItemGroup>
 			<BinRootFiles Include="$(BinRoot)*.*" Exclude="$(BinRoot)*.pdb;$(BinRoot)$(AddinName).addin" />
 		</ItemGroup>
 		<Copy SourceFiles="@(BinRootFiles)" DestinationFiles="@(BinRootFiles->'$(BinAddinDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
 		<Delete Files="@(BinRootFiles)" />
-
-		<!-- If any PDBs ended up in bin\[AddinName] by default, delete them too -->
 		<ItemGroup>
 			<BinPdbFiles Include="$(BinRoot)*.pdb;$(BinAddinDir)**\*.pdb" />
 		</ItemGroup>
 		<Delete Files="@(BinPdbFiles)" />
-
-		<!-- [AddinName].addin into bin root only -->
 		<Copy SourceFiles="$(AddinName).addin" DestinationFiles="$(BinRoot)$(AddinName).addin" SkipUnchangedFiles="true" />
 
-		<!-- Copy bin files to addin folder -->
-		<ItemGroup>
+		<!-- Debug only: deploy into the bundle, like the installer -->
+		<ItemGroup Condition="$(Configuration.StartsWith('Debug'))">
 			<DeployFiles Include="$(BinAddinDir)**\*.*" Exclude="$(BinAddinDir)**\*.pdb" />
 		</ItemGroup>
-		<!-- Revit holds loaded DLLs until it exits. Keep the staged build usable and report a deferred install. -->
-		<Copy SourceFiles="@(DeployFiles)" DestinationFolder="$(RevitAddinDir)" SkipUnchangedFiles="true"
-			  Retries="0" ContinueOnError="WarnAndContinue">
-			<Output TaskParameter="CopiedFiles" ItemName="InstalledRevitFiles" />
-		</Copy>
-		<Warning Condition="'@(InstalledRevitFiles->Count())' != '@(DeployFiles->Count())'" Code="BIMGO001"
-				 Text="BimGo compiled, but Revit add-in installation is incomplete. Close Revit and rebuild to install the updated DLLs. The compiled files are available in $(BinAddinDir)." />
+		<Copy Condition="$(Configuration.StartsWith('Debug'))" SourceFiles="@(DeployFiles)"
+			  DestinationFiles="@(DeployFiles->'$(BundleYearDir)\$(AddinName)\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+		<Copy Condition="$(Configuration.StartsWith('Debug'))" SourceFiles="$(AddinName).addin" DestinationFiles="$(BundleYearDir)\$(AddinName).addin" SkipUnchangedFiles="true" />
+		<WriteLinesToFile Condition="$(Configuration.StartsWith('Debug')) And Exists('$(BundleTemplate)')" File="$(BundleDir)\PackageContents.xml"
+						  Lines="$([MSBuild]::Escape($([System.IO.File]::ReadAllText('$(BundleTemplate)').Replace('@VERSION@','$(BimGoVersion)'))))" Overwrite="true" WriteOnlyWhenDifferent="true" />
 
-		<!-- Copy .addin file to addin folder -->
-		<Copy SourceFiles="$(AddinName).addin" DestinationFiles="$(RevitAddinFile)" SkipUnchangedFiles="true"
-			  Retries="0" ContinueOnError="WarnAndContinue" />
+		<!-- Debug only: an older copy under Addins\<year>\ would load the add-in twice -->
+		<Delete Condition="$(Configuration.StartsWith('Debug'))" Files="$(RevitAddinsRoot)\$(RevitVersion)\$(AddinName).addin" ContinueOnError="true" />
+		<RemoveDir Condition="$(Configuration.StartsWith('Debug')) And Exists('$(RevitAddinsRoot)\$(RevitVersion)\$(AddinName)')"
+				   Directories="$(RevitAddinsRoot)\$(RevitVersion)\$(AddinName)" ContinueOnError="true" />
 	</Target>
 
 </Project>

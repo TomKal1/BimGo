@@ -22,9 +22,6 @@ namespace BimGo.Game
 
         #region State
 
-        /// <summary>The live session, or null for a .bimgo file.</summary>
-        public ILiveLink LiveLink => _live;
-
         /// <summary>True when connected to a live Revit session.</summary>
         public bool IsLiveConnected => _live != null && _live.Connected;
 

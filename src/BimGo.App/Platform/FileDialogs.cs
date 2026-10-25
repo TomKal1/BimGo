@@ -149,6 +149,14 @@ namespace BimGo.Platform
         }
 
         /// <summary>
+        /// Round Z-C: shows an information message (OK only).
+        /// </summary>
+        public static void ShowInfo(nint owner, string text, string caption = "BimGo")
+        {
+            Win32.MessageBoxW(owner, text, caption, Win32.MB_OK | Win32.MB_ICONINFORMATION);
+        }
+
+        /// <summary>
         /// Shows an error message.
         /// </summary>
         public static void ShowError(nint owner, string text, string caption = "BimGo")

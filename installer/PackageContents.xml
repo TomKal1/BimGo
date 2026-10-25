@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  BimGo for Revit as a per-user Autodesk bundle (%AppData%\Autodesk\ApplicationPlugins\BimGo.bundle\).
+  @VERSION@ is filled in by build\publish.ps1 and by Debug builds of BimGo.Revit (from src\Directory.Build.props).
+  ProductCode and UpgradeCode never change. Each Revit year loads only its own component.
+-->
+<ApplicationPackage SchemaVersion="1.0" AutodeskProduct="Revit" ProductType="Application"
+    Name="BimGo" Description="First-person BIM walkthroughs: live sessions with Revit, .bimgo export"
+    AppVersion="@VERSION@" FriendlyVersion="@VERSION@" Author="Aussie BIM Guru"
+    ProductCode="{DF913CCB-B774-4182-B3D3-81B947CC5AFF}" UpgradeCode="{CACC322A-3639-4232-8F3B-C18291333820}"
+    OnlineDocumentation="https://github.com/aussieBIMguru/BimGo/tree/main/docs">
+  <CompanyDetails Name="Aussie BIM Guru" Url="https://github.com/aussieBIMguru/BimGo" />
+  <Components Description="Revit 2025">
+    <RuntimeRequirements OS="Win64" Platform="Revit" SeriesMin="R2025" SeriesMax="R2025" />
+    <ComponentEntry AppName="BimGo" Version="@VERSION@" ModuleName="./Contents/2025/BimGo.addin" AppDescription="BimGo for Revit 2025" />
+  </Components>
+  <Components Description="Revit 2026">
+    <RuntimeRequirements OS="Win64" Platform="Revit" SeriesMin="R2026" SeriesMax="R2026" />
+    <ComponentEntry AppName="BimGo" Version="@VERSION@" ModuleName="./Contents/2026/BimGo.addin" AppDescription="BimGo for Revit 2026" />
+  </Components>
+  <Components Description="Revit 2027">
+    <RuntimeRequirements OS="Win64" Platform="Revit" SeriesMin="R2027" SeriesMax="R2027" />
+    <ComponentEntry AppName="BimGo" Version="@VERSION@" ModuleName="./Contents/2027/BimGo.addin" AppDescription="BimGo for Revit 2027" />
+  </Components>
+</ApplicationPackage>

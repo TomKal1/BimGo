@@ -80,7 +80,7 @@ namespace BimGo.Tests
             string beside = Path.Combine(modelDir, "Tower" + BimGoFormat.SIDECAR_SUFFIX);
             string folder = Path.Combine(temp.Path, "Models", "Tower_abc");
             var info = new ModelFolderInfo { Title = "Tower", ShareBesideModel = true, BesideCommentsPath = beside };
-            string comments = ModelFolders.Prepare(folder, info, new[] { beside });
+            string comments = ModelFolders.Prepare(folder, info);
 
             string file = MeasurementFiles.SidecarFor(comments);
             Assert.AreEqual(Path.Combine(folder, ModelFolders.MEASUREMENTS_FILE), file);
@@ -99,7 +99,7 @@ namespace BimGo.Tests
             string beside = Path.Combine(modelDir, "Tower" + BimGoFormat.SIDECAR_SUFFIX);
             string folder = Path.Combine(temp.Path, "Models", "Tower_abc");
             var info = new ModelFolderInfo { Title = "Tower", ShareBesideModel = true, BesideCommentsPath = beside };
-            string comments = ModelFolders.Prepare(folder, info, new[] { beside });
+            string comments = ModelFolders.Prepare(folder, info);
 
             // My comment's picture goes beside the model with the comments
             var document = new CommentDocument
@@ -116,7 +116,7 @@ namespace BimGo.Tests
 
             // A colleague's picture comes back at the next Go
             File.WriteAllBytes(Path.Combine(pictures, "theirs.jpg"), new byte[] { 9 });
-            ModelFolders.Prepare(folder, info, new[] { beside });
+            ModelFolders.Prepare(folder, info);
             CollectionAssert.AreEqual(new byte[] { 9 }, File.ReadAllBytes(Path.Combine(folder, "comments", "theirs.jpg")));
 
             // Without sharing nothing goes beside the model

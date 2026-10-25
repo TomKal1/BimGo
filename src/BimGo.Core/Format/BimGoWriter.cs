@@ -157,6 +157,8 @@ namespace BimGo.Format
                     {
                         WriteLibrary(zip, scene);
                     }
+                    RoomDataDto rooms = RoomDataFiles.ToDto(scene.Rooms); // Round Z-A (optional)
+                    if (rooms != null) { WriteJson(zip, BimGoFormat.ENTRY_ROOMS, rooms, BimGoFormat.JSON_COMPACT); }
                     GridsDto grids = GridFiles.ToDto(scene.Grids); // grids round A (optional)
                     if (grids != null) { WriteJson(zip, BimGoFormat.ENTRY_GRIDS, grids, BimGoFormat.JSON_COMPACT); }
                     EntourageSlotsDto slots = EntourageSlots.ToDto(scene.EntourageSlots); // Round X-B2 (optional)
@@ -258,7 +260,14 @@ namespace BimGo.Format
 
             foreach (RoomInfo room in scene.Rooms)
             {
-                var dto = new RoomDto { Number = room.Number, Name = room.Name, BottomZ = room.BottomZ, TopZ = room.TopZ, Link = room.Link > 0 ? room.Link : null };
+                var dto = new RoomDto
+                {
+                    Number = room.Number, Name = room.Name, BottomZ = room.BottomZ, TopZ = room.TopZ, Link = room.Link > 0 ? room.Link : null,
+                    UniqueId = string.IsNullOrEmpty(room.UniqueId) ? null : room.UniqueId, // Round Z-A
+                    Id = room.ElementId >= 0 ? room.ElementId : null,
+                    Level = string.IsNullOrEmpty(room.LevelName) ? null : room.LevelName,
+                    Area = float.IsFinite(room.Area) ? MathF.Round(room.Area * 1000f) / 1000f : null
+                };
                 foreach (System.Numerics.Vector2[] loop in room.Loops)
                 {
                     float[] flat = new float[loop.Length * 2];

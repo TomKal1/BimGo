@@ -122,9 +122,6 @@ namespace BimGo.Scene
                 : Signed(ToSquareFeet(squareMetres), decimals) + " ft²";
         }
 
-        /// <summary>The unit's area symbol: "m²" or "ft²".</summary>
-        public static string AreaSymbol(UnitSystem system) => system == UnitSystem.Metric ? "m²" : "ft²";
-
         /// <summary>Fixed decimals, invariant culture, true minus sign.</summary>
         private static string Signed(double value, int decimals)
         {

@@ -1,0 +1,25 @@
+# This is a Revit shared parameter file.
+# Do not edit manually.
+*META	VERSION	MINVERSION
+META	2	1
+*GROUP	ID	NAME
+GROUP	1	BimGo
+*PARAM	GUID	NAME	DATATYPE	DATACATEGORY	GROUP	VISIBLE	DESCRIPTION	USERMODIFIABLE	HIDEWHENNOVALUE
+PARAM	5d24ab4c-5c10-5023-bb69-b8526e44ab4a	BimGo_Id	TEXT		1	1	The BimGo comment id (32 hex). BimGo's key for updating / removing the marker: don't edit.	1	0
+PARAM	ead6278a-4ee3-5325-aebf-4484b31deb33	BimGo_Title	TEXT		1	1	The comment's first line (60 characters at most), for tags and schedules.	1	0
+PARAM	611d7d5a-1e4f-554b-a105-3808a805589d	BimGo_Comment	TEXT		1	1	The comment's full text.	1	0
+PARAM	a8f374e9-ec5c-5d0d-8e65-ca460e508fb1	BimGo_Status	TEXT		1	1	Open / In progress / Closed (as BimGo shows it).	1	0
+PARAM	97ce83ee-3d33-5c8e-8cf1-5ca61e26764b	BimGo_Priority	TEXT		1	1	Low / Normal / High.	1	0
+PARAM	feca2551-65bb-5dd0-aa5a-60bd9a0891a5	BimGo_Author	TEXT		1	1	Who made the comment.	1	0
+PARAM	bc5284ca-081a-5a83-8056-9ff4235c6928	BimGo_AssignedTo	TEXT		1	1	Who it is assigned to (empty: nobody).	1	0
+PARAM	78a872d8-7df7-5827-b781-ca0ada549931	BimGo_Created	TEXT		1	1	When it was made (yyyy-MM-dd HH:mm).	1	0
+PARAM	7ade62cf-73fd-56af-b96d-554b14bbddac	BimGo_Updated	TEXT		1	1	When it last changed in BimGo (yyyy-MM-dd HH:mm).	1	0
+PARAM	0332a4cf-cf80-54fe-8d15-cd7fb9b0eeff	BimGo_Level	TEXT		1	1	The level it was made on (adaptive markers have no level of their own).	1	0
+PARAM	e2cab673-8034-5e19-96de-2ffc7394bd2a	BimGo_Element	TEXT		1	1	The UniqueId of the element it was made on (empty: none).	1	0
+PARAM	e04836c9-9920-59d1-a45f-22c969c33500	BimGo_Replies	INTEGER		1	1	Number of replies.	1	0
+PARAM	34e1f0f6-a357-5d69-926d-2071803cfef1	BimGo_Picture	TEXT		1	1	The comment picture's file (JPEG beside the model), or empty.	1	0
+PARAM	a3450b13-b57b-55d8-8b31-a06f983f7fa8	BimGo_Synced	TEXT		1	1	When BimGo last wrote this marker (yyyy-MM-dd HH:mm).	1	0
+PARAM	10bdc1c1-122b-5cbb-89e4-2582e186ef21	BimGo_IsOpen	YESNO		1	1	Status is Open (drives the open solid's visibility).	1	0
+PARAM	ab02c1e9-3c4a-5a66-a3ba-9d3397e56a90	BimGo_IsInProgress	YESNO		1	1	Status is In progress (drives its solid's visibility).	1	0
+PARAM	4dc55a39-a8fd-52cd-a3cf-c25a78dc55a9	BimGo_IsClosed	YESNO		1	1	Status is Closed (drives its solid's visibility).	1	0
+PARAM	b8562f32-3c77-5592-84b5-fc6b8ce7278f	BimGo_IsHighPriority	YESNO		1	1	Priority is High (drives the flag's visibility).	1	0

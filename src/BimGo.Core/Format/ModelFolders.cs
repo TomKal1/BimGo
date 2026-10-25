@@ -39,8 +39,6 @@ namespace BimGo.Format
     /// <item>The key, most stable first: the cloud model GUID, else the workshared central path, else the local path
     /// (the Revit side builds it; <see cref="NormaliseKey"/> makes paths case- and slash-insensitive). Two local
     /// copies of one model get two folders.</item>
-    /// <item>Migration: sidecars beside the model (or in the old <c>Comments</c> folder, or an RvtGo
-    /// <c>.rvtgo.json</c>) are copied in once when the folder has none; the originals are left as a backup.</item>
     /// <item>Sharing (optional, off by default): writes are mirrored beside the model, and at each Go a newer file
     /// there replaces the folder's copy, so colleagues on a shared drive see each other's comments.</item>
     /// </list>
@@ -89,7 +87,7 @@ namespace BimGo.Format
         /// <summary>Longest title part of a folder name.</summary>
         private const int MAX_TITLE = 60;
 
-        // The sidecars that move into the folder: folder file name and beside-model suffix (comments first)
+        // The files shared beside the model: folder file name and beside-model suffix (comments first)
         private static readonly (string File, string Suffix)[] SIDECARS =
         {
             (COMMENTS_FILE, BimGoFormat.SIDECAR_SUFFIX),
@@ -207,19 +205,16 @@ namespace BimGo.Format
 
         #endregion
 
-        #region Prepare and migrate
+        #region Prepare
 
         /// <summary>
-        /// Creates the folder if needed, records <c>model.json</c>, copies old sidecars in where the folder has none,
-        /// and (sharing on) takes newer copies from beside the model.
+        /// Creates the folder if needed, records <c>model.json</c> and (sharing on) takes newer copies from beside the
+        /// model.
         /// </summary>
         /// <param name="folder">The model folder.</param>
         /// <param name="info">The model description (title, path, key, sharing and the beside-model comments path).</param>
-        /// <param name="legacyCommentsPaths">Old comments sidecars to migrate from, most relevant first (beside the model,
-        /// then the old Comments folder); null entries are ignored. Each one's bookmarks / sun / visibility sidecars
-        /// are found next to it.</param>
         /// <returns>The comments path in the folder (<c>…\comments.json</c>), or null if the folder can't be created.</returns>
-        public static string Prepare(string folder, ModelFolderInfo info, IEnumerable<string> legacyCommentsPaths)
+        public static string Prepare(string folder, ModelFolderInfo info)
         {
             if (string.IsNullOrWhiteSpace(folder)) { return null; }
             info ??= new ModelFolderInfo();
@@ -236,43 +231,9 @@ namespace BimGo.Format
             info.Updated = DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture);
             WriteInfo(folder, info);
 
-            List<string> candidates = (legacyCommentsPaths ?? Enumerable.Empty<string>())
-                .Where(p => !string.IsNullOrWhiteSpace(p))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            int migrated = MigrateInto(folder, candidates);
             int pulled = info.ShareBesideModel ? PullNewer(folder, info.BesideCommentsPath) : 0;
-            if (migrated > 0 || pulled > 0)
-            {
-                Utilities.Log_Utils.Write($"Model folder {folder}: {migrated} sidecar(s) copied in from older locations, {pulled} newer shared file(s) taken from beside the model.");
-            }
+            if (pulled > 0) { Utilities.Log_Utils.Write($"Model folder {folder}: {pulled} newer shared file(s) taken from beside the model."); }
             return System.IO.Path.Combine(folder, COMMENTS_FILE);
-        }
-
-        /// <summary>
-        /// Copies each sidecar the folder lacks from the first candidate that has it (comments also from an RvtGo
-        /// <c>.rvtgo.json</c>). The originals are left untouched.
-        /// </summary>
-        /// <returns>How many files were copied.</returns>
-        public static int MigrateInto(string folder, IReadOnlyList<string> legacyCommentsPaths)
-        {
-            int copied = 0;
-            foreach ((string file, string suffix) in SIDECARS)
-            {
-                string target = System.IO.Path.Combine(folder, file);
-                if (File.Exists(target)) { continue; }
-                foreach (string comments in legacyCommentsPaths)
-                {
-                    string source = suffix == BimGoFormat.SIDECAR_SUFFIX ? comments : SidecarJson.BesideComments(comments, suffix);
-                    if (suffix == BimGoFormat.SIDECAR_SUFFIX && !File.Exists(source)) { source = CommentFiles.LegacyPathFor(comments); }
-                    if (TryCopy(source, target, overwrite: false))
-                    {
-                        copied++;
-                        break;
-                    }
-                }
-            }
-            return copied;
         }
 
         /// <summary>

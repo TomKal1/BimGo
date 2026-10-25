@@ -52,9 +52,7 @@ namespace BimGo.Game
 
             string message = next switch
             {
-                CoordinateReadout.Shared => _shared.Approximate
-                    ? "Coordinates: shared (approximate: export again from Revit for millimetre accuracy)"
-                    : "Coordinates: shared (survey)",
+                CoordinateReadout.Shared => "Coordinates: shared (survey)",
                 CoordinateReadout.Project => "Coordinates: project (from the project base point)",
                 CoordinateReadout.Internal => "Coordinates: Revit internal",
                 _ => "Coordinates off"
@@ -85,7 +83,7 @@ namespace BimGo.Game
 
             string title = _coordinateReadout switch
             {
-                CoordinateReadout.Shared => _shared.Approximate ? "SHARED COORDINATES ≈" : "SHARED COORDINATES",
+                CoordinateReadout.Shared => "SHARED COORDINATES",
                 CoordinateReadout.Project => "PROJECT COORDINATES",
                 _ => "INTERNAL COORDINATES"
             };

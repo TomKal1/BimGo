@@ -32,9 +32,6 @@ namespace BimGo.Game
         /// <summary>True if the visibility changed since the file was saved (file mode).</summary>
         private bool VisibilityDirty => _visibilityRevision != _savedVisibilityRevision;
 
-        /// <summary>True if an element is hidden in the walkthrough only (Scan gun, I).</summary>
-        public bool IsUserHidden(int element) => element >= 0 && _userHidden[element];
-
         /// <summary>
         /// How many things are hidden: elements, loaded categories that are off, and links that are off (the pause
         /// menu offers SHOW ALL when this is above zero).
@@ -75,6 +72,7 @@ namespace BimGo.Game
             }
             RestoreGrids(saved?.Grids); // grids round A (before the early return: grids alone make a saved state)
             RestoreAppearance(saved?.Appearance); // colour round A (likewise)
+            RestoreRoomOverlay(saved?.Rooms); // Round Z-A (likewise)
             if (saved == null || saved.IsEmpty) { return; }
 
             // The ground plane as it was left (relative to the default, so it survives a re-extraction)
@@ -164,6 +162,7 @@ namespace BimGo.Game
             settings.GroundOffset = null;
             settings.Section = null;
             settings.Appearance = null; // colour round A: profiles belong to the model, not to a bookmark
+            settings.Rooms = null; // Round Z-A: so does the room overlay
             return settings;
         }
 
@@ -193,7 +192,8 @@ namespace BimGo.Game
                 Section = _reviewOpen ? (_reviewPreviousSection?.IsActive == true ? _reviewPreviousSection.Clone() : null)
                     : _section.IsActive ? _section.Clone() : null,
                 Grids = GridsForSave(), // grids round A
-                Appearance = AppearanceForSave() // colour round A
+                Appearance = AppearanceForSave(), // colour round A
+                Rooms = RoomOverlayForSave() // Round Z-A
             };
             foreach (CategoryDef def in CategoryCatalog.All)
             {
