@@ -40,6 +40,7 @@ namespace BimGo.Game
         private bool[] _lightKept = Array.Empty<bool>();
         private int _linkedCopies;
         private static readonly string[] FIXTURE_SOURCE_OPTIONS = { "Auto", "Host", "Links", "All" };
+        private static readonly string[] OUTPUT_OPTIONS = { "Revit", "Fix flagged", ".ies files" };
         private string _lightProfilePath; // null = inside the .bimgo
         private int _lightProfileRevision;
 
@@ -233,12 +234,10 @@ namespace BimGo.Game
                 _lightSlot[i] = slot;
                 _lightCode[i] = slot < 0 ? light.Downward : LightProfiles.Encode(slot, light.Aim, light.Across);
 
-                // Output: Revit's lumens; a guessed output takes an imported / Revit file's own (when it has one)
-                float lumens = light.Lumens;
-                if (profile != null && profile.IsFile && light.Estimated && MathF.Abs(light.Lumens - 1000f) < 0.5f && profile.Lumens >= 10f)
-                {
-                    lumens = Math.Clamp(profile.Lumens, 50f, 50000f);
-                }
+                // Output: Revit's lumens, or the file's (a guessed output, or the LIGHTS tab's Fixture output choice)
+                bool guessed = light.Estimated && MathF.Abs(light.Lumens - 1000f) < 0.5f;
+                float lumens = LightProfiles.ResolveOutput(_lightProfileDoc.Output, light.Lumens, guessed,
+                    profile != null && profile.IsFile ? profile.Lumens : 0f, out _);
 
                 // Round Y-C1: the file's tilt factor at the fixture's tilt (its aim's angle from straight down)
                 if (profile?.TiltAngles != null) { lumens *= profile.TiltFactor(TiltFromDown(light.Aim)); }
@@ -412,6 +411,27 @@ namespace BimGo.Game
                 y += _ui.TextWrapped(f.Small, ix, y, iw, hint, UiTheme.TEXT_FAINT, maxLines: 3) + S(10);
             }
 
+            // Fixture output: Revit's Initial Intensity, or the .ies files' own (for flagged types, or all)
+            _ui.Text(f.Small, ix, y, "Fixture output", UiTheme.TEXT_MUTED);
+            y += S(18);
+            string output = LightProfiles.CleanOutputMode(_lightProfileDoc.Output);
+            int outputIndex = Array.IndexOf(LightProfiles.OUTPUT_MODES, output);
+            int outputPicked = Segmented(f, input, ix, y, iw, OUTPUT_OPTIONS, outputIndex);
+            if (outputPicked != outputIndex)
+            {
+                _lightProfileDoc.Output = outputPicked == 0 ? null : LightProfiles.OUTPUT_MODES[outputPicked];
+                SaveLightProfiles();
+                output = LightProfiles.OUTPUT_MODES[outputPicked];
+            }
+            y += S(38);
+            string outputHint = output switch
+            {
+                LightProfiles.OUTPUT_FLAGGED => "Types marked ! use their .ies file's lumens, here and in calculations' notes; the rest use Revit's",
+                LightProfiles.OUTPUT_FILE => "Every type with an .ies file uses the file's lumens, as calculations do: view and calculations match",
+                _ => "Revit's Initial Intensity, as Revit renders. Calculations use each .ies file's own lumens",
+            };
+            y += _ui.TextWrapped(f.Small, ix, y, iw, outputHint, UiTheme.TEXT_FAINT, maxLines: 3) + S(10);
+
             // Types whose Revit output and photometric file disagree (a placeholder file or a mistyped intensity)
             int mismatched = rows.Count(r => LumenMismatchOf(r) > 0f);
             if (mismatched > 0)
@@ -442,7 +462,9 @@ namespace BimGo.Game
                     float fileLumens = ProfileOf(row.RevitKey)?.Lumens ?? 0f;
                     Text.Clear().Append("! Revit ").AppendGrouped((int)MathF.Round(row.RevitLumens)).Append(" lm vs its .ies file ")
                         .AppendGrouped((int)MathF.Round(fileLumens)).Append(" lm (").Append(mismatch >= 1f ? mismatch : 1f / mismatch, 1)
-                        .Append(mismatch >= 1f ? "× brighter" : "× dimmer").Append("). The view uses Revit's: check the type's Initial Intensity, or the file");
+                        .Append(mismatch >= 1f ? "× brighter" : "× dimmer")
+                        .Append(LightProfiles.CleanOutputMode(_lightProfileDoc.Output) == LightProfiles.OUTPUT_REVIT
+                            ? "). The view uses Revit's: check the type's Initial Intensity, or the file" : "). Using the file's (Fixture output)");
                     y += _ui.TextWrapped(f.Small, ix, y, iw - plot - S(12), Text.Span, UiTheme.MEASURE_LABEL, maxLines: 4) + S(6);
                 }
 

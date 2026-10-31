@@ -623,6 +623,42 @@ namespace BimGo.Scene
             return ratio >= LUMEN_MISMATCH || ratio <= 1f / LUMEN_MISMATCH ? ratio : 0f;
         }
 
+        /// <summary>Fixture output: Revit's Initial Intensity (the default; what Revit itself renders with).</summary>
+        public const string OUTPUT_REVIT = "revit";
+
+        /// <summary>Fixture output: the .ies file's own where Revit's is <see cref="LUMEN_MISMATCH"/> or more off it.</summary>
+        public const string OUTPUT_FLAGGED = "flagged";
+
+        /// <summary>Fixture output: the .ies file's own wherever there is a file (as the calculation engine does).</summary>
+        public const string OUTPUT_FILE = "file";
+
+        /// <summary>The output choices in the order the LIGHTS tab shows them.</summary>
+        public static readonly string[] OUTPUT_MODES = { OUTPUT_REVIT, OUTPUT_FLAGGED, OUTPUT_FILE };
+
+        /// <summary>A stored output mode, cleaned (unknown or empty → <see cref="OUTPUT_REVIT"/>).</summary>
+        public static string CleanOutputMode(string mode) => Array.IndexOf(OUTPUT_MODES, mode) >= 0 ? mode : OUTPUT_REVIT;
+
+        /// <summary>
+        /// The lumens a light emits (the one rule the viewer, the calculation input and a WW Tools port share): Revit's
+        /// Initial Intensity, or its photometric file's own output when <paramref name="mode"/> says so
+        /// (<see cref="OUTPUT_FILE"/>: always; <see cref="OUTPUT_FLAGGED"/>: when the two are <see cref="LUMEN_MISMATCH"/>
+        /// or more apart) or when Revit's was only the exporter's guess. A file without an output (under 10 lm) never
+        /// replaces Revit's. File lumens are clamped to 50–50 000 lm like the exporter's.
+        /// </summary>
+        /// <param name="mode">An OUTPUT_ mode (cleaned here).</param>
+        /// <param name="revitLumens">Revit's output (lm).</param>
+        /// <param name="guessed">Revit gave none: <paramref name="revitLumens"/> is the exporter's stand-in.</param>
+        /// <param name="fileLumens">The photometric file's output (lm), or 0 when there is no file.</param>
+        /// <param name="fromFile">True when the file's output was used.</param>
+        public static float ResolveOutput(string mode, float revitLumens, bool guessed, float fileLumens, out bool fromFile)
+        {
+            fromFile = false;
+            if (!(fileLumens >= 10f) || !float.IsFinite(fileLumens)) { return revitLumens; }
+            mode = CleanOutputMode(mode);
+            fromFile = guessed || mode == OUTPUT_FILE || (mode == OUTPUT_FLAGGED && LumenMismatch(revitLumens, fileLumens) > 0f);
+            return fromFile ? Math.Clamp(fileLumens, 50f, 50000f) : revitLumens;
+        }
+
         #endregion
 
         #region Keys

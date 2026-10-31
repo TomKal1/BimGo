@@ -39,10 +39,16 @@ namespace BimGo.Format
         /// <summary>Which model's fixtures light the scene (<see cref="FixtureSources"/>; null = <see cref="FixtureSources.AUTO"/>).</summary>
         public string FixtureSource { get; set; }
 
+        /// <summary>
+        /// Fixture output (<see cref="LightProfiles.ResolveOutput"/>): null = Revit's Initial Intensity,
+        /// <see cref="LightProfiles.OUTPUT_FLAGGED"/> or <see cref="LightProfiles.OUTPUT_FILE"/>.
+        /// </summary>
+        public string Output { get; set; }
+
         /// <summary>True when there is nothing to save.</summary>
         [JsonIgnore]
         public bool IsEmpty => (Types == null || Types.Count == 0) && (Imports == null || Imports.Count == 0) && (Instances == null || Instances.Count == 0)
-            && FixtureSource == null;
+            && FixtureSource == null && Output == null;
 
         // Round Y-C2: Instances by key (built on first look-up, dropped on every change)
         private Dictionary<string, LightProfileInstanceChoice> _instanceIndex;
@@ -177,6 +183,7 @@ namespace BimGo.Format
             Instances = instances;
             _instanceIndex = null;
             FixtureSource = FixtureSources.Clean(FixtureSource) == FixtureSources.AUTO ? null : FixtureSource;
+            Output = LightProfiles.CleanOutputMode(Output) == LightProfiles.OUTPUT_REVIT ? null : Output;
             return this;
         }
 

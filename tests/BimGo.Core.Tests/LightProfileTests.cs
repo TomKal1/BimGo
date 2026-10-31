@@ -207,6 +207,35 @@ TILT=NONE
         }
 
         [TestMethod]
+        public void ResolveOutput_FollowsTheFixtureOutputChoice()
+        {
+            // Art Glass: Revit 8913 lm on a 2014 lm file; Wall Lamp - Bracket: 2780 on 1892 (under 2x apart)
+            Assert.AreEqual(8913f, LightProfiles.ResolveOutput(null, 8913f, false, 2014f, out bool fromFile));
+            Assert.IsFalse(fromFile, "Revit's by default");
+            Assert.AreEqual(2014f, LightProfiles.ResolveOutput(LightProfiles.OUTPUT_FLAGGED, 8913f, false, 2014f, out fromFile));
+            Assert.IsTrue(fromFile, "flagged: 4.4x apart");
+            Assert.AreEqual(2780f, LightProfiles.ResolveOutput(LightProfiles.OUTPUT_FLAGGED, 2780f, false, 1892f, out fromFile));
+            Assert.IsFalse(fromFile, "flagged: close enough keeps Revit's");
+            Assert.AreEqual(1892f, LightProfiles.ResolveOutput(LightProfiles.OUTPUT_FILE, 2780f, false, 1892f, out fromFile));
+            Assert.IsTrue(fromFile, "files: always the file's");
+            Assert.AreEqual(1463f, LightProfiles.ResolveOutput(null, 1000f, true, 1463f, out fromFile));
+            Assert.IsTrue(fromFile, "a guessed output takes the file's whatever the choice");
+            Assert.AreEqual(1200f, LightProfiles.ResolveOutput(LightProfiles.OUTPUT_FILE, 1200f, false, 0f, out fromFile));
+            Assert.IsFalse(fromFile, "no file: Revit's");
+            Assert.AreEqual(50000f, LightProfiles.ResolveOutput(LightProfiles.OUTPUT_FILE, 1200f, false, 90000f, out _), "clamped like the exporter");
+        }
+
+        [TestMethod]
+        public void Document_KeepsTheOutputChoiceAndDropsTheDefault()
+        {
+            var document = new LightProfileDocument { Output = LightProfiles.OUTPUT_FILE }.Clean();
+            Assert.AreEqual(LightProfiles.OUTPUT_FILE, document.Output);
+            Assert.IsFalse(document.IsEmpty);
+            Assert.IsNull(new LightProfileDocument { Output = "brightest" }.Clean().Output, "unknown: Revit's (not stored)");
+            Assert.IsNull(new LightProfileDocument { Output = LightProfiles.OUTPUT_REVIT }.Clean().Output);
+        }
+
+        [TestMethod]
         public void Profile_FineTableMatchesTheShapeAndKeepsEnergy()
         {
             LightProfile spot = LightProfile.FromIes(LightProfiles.KeyOf(SPOT), "spot.ies", SPOT, out string error);
