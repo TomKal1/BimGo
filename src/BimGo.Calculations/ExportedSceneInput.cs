@@ -64,9 +64,17 @@ public static class ExportedSceneInput
         input.Warnings.Add($"Transport domain: {(domainZoneKeys == null ? "selected room union" : "union of the rooms solved in this part")} plus {set.Margin:0.##} ft XY, 1.5 ft below and 3 ft above or up to the level above; connections outside this domain are not modeled.");
         var instances = edits?.Instances ?? Array.Empty<CalculationInstance>();
         var instancesByElement = instances.ToLookup(d => d.Element);
-        // The fixtures the viewer lights with (a linked model's copies of host fixtures dropped, by default)
-        bool[] keptLights = FixtureSources.Kept(scene, profiles?.FixtureSource, out int linkedCopies);
-        if (linkedCopies > 0) input.Warnings.Add($"{linkedCopies} linked-model light(s) on top of a host fixture of the same type left out (Lights: fixture lights from {FixtureSources.Clean(profiles?.FixtureSource)}).");
+        // The fixtures the viewer lights with (the host model's only, unless the user picked links)
+        string fixtureSource = FixtureSources.Clean(profiles?.FixtureSource);
+        bool[] keptLights = FixtureSources.Kept(scene, fixtureSource, out int linkedCopies);
+        int linkedLeftOut = FixtureSources.LinkedLeftOut(scene, keptLights);
+        if (fixtureSource == FixtureSources.HOST && linkedLeftOut > 0)
+            input.Warnings.Add($"{linkedLeftOut} linked-model light(s) not used: fixture lights from host (Lights tab: Links, All or Auto to use them).");
+        if (fixtureSource == FixtureSources.AUTO)
+            input.Warnings.Add($"{linkedCopies} linked-model light(s) on top of a host fixture of the same type left out (fixture lights from auto); a copy moved more than 5 cm from its original still counts twice.");
+        if (fixtureSource == FixtureSources.ALL)
+            foreach ((string type, int host, int linked) in FixtureSources.TypesInBoth(scene))
+                input.Warnings.Add($"{(type.Length > 0 ? type : "Unnamed fixture")}: {host} in the host and {linked} in linked models; they may be copies that light twice.");
         var allLightsByElement = (scene.Lighting?.Lights ?? Array.Empty<LightSource>()).Select((l,k) => (Light:l, Index:k)).ToLookup(p => p.Light.Element);
         var lightsByElement = allLightsByElement.SelectMany(g => g).Where(p => keptLights[p.Index]).ToLookup(p => p.Light.Element);
         int proxies = 0; bool transparent = false;

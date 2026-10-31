@@ -8,8 +8,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BimGo.Tests
 {
     /// <summary>
-    /// Which model's fixtures light the scene: a linked model's copy of a host fixture (same type, same spot) is dropped
-    /// by default; fixtures only the link has still light; each mode picks what it says.
+    /// Which model's fixtures light the scene: the host's by default; Auto (when chosen) drops a linked model's copy of a
+    /// host fixture (same type, same spot) and keeps fixtures only the link has; each mode picks what it says.
     /// </summary>
     [TestClass]
     public sealed class FixtureSourcesTests
@@ -75,22 +75,42 @@ namespace BimGo.Tests
         }
 
         [TestMethod]
-        public void Document_KeepsAChoiceAndDropsAuto()
+        public void Document_KeepsAChoiceAndDropsHost()
         {
-            var document = new BimGo.Format.LightProfileDocument { FixtureSource = FixtureSources.HOST }.Clean();
-            Assert.AreEqual(FixtureSources.HOST, document.FixtureSource);
+            var document = new BimGo.Format.LightProfileDocument { FixtureSource = FixtureSources.AUTO }.Clean();
+            Assert.AreEqual(FixtureSources.AUTO, document.FixtureSource);
             Assert.IsFalse(document.IsEmpty, "a choice is saved");
-            document = new BimGo.Format.LightProfileDocument { FixtureSource = FixtureSources.AUTO }.Clean();
+            document = new BimGo.Format.LightProfileDocument { FixtureSource = FixtureSources.HOST }.Clean();
             Assert.IsNull(document.FixtureSource, "the default isn't stored");
             Assert.IsTrue(document.IsEmpty);
         }
 
         [TestMethod]
-        public void Clean_FallsBackToAuto()
+        public void Clean_FallsBackToHost()
         {
-            Assert.AreEqual(FixtureSources.AUTO, FixtureSources.Clean(null));
-            Assert.AreEqual(FixtureSources.AUTO, FixtureSources.Clean("everything"));
-            Assert.AreEqual(FixtureSources.HOST, FixtureSources.Clean(FixtureSources.HOST));
+            // Linked fixtures light only when chosen: a document saved before (Auto was its unstored default) lights the host's
+            Assert.AreEqual(FixtureSources.HOST, FixtureSources.Clean(null));
+            Assert.AreEqual(FixtureSources.HOST, FixtureSources.Clean("everything"));
+            Assert.AreEqual(FixtureSources.AUTO, FixtureSources.Clean(FixtureSources.AUTO));
+            CollectionAssert.AreEqual(new[] { true, false, false, false, true }, FixtureSources.Kept(Scene(), null, out _));
+        }
+
+        [TestMethod]
+        public void LinkedLeftOut_CountsTheDarkLinkedLights()
+        {
+            SceneData scene = Scene();
+            Assert.AreEqual(3, FixtureSources.LinkedLeftOut(scene, FixtureSources.Kept(scene, FixtureSources.HOST, out _)));
+            Assert.AreEqual(1, FixtureSources.LinkedLeftOut(scene, FixtureSources.Kept(scene, FixtureSources.AUTO, out _)));
+            Assert.AreEqual(0, FixtureSources.LinkedLeftOut(scene, FixtureSources.Kept(scene, FixtureSources.ALL, out _)));
+        }
+
+        [TestMethod]
+        public void TypesInBoth_NamesPossibleCopiesWhereverTheyAre()
+        {
+            // The copy has drifted well past the same spot (the host's downlight moved after the link copied it)
+            var both = FixtureSources.TypesInBoth(Scene(copyX: 4f));
+            Assert.AreEqual(1, both.Count);
+            Assert.AreEqual(("Downlight: 4\"", 1, 1), both[0]);
         }
     }
 }

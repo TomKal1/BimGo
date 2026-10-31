@@ -35,11 +35,11 @@ namespace BimGo.Game
 
         private LightProfileDocument _lightProfileDoc = new();
 
-        // Which lights light the scene (FixtureSources: a linked model's copies of host fixtures are off by default), and
-        // how many copies that leaves out
+        // Which lights light the scene (FixtureSources: the host model's only unless the user picks links), how many copies
+        // Auto leaves out, how many linked lights stay dark, and how many types both models have (possible copies)
         private bool[] _lightKept = Array.Empty<bool>();
-        private int _linkedCopies;
-        private static readonly string[] FIXTURE_SOURCE_OPTIONS = { "Auto", "Host", "Links", "All" };
+        private int _linkedCopies, _linkedLeftOut, _typesInBoth;
+        private static readonly string[] FIXTURE_SOURCE_OPTIONS = { "Host", "Links", "All", "Auto" };
         private static readonly string[] OUTPUT_OPTIONS = { "Revit", "Fix flagged", ".ies files" };
         private string _lightProfilePath; // null = inside the .bimgo
         private int _lightProfileRevision;
@@ -201,6 +201,8 @@ namespace BimGo.Game
         {
             LightSource[] lights = Scene.Lighting.Lights;
             _lightKept = FixtureSources.Kept(Scene, _lightProfileDoc.FixtureSource, out _linkedCopies);
+            _linkedLeftOut = FixtureSources.LinkedLeftOut(Scene, _lightKept);
+            _typesInBoth = FixtureSources.TypesInBoth(Scene).Count;
             if (_lightSlot.Length != lights.Length)
             {
                 _lightSlot = new int[lights.Length];
@@ -394,21 +396,26 @@ namespace BimGo.Game
                 int picked = Segmented(f, input, ix, y, iw, FIXTURE_SOURCE_OPTIONS, current);
                 if (picked != current)
                 {
-                    _lightProfileDoc.FixtureSource = picked == 0 ? null : FixtureSources.MODES[picked];
+                    _lightProfileDoc.FixtureSource = FixtureSources.MODES[picked] == FixtureSources.HOST ? null : FixtureSources.MODES[picked];
                     SaveLightProfiles();
                     source = FixtureSources.MODES[picked];
                 }
                 y += S(38);
                 string hint = source switch
                 {
-                    FixtureSources.HOST => "This model's fixtures only; linked models' fixtures don't light",
+                    FixtureSources.HOST => _linkedLeftOut > 0
+                        ? $"This model's fixtures only; {_linkedLeftOut:N0} linked fixture light(s) aren't used. Pick Links, All or Auto to light with them"
+                        : "This model's fixtures only; the linked models have no fixture lights",
                     FixtureSources.LINKS => "Linked models' fixtures only; this model's don't light",
-                    FixtureSources.ALL => "Every fixture, linked copies included (copies shine twice as bright)",
-                    _ => _linkedCopies > 0
-                        ? $"{_linkedCopies:N0} linked fixture(s) on top of one of this model's (same type) left out; linked-only fixtures still light"
-                        : "This model's fixtures, plus linked fixtures it doesn't have",
+                    FixtureSources.ALL => _typesInBoth > 0
+                        ? $"Every fixture. {_typesInBoth:N0} type(s) are in this model and a link: possible copies that shine twice"
+                        : "Every fixture, this model's and the linked models'",
+                    _ => (_linkedCopies > 0
+                        ? $"{_linkedCopies:N0} linked fixture(s) on top of one of this model's (same type) left out; linked-only fixtures still light."
+                        : "This model's fixtures, plus linked fixtures it doesn't have.") +
+                        " A copy moved more than 5 cm from its original still shines twice",
                 };
-                y += _ui.TextWrapped(f.Small, ix, y, iw, hint, UiTheme.TEXT_FAINT, maxLines: 3) + S(10);
+                y += _ui.TextWrapped(f.Small, ix, y, iw, hint, UiTheme.TEXT_FAINT, maxLines: 4) + S(10);
             }
 
             // Fixture output: Revit's Initial Intensity, or the .ies files' own (for flagged types, or all)

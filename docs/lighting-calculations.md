@@ -17,7 +17,8 @@ WW Tools can port them and its calculations match BimGo's:
 
 | Rule | Field | Function | Default |
 |---|---|---|---|
-| Which model's fixtures light | `fixtureSource`: `host` · `links` · `all` (absent = `auto`) | `Scene/FixtureSources.Kept` | `auto`: every host fixture; a linked fixture only where no host light of the same family type is within 5 cm |
+| Which model's fixtures light | `fixtureSource`: `links` · `all` · `auto` (absent = `host`) | `Scene/FixtureSources.Kept` | `host`: the host model's fixtures only; linked fixtures light only when chosen (WW Tools: calc set "Lighting fixtures from", this model only by default) |
+| Aim of a fixture with its own light source | — | exporter `AimThroughLightSource` | through `LightFamily.GetLightSourceTransform()` when the source is rotated in its family, else the family's −Z (WW Tools: Auto aim, from the direction Check IES Data stores) |
 | Fixture output (lumens) | `output`: `flagged` · `file` (absent = `revit`) | `Scene/LightProfiles.ResolveOutput` | `revit`: the type's Initial Intensity |
 | Light centres | calc set `manualSourcePlacement` (absent = auto) | engine `LuminaireMounting.Place` | auto mounting on, as WW Tools' `AutoPlaceSources`; old sets' `correctRecessedSources` is ignored |
 | Aim of a fixture with no photometry | — | `ExportedSceneInput` | world-down for the estimated lobe (WW Tools: spherical); the family's own Z is meaningless there |
@@ -25,7 +26,16 @@ WW Tools can port them and its calculations match BimGo's:
 **Fixture output** (`ResolveOutput(mode, revitLumens, guessed, fileLumens)`): Revit's Initial Intensity, or the photometric
 file's own output (its candela integrated over the sphere, clamped to 50–50 000 lm) when the mode is `file`, when it is
 `flagged` and the two are 2× or more apart either way (`LumenMismatch`), or when Revit gave no output (the exporter's 1000 lm
-stand-in). A file under 10 lm never replaces Revit's. The LIGHTS tab marks the types that are 2× or more apart with **!**.
+stand-in). A file under 10 lm never replaces Revit's. The LIGHTS tab marks the types that are 2× or more apart with **!**
+(WW Tools' Luminaire Manager does the same, from its `LumenCheck`).
+
+**Which model's fixtures light** (`Kept(scene, mode, out copies)`): a linked architectural model often carries copies of the
+electrical model's fixtures, which would light twice. Nothing decides that by position unless the user asks: a copy drifts
+when the host's fixture moves after the link copied it. `host` (the default) lights the host's only, and the LIGHTS tab and
+the calculation input say how many linked lights that leaves dark (`LinkedLeftOut`). `all` lights everything and names each
+family type found in both models (`TypesInBoth`) as possible copies. `auto`, only when chosen, drops a linked light within
+5 cm of a host light of the same type and warns that a drifted copy still counts twice. Documents saved before `host` became
+the default stored nothing for `auto`, so they now light the host's fixtures only.
 
 Today the engine lights each luminaire with its file's own candela (scaled only by light loss), so the calculation already
 uses the file's output: with `output` = `file` the view matches it everywhere, with `flagged` on the marked types. With the
