@@ -577,7 +577,8 @@ vec4 screenReflection(vec3 world, vec3 n, vec3 dir, float rough, vec3 eye)
     vec2 edgeNow = min(now, 1.0 - now), edgeThen = min(then, 1.0 - then);
     float edge = smoothstep(0.0, 0.06, min(edgeNow.x, edgeNow.y)) * smoothstep(0.0, 0.06, min(edgeThen.x, edgeThen.y));
     float trust = facing * edge * (1.0 - smoothstep(SSR_TMAX * 0.4, SSR_TMAX, b)) * (1.0 - smoothstep(0.3, 0.6, rough));
-    vec3 colour = textureLod(uSsrColour, then, rough * uSsrMaxLod).rgb;
+    // The history was exposed when it was drawn; the reflection is exposed again with the surface that shows it
+    vec3 colour = textureLod(uSsrColour, then, rough * uSsrMaxLod).rgb / max(uExposure, 1e-3);
     return vec4(colour, trust);
 }
 ";
@@ -751,6 +752,8 @@ uniform sampler2DArrayShadow uLightShadowMap;
 uniform float uLightShadowTexel;
 uniform float uEmissive;
 uniform int uShoulder;
+// Auto exposure: the scene's light × this before the shoulder (1 = as lit; below 1 when the view would wash out)
+uniform float uExposure;
 // Round X-C1: all fixtures (photos, videos, stills; live when asked): the lights beyond the shadowed ones, unshadowed
 uniform int uFarCount;
 layout(std140) uniform FarLights
@@ -897,6 +900,7 @@ vec3 artificialLight(vec3 world, vec3 n, float ao)
 // Rolls values above 0.8 off smoothly towards 1 (pools of light and glows don't clip flat); below 0.8 unchanged
 vec3 shoulder(vec3 c)
 {
+    c *= uExposure;
     if (uShoulder == 0) return c;
     vec3 over = max(c - 0.8, 0.0);
     return min(c, 0.8) + 0.2 * (1.0 - exp(-over / 0.2));

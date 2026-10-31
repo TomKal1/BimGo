@@ -281,7 +281,7 @@ namespace BimGo.Rendering
         /// </summary>
         private struct ArtificialUniforms
         {
-            public int Count, Pos, Color, Shadow, Emissive, Shoulder, FarCount;
+            public int Count, Pos, Color, Shadow, Emissive, Shoulder, FarCount, Exposure;
 
             public static ArtificialUniforms From(ShaderProgram p)
             {
@@ -304,7 +304,8 @@ namespace BimGo.Rendering
                     Color = p.Uniform("uLightColor[0]"),
                     Shadow = p.Uniform("uLightShadow[0]"),
                     Emissive = p.Uniform("uEmissive"),
-                    Shoulder = p.Uniform("uShoulder")
+                    Shoulder = p.Uniform("uShoulder"),
+                    Exposure = p.Uniform("uExposure")
                 };
             }
         }
@@ -1310,6 +1311,15 @@ namespace BimGo.Rendering
         /// </summary>
         /// <param name="u">The program's locations.</param>
         /// <param name="on">False for the plan minimap (no lights, no glow).</param>
+        /// <summary>
+        /// Auto exposure: what the scene's light is multiplied by before the shoulder (1 = as lit). The probes and the
+        /// still's planar reflections are drawn at 1, so a reflection is exposed once, with the surface that shows it.
+        /// </summary>
+        public float Exposure { get; set; } = 1f;
+
+        /// <summary>Auto exposure's light meter (the main view's picture, read a few frames late).</summary>
+        public ExposureMeter Meter { get; } = new();
+
         private void ApplyArtificial(in ArtificialUniforms u, bool on)
         {
             ArtificialLighting a = Artificial;
@@ -1322,6 +1332,7 @@ namespace BimGo.Rendering
             Gl.Uniform1(u.FarCount, far);
             Gl.Uniform1(u.Emissive, emissive);
             Gl.Uniform1(u.Shoulder, count > 0 || far > 0 || emissive > 0f ? 1 : 0);
+            Gl.Uniform1(u.Exposure, on ? Exposure : 1f);
             if (count == 0) { return; }
             Gl.Uniform4(u.Pos, count, a.Position);
             Gl.Uniform4(u.Color, count, a.Colour);
@@ -1646,6 +1657,7 @@ namespace BimGo.Rendering
         /// </summary>
         public void Dispose()
         {
+            Meter.Dispose();
             _sceneProgram?.Dispose();
             _skyProgram?.Dispose();
             _groundProgram?.Dispose();

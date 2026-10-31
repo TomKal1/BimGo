@@ -101,7 +101,7 @@ namespace BimGo.Native
             "glActiveTexture", "glMultiDrawElements", "glBlendFuncSeparate", "glTexImage3D", "glTexSubImage3D", "glGenerateMipmap",
 
             // Buffers and vertex arrays
-            "glGenBuffers", "glDeleteBuffers", "glBindBuffer", "glBufferData", "glBufferSubData",
+            "glGenBuffers", "glDeleteBuffers", "glBindBuffer", "glBufferData", "glBufferSubData", "glGetBufferSubData",
             "glGenVertexArrays", "glDeleteVertexArrays", "glBindVertexArray", "glEnableVertexAttribArray",
             "glVertexAttribPointer", "glVertexAttribDivisor", "glDrawElementsInstanced", "glDrawArraysInstanced",
             "glGetUniformBlockIndex", "glUniformBlockBinding", "glBindBufferBase",
@@ -264,6 +264,7 @@ namespace BimGo.Native
         public static void BindBuffer(uint target, uint id) => _gl.BindBuffer((GLEnum)target, id);
         public static void BufferData(uint target, nint size, void* data, uint usage) => _gl.BufferData((GLEnum)target, (nuint)size, data, (GLEnum)usage);
         public static void BufferSubData(uint target, nint offset, nint size, void* data) => _gl.BufferSubData((GLEnum)target, offset, (nuint)size, data);
+        public static void GetBufferSubData(uint target, nint offset, nint size, void* data) => _gl.GetBufferSubData((GLEnum)target, offset, (nuint)size, data);
         public static void BindBufferBase(uint target, uint index, uint buffer) => _gl.BindBufferBase((GLEnum)target, index, buffer);
         public static uint GetUniformBlockIndex(uint program, string name) => _gl.GetUniformBlockIndex(program, name);
         public static void UniformBlockBinding(uint program, uint index, uint binding) => _gl.UniformBlockBinding(program, index, binding);

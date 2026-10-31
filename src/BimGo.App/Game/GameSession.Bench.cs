@@ -20,7 +20,7 @@ namespace BimGo.Game
     /// </summary>
     internal sealed partial class GameSession
     {
-        private const int BENCH_ROOMS = 4, BENCH_YAWS = 4, BENCH_WARM_ROOM = 150, BENCH_WARM_TURN = 45, BENCH_SAMPLES = 180;
+        private const int BENCH_ROOMS = 4, BENCH_YAWS = 4, BENCH_WARM_ROOM = 240, BENCH_WARM_TURN = 150, BENCH_SAMPLES = 180;
 
         private sealed class BenchView
         {
@@ -31,6 +31,7 @@ namespace BimGo.Game
             public readonly List<float[]> Gpu = new();
             public readonly List<float> Cpu = new();
             public readonly List<int> Lights = new(), FarLights = new();
+            public float Exposure = 1f;
         }
 
         private List<BenchView> _bench;
@@ -171,6 +172,7 @@ namespace BimGo.Game
             view.Cpu.Add(dt * 1000f);
             view.Lights.Add(_renderer.Artificial.Count);
             view.FarLights.Add(_renderer.Artificial.FarCount);
+            view.Exposure = _exposure;
             if (timers.ReadFrames != _benchReadFrames)
             {
                 _benchReadFrames = timers.ReadFrames;
@@ -220,6 +222,7 @@ namespace BimGo.Game
                     name = v.Name,
                     lights = v.Lights.Count == 0 ? 0 : v.Lights.Max(),
                     farLights = v.FarLights.Count == 0 ? 0 : v.FarLights.Max(),
+                    exposure = Math.Round(v.Exposure, 4),
                     cpu_frame = Stats(v.Cpu),
                     stages = Stages(v.Gpu),
                 }).ToArray(),
