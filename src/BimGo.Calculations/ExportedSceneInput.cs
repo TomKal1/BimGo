@@ -64,7 +64,11 @@ public static class ExportedSceneInput
         input.Warnings.Add($"Transport domain: {(domainZoneKeys == null ? "selected room union" : "union of the rooms solved in this part")} plus {set.Margin:0.##} ft XY, 1.5 ft below and 3 ft above or up to the level above; connections outside this domain are not modeled.");
         var instances = edits?.Instances ?? Array.Empty<CalculationInstance>();
         var instancesByElement = instances.ToLookup(d => d.Element);
-        var lightsByElement = (scene.Lighting?.Lights ?? Array.Empty<LightSource>()).Select((l,k) => (Light:l, Index:k)).ToLookup(p => p.Light.Element);
+        // The fixtures the viewer lights with (a linked model's copies of host fixtures dropped, by default)
+        bool[] keptLights = FixtureSources.Kept(scene, profiles?.FixtureSource, out int linkedCopies);
+        if (linkedCopies > 0) input.Warnings.Add($"{linkedCopies} linked-model light(s) on top of a host fixture of the same type left out (Lights: fixture lights from {FixtureSources.Clean(profiles?.FixtureSource)}).");
+        var allLightsByElement = (scene.Lighting?.Lights ?? Array.Empty<LightSource>()).Select((l,k) => (Light:l, Index:k)).ToLookup(p => p.Light.Element);
+        var lightsByElement = allLightsByElement.SelectMany(g => g).Where(p => keptLights[p.Index]).ToLookup(p => p.Light.Element);
         int proxies = 0; bool transparent = false;
         var unlit = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < scene.Elements.Length; i++)
@@ -99,7 +103,7 @@ public static class ExportedSceneInput
             var fixture = set.Luminaires.FirstOrDefault(l => l.Key == identity);
             double output = set.EmergencyOnly ? (fixture?.Emergency == true ? fixture.EmergencyOutput : 0) : 1;
             var bounds = TransformBounds(element.Bounds, transform);
-            if (output > 0 && category == "lightfixtures" && bounds.Overlaps(domain) && !lightsByElement[index].Any())
+            if (output > 0 && category == "lightfixtures" && bounds.Overlaps(domain) && !allLightsByElement[index].Any())
                 unlit.Add(string.IsNullOrWhiteSpace(element.FamilyType) ? "Unnamed fixture" : element.FamilyType);
             foreach (var light in lightsByElement[index])
             {

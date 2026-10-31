@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using BimGo.Audio;
 using BimGo.Physics;
 using BimGo.Platform;
@@ -249,7 +249,7 @@ namespace BimGo.Game
             for (int i = 0; i < lights.Length; i++)
             {
                 int e = lights[i].Element;
-                if (_userHidden[e] || ProfileHides(e) || !_groupVisible[SceneBatches.GroupOf(elements[e])]) { continue; }
+                if ((i < _lightKept.Length && !_lightKept[i]) || _userHidden[e] || ProfileHides(e) || !_groupVisible[SceneBatches.GroupOf(elements[e])]) { continue; }
 
                 if (!_hidden[e])
                 {
@@ -270,6 +270,7 @@ namespace BimGo.Game
                 // X-D1 r3: a fixture can hold several light sources (nested up / down halves): consecutive lights
                 for (int i = first; i < lights.Length && lights[i].Element == instance.Element; i++)
                 {
+                    if (i < _lightKept.Length && !_lightKept[i]) { continue; }
                     Consider(i, Vector3.Transform(lights[i].Position, instance.Model), ((long)instance.Id << 32) | (uint)i, LightCodeOf(i, instance.Model));
                 }
             }

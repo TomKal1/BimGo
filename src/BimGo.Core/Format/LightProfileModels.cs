@@ -36,9 +36,13 @@ namespace BimGo.Format
         /// </summary>
         public List<LightProfileInstanceChoice> Instances { get; set; } = new();
 
+        /// <summary>Which model's fixtures light the scene (<see cref="FixtureSources"/>; null = <see cref="FixtureSources.AUTO"/>).</summary>
+        public string FixtureSource { get; set; }
+
         /// <summary>True when there is nothing to save.</summary>
         [JsonIgnore]
-        public bool IsEmpty => (Types == null || Types.Count == 0) && (Imports == null || Imports.Count == 0) && (Instances == null || Instances.Count == 0);
+        public bool IsEmpty => (Types == null || Types.Count == 0) && (Imports == null || Imports.Count == 0) && (Instances == null || Instances.Count == 0)
+            && FixtureSource == null;
 
         // Round Y-C2: Instances by key (built on first look-up, dropped on every change)
         private Dictionary<string, LightProfileInstanceChoice> _instanceIndex;
@@ -172,6 +176,7 @@ namespace BimGo.Format
             if (instances.Count > MAX_INSTANCES) { instances.RemoveRange(0, instances.Count - MAX_INSTANCES); }
             Instances = instances;
             _instanceIndex = null;
+            FixtureSource = FixtureSources.Clean(FixtureSource) == FixtureSources.AUTO ? null : FixtureSource;
             return this;
         }
 
