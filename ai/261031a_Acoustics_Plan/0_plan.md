@@ -3,6 +3,10 @@
 Fork-only proposal (TomKal1/BimGo), not one of Gavin's rounds. Nothing here is built yet. It records how acoustic sources
 and a sound pressure heat map would fit the code as it stands, so a later session can start from this note.
 
+> **Update 2026-10-31:** the calculation must also run in WW Tools without BimGo. The engine moves to WWTools
+> `src/WWTools/Acoustics/Engine`, and BimGo pins a snapshot of it, as with lighting. Where this note puts maths in
+> `BimGo.Core`, read WWTools' engine. The build order is now W1 → W2 → B1 → B2 → W3 / B3. See `4_shared_engine.md`.
+
 **Goal:** the user puts sound sources on surfaces in the walkthrough, for example on two pumps in a mechanical room. Each
 source has a sound power level (Lw, octave bands). **Calculate** returns sound pressure levels (Lp) over the room as a
 heat map. The sources add on an energy basis, the room's surfaces reflect or absorb them, and the result shows as a
