@@ -118,6 +118,8 @@ void main()
         /// colour profile was shown; with uProfilePass above 0 the element's profile code is fetched here, once per
         /// vertex, from uProfileTex (one RGBA8 texel per element, PROFILE_WIDTH texels a row): rgb = colour, a = code
         /// (0 normal, 1 ghost, 2 hidden, 255 coloured).
+        /// aDepthTier (7, CoplanarTiers) pulls overlapping coplanar faces forward a few depth steps per tier; disabled
+        /// (reads 0) when nothing overlaps.
         /// </summary>
         public const string SCENE_VS = @"#version 330 core
 layout(location = 0) in vec3 aPos;
@@ -127,6 +129,7 @@ layout(location = 3) in vec4 aEmissive;
 layout(location = 4) in float aMaterial;
 layout(location = 5) in vec2 aUv;
 layout(location = 6) in float aElement;
+layout(location = 7) in float aDepthTier;
 uniform mat4 uViewProj;
 uniform mat4 uModel;
 uniform int uProfilePass;
@@ -155,7 +158,14 @@ void main()
         vProfile = texelFetch(uProfileTex, ivec2(e % " + PROFILE_WIDTH_TEXT + @", e / " + PROFILE_WIDTH_TEXT + @"), 0);
     }
     gl_Position = uViewProj * world;
+    gl_Position.z -= aDepthTier * " + DEPTH_TIER_STEP_TEXT + @" * gl_Position.w; // coplanar faces: a fixed winner
 }";
+
+        /// <summary>
+        /// Coplanar faces' tie-break: NDC depth per tier (about 8 steps of a 24-bit depth buffer, enough for faces drawn
+        /// at grazing angles; tier 1 moves a face under 1 mm at 10 m, 8 mm at 30 m).
+        /// </summary>
+        private const string DEPTH_TIER_STEP_TEXT = "1.0e-6";
 
         /// <summary>Colour round A: texels per row of the profile texture (keep in step with the GLSL above).</summary>
         public const int PROFILE_WIDTH = 1024;
