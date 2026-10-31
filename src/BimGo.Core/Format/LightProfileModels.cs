@@ -36,7 +36,7 @@ namespace BimGo.Format
         /// </summary>
         public List<LightProfileInstanceChoice> Instances { get; set; } = new();
 
-        /// <summary>Which model's fixtures light the scene (<see cref="FixtureSources"/>; null = <see cref="FixtureSources.AUTO"/>).</summary>
+        /// <summary>Which model's fixtures light the scene (<see cref="FixtureSources"/>; null = <see cref="FixtureSources.HOST"/>).</summary>
         public string FixtureSource { get; set; }
 
         /// <summary>
@@ -182,7 +182,7 @@ namespace BimGo.Format
             if (instances.Count > MAX_INSTANCES) { instances.RemoveRange(0, instances.Count - MAX_INSTANCES); }
             Instances = instances;
             _instanceIndex = null;
-            FixtureSource = FixtureSources.Clean(FixtureSource) == FixtureSources.AUTO ? null : FixtureSource;
+            FixtureSource = FixtureSources.Clean(FixtureSource) == FixtureSources.HOST ? null : FixtureSource;
             Output = LightProfiles.CleanOutputMode(Output) == LightProfiles.OUTPUT_REVIT ? null : Output;
             return this;
         }
