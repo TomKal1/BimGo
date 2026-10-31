@@ -196,6 +196,64 @@ TILT=NONE
         }
 
         [TestMethod]
+        public void LumenMismatch_FlagsTwiceOrMoreEitherWay()
+        {
+            Assert.AreEqual(8913f / 2013f, LightProfiles.LumenMismatch(8913f, 2013f), 1e-4f, "Snowdon's Art Glass pendant");
+            Assert.AreEqual(0.25f, LightProfiles.LumenMismatch(500f, 2000f), 1e-6f, "dimmer counts too");
+            Assert.AreEqual(0f, LightProfiles.LumenMismatch(1380f, 1463f), "close enough");
+            Assert.AreEqual(0f, LightProfiles.LumenMismatch(1999f, 1000f), "just under 2×");
+            Assert.AreEqual(0f, LightProfiles.LumenMismatch(0f, 2000f), "estimated output");
+            Assert.AreEqual(0f, LightProfiles.LumenMismatch(2000f, 0f), "a file without an output");
+        }
+
+        [TestMethod]
+        public void ResolveOutput_FollowsTheFixtureOutputChoice()
+        {
+            // Art Glass: Revit 8913 lm on a 2014 lm file; Wall Lamp - Bracket: 2780 on 1892 (under 2x apart)
+            Assert.AreEqual(8913f, LightProfiles.ResolveOutput(null, 8913f, false, 2014f, out bool fromFile));
+            Assert.IsFalse(fromFile, "Revit's by default");
+            Assert.AreEqual(2014f, LightProfiles.ResolveOutput(LightProfiles.OUTPUT_FLAGGED, 8913f, false, 2014f, out fromFile));
+            Assert.IsTrue(fromFile, "flagged: 4.4x apart");
+            Assert.AreEqual(2780f, LightProfiles.ResolveOutput(LightProfiles.OUTPUT_FLAGGED, 2780f, false, 1892f, out fromFile));
+            Assert.IsFalse(fromFile, "flagged: close enough keeps Revit's");
+            Assert.AreEqual(1892f, LightProfiles.ResolveOutput(LightProfiles.OUTPUT_FILE, 2780f, false, 1892f, out fromFile));
+            Assert.IsTrue(fromFile, "files: always the file's");
+            Assert.AreEqual(1463f, LightProfiles.ResolveOutput(null, 1000f, true, 1463f, out fromFile));
+            Assert.IsTrue(fromFile, "a guessed output takes the file's whatever the choice");
+            Assert.AreEqual(1200f, LightProfiles.ResolveOutput(LightProfiles.OUTPUT_FILE, 1200f, false, 0f, out fromFile));
+            Assert.IsFalse(fromFile, "no file: Revit's");
+            Assert.AreEqual(50000f, LightProfiles.ResolveOutput(LightProfiles.OUTPUT_FILE, 1200f, false, 90000f, out _), "clamped like the exporter");
+        }
+
+        [TestMethod]
+        public void Document_KeepsTheOutputChoiceAndDropsTheDefault()
+        {
+            var document = new LightProfileDocument { Output = LightProfiles.OUTPUT_FILE }.Clean();
+            Assert.AreEqual(LightProfiles.OUTPUT_FILE, document.Output);
+            Assert.IsFalse(document.IsEmpty);
+            Assert.IsNull(new LightProfileDocument { Output = "brightest" }.Clean().Output, "unknown: Revit's (not stored)");
+            Assert.IsNull(new LightProfileDocument { Output = LightProfiles.OUTPUT_REVIT }.Clean().Output);
+        }
+
+        [TestMethod]
+        public void Profile_FineTableMatchesTheShapeAndKeepsEnergy()
+        {
+            LightProfile spot = LightProfile.FromIes(LightProfiles.KeyOf(SPOT), "spot.ies", SPOT, out string error);
+            Assert.IsNotNull(spot, error);
+            Assert.AreEqual(LightProfile.FINE_SIZE, spot.Fine.Length);
+            Assert.AreEqual(ushort.MaxValue, spot.Fine.Max(), "peak 1 at 16 bits");
+            Assert.AreEqual(1f, LightProfile.SampleFine(spot.Fine, 0f, 0f), 1e-4f, "peak straight out");
+            Assert.AreEqual(0f, LightProfile.SampleFine(spot.Fine, 150f, 0f), 1e-4f);
+            // The shader's table follows the coarse one across the beam (the coarse table's 8-bit steps and 5.8° rows aside)
+            for (float g = 0f; g <= 90f; g += 5f)
+            {
+                Assert.AreEqual(spot.Sample(g, 0f), LightProfile.SampleFine(spot.Fine, g, 0f), 0.08f, $"gamma {g}");
+            }
+            // Energy: both scales (4π / each table's integral) agree on how concentrated the beam is
+            Assert.AreEqual(spot.Scale, spot.FineScale, spot.Scale * 0.1f);
+        }
+
+        [TestMethod]
         public void BuiltIns_AreDistinctAndShaped()
         {
             LightProfile[] all = LightProfiles.BuiltIns;

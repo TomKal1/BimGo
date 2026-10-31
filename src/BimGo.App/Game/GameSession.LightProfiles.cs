@@ -34,6 +34,13 @@ namespace BimGo.Game
         #region Fields
 
         private LightProfileDocument _lightProfileDoc = new();
+
+        // Which lights light the scene (FixtureSources: a linked model's copies of host fixtures are off by default), and
+        // how many copies that leaves out
+        private bool[] _lightKept = Array.Empty<bool>();
+        private int _linkedCopies;
+        private static readonly string[] FIXTURE_SOURCE_OPTIONS = { "Auto", "Host", "Links", "All" };
+        private static readonly string[] OUTPUT_OPTIONS = { "Revit", "Fix flagged", ".ies files" };
         private string _lightProfilePath; // null = inside the .bimgo
         private int _lightProfileRevision;
 
@@ -60,7 +67,8 @@ namespace BimGo.Game
 
         /// <summary>A fixture type in the LIGHTS tab.</summary>
         /// <param name="RevitShape">Round Y-C1: its Revit spot / hemispherical distribution's generated key (no file), or null.</param>
-        private sealed record LightTypeRow(string FamilyType, int Count, string RevitHash, string RevitName, string RevitShape)
+        /// <param name="RevitLumens">Revit's output per light source (Initial Intensity; 0 when it was estimated).</param>
+        private sealed record LightTypeRow(string FamilyType, int Count, string RevitHash, string RevitName, string RevitShape, float RevitLumens)
         {
             /// <summary>Revit gives this type a profile of its own (a file or a spot / hemispherical distribution).</summary>
             public bool HasRevit => RevitHash != null || RevitShape != null;
@@ -192,6 +200,7 @@ namespace BimGo.Game
         private void ApplyLightProfiles()
         {
             LightSource[] lights = Scene.Lighting.Lights;
+            _lightKept = FixtureSources.Kept(Scene, _lightProfileDoc.FixtureSource, out _linkedCopies);
             if (_lightSlot.Length != lights.Length)
             {
                 _lightSlot = new int[lights.Length];
@@ -225,19 +234,17 @@ namespace BimGo.Game
                 _lightSlot[i] = slot;
                 _lightCode[i] = slot < 0 ? light.Downward : LightProfiles.Encode(slot, light.Aim, light.Across);
 
-                // Output: Revit's lumens; a guessed output takes an imported / Revit file's own (when it has one)
-                float lumens = light.Lumens;
-                if (profile != null && profile.IsFile && light.Estimated && MathF.Abs(light.Lumens - 1000f) < 0.5f && profile.Lumens >= 10f)
-                {
-                    lumens = Math.Clamp(profile.Lumens, 50f, 50000f);
-                }
+                // Output: Revit's lumens, or the file's (a guessed output, or the LIGHTS tab's Fixture output choice)
+                bool guessed = light.Estimated && MathF.Abs(light.Lumens - 1000f) < 0.5f;
+                float lumens = LightProfiles.ResolveOutput(_lightProfileDoc.Output, light.Lumens, guessed,
+                    profile != null && profile.IsFile ? profile.Lumens : 0f, out _);
 
                 // Round Y-C1: the file's tilt factor at the fixture's tilt (its aim's angle from straight down)
                 if (profile?.TiltAngles != null) { lumens *= profile.TiltFactor(TiltFromDown(light.Aim)); }
                 if (i < _lightColour.Length)
                 {
                     _lightColour[i] = LightingData.KelvinToRgb(light.Kelvin) * (lumens * LIGHT_SCALE);
-                    _lightRadius[i] = LightReach(lumens);
+                    _lightRadius[i] = LightReach(lumens, slot >= 0 ? profile.FineScale : DownwardPeak(light.Downward));
                     _lightLumens[i] = lumens; // Y-C1: ranks the live lights
                 }
             }
@@ -287,22 +294,31 @@ namespace BimGo.Game
         private List<LightTypeRow> LightTypeRows()
         {
             if (_lightTypeRows != null) { return _lightTypeRows; }
-            var counts = new Dictionary<string, (int Count, string Hash, string Shape)>(StringComparer.Ordinal);
+            var counts = new Dictionary<string, (int Count, string Hash, string Shape, float Lumens)>(StringComparer.Ordinal);
             int lastElement = -1;
             foreach (LightSource light in Scene.Lighting.Lights)
             {
                 string type = Scene.Elements[light.Element].FamilyType ?? string.Empty;
-                counts.TryGetValue(type, out (int Count, string Hash, string Shape) entry);
+                counts.TryGetValue(type, out (int Count, string Hash, string Shape, float Lumens) entry);
                 // Fixtures, not light sources (X-D1 r3: a fixture's nested sources are consecutive lights)
-                counts[type] = (entry.Count + (light.Element == lastElement ? 0 : 1), entry.Hash ?? light.Ies, entry.Shape ?? light.Distribution);
+                counts[type] = (entry.Count + (light.Element == lastElement ? 0 : 1), entry.Hash ?? light.Ies, entry.Shape ?? light.Distribution,
+                    entry.Lumens > 0f || light.Estimated ? entry.Lumens : light.Lumens);
                 lastElement = light.Element;
             }
             _lightTypeRows = counts
                 .OrderBy(p => p.Key, StringComparer.CurrentCultureIgnoreCase)
-                .Select(p => new LightTypeRow(p.Key, p.Value.Count, p.Value.Hash, Scene.Lighting.FindIes(p.Value.Hash)?.Name, p.Value.Hash == null ? p.Value.Shape : null))
+                .Select(p => new LightTypeRow(p.Key, p.Value.Count, p.Value.Hash, Scene.Lighting.FindIes(p.Value.Hash)?.Name, p.Value.Hash == null ? p.Value.Shape : null,
+                    p.Value.Lumens))
                 .ToList();
             return _lightTypeRows;
         }
+
+        /// <summary>
+        /// Revit's lumens over the type's own photometric file's, when they are 2× or more apart (0 otherwise, or with no
+        /// file): see <see cref="LightProfiles.LumenMismatch"/>.
+        /// </summary>
+        private float LumenMismatchOf(LightTypeRow row) =>
+            row.RevitHash == null ? 0f : LightProfiles.LumenMismatch(row.RevitLumens, ProfileOf(row.RevitKey)?.Lumens ?? 0f);
 
         /// <summary>
         /// The choices a type steps through: Revit's file (when it has one), the built-ins, the imported files, the lobe.
@@ -368,10 +384,67 @@ namespace BimGo.Game
             }
             y += S(6);
 
+            // Which model's fixtures light the scene (only when there are links to choose between)
+            if (Scene.Links.Length > 0)
+            {
+                _ui.Text(f.Small, ix, y, "Fixture lights from", UiTheme.TEXT_MUTED);
+                y += S(18);
+                string source = FixtureSources.Clean(_lightProfileDoc.FixtureSource);
+                int current = Array.IndexOf(FixtureSources.MODES, source);
+                int picked = Segmented(f, input, ix, y, iw, FIXTURE_SOURCE_OPTIONS, current);
+                if (picked != current)
+                {
+                    _lightProfileDoc.FixtureSource = picked == 0 ? null : FixtureSources.MODES[picked];
+                    SaveLightProfiles();
+                    source = FixtureSources.MODES[picked];
+                }
+                y += S(38);
+                string hint = source switch
+                {
+                    FixtureSources.HOST => "This model's fixtures only; linked models' fixtures don't light",
+                    FixtureSources.LINKS => "Linked models' fixtures only; this model's don't light",
+                    FixtureSources.ALL => "Every fixture, linked copies included (copies shine twice as bright)",
+                    _ => _linkedCopies > 0
+                        ? $"{_linkedCopies:N0} linked fixture(s) on top of one of this model's (same type) left out; linked-only fixtures still light"
+                        : "This model's fixtures, plus linked fixtures it doesn't have",
+                };
+                y += _ui.TextWrapped(f.Small, ix, y, iw, hint, UiTheme.TEXT_FAINT, maxLines: 3) + S(10);
+            }
+
+            // Fixture output: Revit's Initial Intensity, or the .ies files' own (for flagged types, or all)
+            _ui.Text(f.Small, ix, y, "Fixture output", UiTheme.TEXT_MUTED);
+            y += S(18);
+            string output = LightProfiles.CleanOutputMode(_lightProfileDoc.Output);
+            int outputIndex = Array.IndexOf(LightProfiles.OUTPUT_MODES, output);
+            int outputPicked = Segmented(f, input, ix, y, iw, OUTPUT_OPTIONS, outputIndex);
+            if (outputPicked != outputIndex)
+            {
+                _lightProfileDoc.Output = outputPicked == 0 ? null : LightProfiles.OUTPUT_MODES[outputPicked];
+                SaveLightProfiles();
+                output = LightProfiles.OUTPUT_MODES[outputPicked];
+            }
+            y += S(38);
+            string outputHint = output switch
+            {
+                LightProfiles.OUTPUT_FLAGGED => "Types marked ! use their .ies file's lumens, here and in calculations' notes; the rest use Revit's",
+                LightProfiles.OUTPUT_FILE => "Every type with an .ies file uses the file's lumens, as calculations do: view and calculations match",
+                _ => "Revit's Initial Intensity, as Revit renders. Calculations use each .ies file's own lumens",
+            };
+            y += _ui.TextWrapped(f.Small, ix, y, iw, outputHint, UiTheme.TEXT_FAINT, maxLines: 3) + S(10);
+
+            // Types whose Revit output and photometric file disagree (a placeholder file or a mistyped intensity)
+            int mismatched = rows.Count(r => LumenMismatchOf(r) > 0f);
+            if (mismatched > 0)
+            {
+                Text.Clear().AppendGrouped(mismatched).Append(mismatched == 1 ? " fixture type has" : " fixture types have")
+                    .Append(" Revit lumens 2× or more off their .ies file (marked ! below): check Initial Intensity in Revit");
+                y += _ui.TextWrapped(f.Small, ix, y, iw, Text.Span, UiTheme.MEASURE_LABEL, maxLines: 3) + S(10);
+            }
+
             int selected=Math.Max(0,rows.FindIndex(r=>r.FamilyType==_lightingFixtureType));
             _lightingFixtureType=rows[selected].FamilyType;
             if(DropdownButton(f,input,ix,y,iw,S(32),_lightingFixtureType,IsDropdownOpen(this,DROP_LIGHTING_FIXTURE)))
-                OpenDropdown(this,DROP_LIGHTING_FIXTURE,ix,y,iw,S(32),rows.Select(r=>$"{r.FamilyType} (×{r.Count})").ToArray(),selected,i=>_lightingFixtureType=rows[i].FamilyType);
+                OpenDropdown(this,DROP_LIGHTING_FIXTURE,ix,y,iw,S(32),rows.Select(r=>$"{(LumenMismatchOf(r)>0f?"! ":"")}{r.FamilyType} (×{r.Count})").ToArray(),selected,i=>_lightingFixtureType=rows[i].FamilyType);
             y+=S(44);
 
             float bw = S(28), gap = S(6);
@@ -382,6 +455,18 @@ namespace BimGo.Game
                 Text.Clear().Append('×').AppendGrouped(row.Count);
                 _ui.TextRight(f.Small, ix + iw, y + S(2), Text.Span, UiTheme.TEXT_MUTED);
                 y += S(20);
+
+                float mismatch = LumenMismatchOf(row);
+                if (mismatch > 0f)
+                {
+                    float fileLumens = ProfileOf(row.RevitKey)?.Lumens ?? 0f;
+                    Text.Clear().Append("! Revit ").AppendGrouped((int)MathF.Round(row.RevitLumens)).Append(" lm vs its .ies file ")
+                        .AppendGrouped((int)MathF.Round(fileLumens)).Append(" lm (").Append(mismatch >= 1f ? mismatch : 1f / mismatch, 1)
+                        .Append(mismatch >= 1f ? "× brighter" : "× dimmer")
+                        .Append(LightProfiles.CleanOutputMode(_lightProfileDoc.Output) == LightProfiles.OUTPUT_REVIT
+                            ? "). The view uses Revit's: check the type's Initial Intensity, or the file" : "). Using the file's (Fixture output)");
+                    y += _ui.TextWrapped(f.Small, ix, y, iw - plot - S(12), Text.Span, UiTheme.MEASURE_LABEL, maxLines: 4) + S(6);
+                }
 
                 string current = CurrentChoice(row);
                 bool set = _lightProfileDoc.ChoiceFor(row.FamilyType) != null;

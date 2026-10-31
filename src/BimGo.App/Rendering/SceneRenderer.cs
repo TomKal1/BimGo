@@ -281,13 +281,14 @@ namespace BimGo.Rendering
         /// </summary>
         private struct ArtificialUniforms
         {
-            public int Count, Pos, Color, Shadow, Emissive, Shoulder, FarCount;
+            public int Count, Pos, Color, Shadow, Emissive, Shoulder, FarCount, Exposure;
 
             public static ArtificialUniforms From(ShaderProgram p)
             {
                 // The shadow sampler reads a fixed texture unit and the texel size never changes (set once)
                 p.Use();
                 Gl.Uniform1(p.Uniform("uLightShadowMap"), LightShadows.UNIT);
+                Gl.Uniform1(p.Uniform("uProfileTable"), LIGHT_PROFILE_UNIT);
                 Gl.Uniform1(p.Uniform("uLightShadowTexel"), LightShadows.Texel);
                 // Round X-C1: the far lights block reads the shared uniform buffer's binding point
                 uint block = Gl.GetUniformBlockIndex(p.Id, "FarLights");
@@ -303,7 +304,8 @@ namespace BimGo.Rendering
                     Color = p.Uniform("uLightColor[0]"),
                     Shadow = p.Uniform("uLightShadow[0]"),
                     Emissive = p.Uniform("uEmissive"),
-                    Shoulder = p.Uniform("uShoulder")
+                    Shoulder = p.Uniform("uShoulder"),
+                    Exposure = p.Uniform("uExposure")
                 };
             }
         }
@@ -1309,6 +1311,15 @@ namespace BimGo.Rendering
         /// </summary>
         /// <param name="u">The program's locations.</param>
         /// <param name="on">False for the plan minimap (no lights, no glow).</param>
+        /// <summary>
+        /// Auto exposure: what the scene's light is multiplied by before the shoulder (1 = as lit). The probes and the
+        /// still's planar reflections are drawn at 1, so a reflection is exposed once, with the surface that shows it.
+        /// </summary>
+        public float Exposure { get; set; } = 1f;
+
+        /// <summary>Auto exposure's light meter (the main view's picture, read a few frames late).</summary>
+        public ExposureMeter Meter { get; } = new();
+
         private void ApplyArtificial(in ArtificialUniforms u, bool on)
         {
             ArtificialLighting a = Artificial;
@@ -1321,6 +1332,7 @@ namespace BimGo.Rendering
             Gl.Uniform1(u.FarCount, far);
             Gl.Uniform1(u.Emissive, emissive);
             Gl.Uniform1(u.Shoulder, count > 0 || far > 0 || emissive > 0f ? 1 : 0);
+            Gl.Uniform1(u.Exposure, on ? Exposure : 1f);
             if (count == 0) { return; }
             Gl.Uniform4(u.Pos, count, a.Position);
             Gl.Uniform4(u.Color, count, a.Colour);
@@ -1337,29 +1349,55 @@ namespace BimGo.Rendering
 
         private uint _lightProfilesBuffer;
 
+        /// <summary>The light profile tables' texture unit (an R16 array, one layer per slot).</summary>
+        public const int LIGHT_PROFILE_UNIT = 20;
+
+        private uint _lightProfileTexture;
+
         /// <summary>
-        /// Round X-D1: the light profile tables' block (std140: 768 uvec4 of table bytes, then 24 vec4 of scales): made once
-        /// (zeroed, full size) and bound; uploaded when the per-type choices change.
+        /// Round X-D1: the light profiles: the block (std140: 24 vec4 of scales) and the tables' R16 texture array
+        /// (FINE_HORIZONTAL × FINE_VERTICAL per layer; linear, C wrapping, gamma clamped), both made once and bound, then
+        /// uploaded when the per-type choices change.
         /// </summary>
         private void UploadLightProfiles()
         {
             ArtificialLighting a = Artificial;
-            int tableBytes = a.ProfileBytes.Length, infoBytes = a.ProfileInfo.Length * 16;
+            int infoBytes = a.ProfileInfo.Length * 16;
             if (_lightProfilesBuffer == 0)
             {
                 _lightProfilesBuffer = Gl.GenBuffer();
                 Gl.BindBuffer(Gl.UNIFORM_BUFFER, _lightProfilesBuffer);
-                var zero = new byte[tableBytes + infoBytes];
+                var zero = new byte[infoBytes];
                 fixed (byte* z = zero) { Gl.BufferData(Gl.UNIFORM_BUFFER, zero.Length, z, Gl.DYNAMIC_DRAW); }
                 Gl.BindBufferBase(Gl.UNIFORM_BUFFER, LIGHT_PROFILES_BINDING, _lightProfilesBuffer);
+
+                _lightProfileTexture = Gl.GenTexture();
+                Gl.ActiveTexture(Gl.TEXTURE0 + LIGHT_PROFILE_UNIT);
+                Gl.BindTexture(Gl.TEXTURE_2D_ARRAY, _lightProfileTexture);
+                Gl.TexImage3D(Gl.TEXTURE_2D_ARRAY, 0, Gl.R16, LightProfile.FINE_HORIZONTAL, LightProfile.FINE_VERTICAL, LightProfiles.MAX_GPU_PROFILES,
+                    Gl.RED, Gl.UNSIGNED_SHORT, null);
+                Gl.TexParameter(Gl.TEXTURE_2D_ARRAY, Gl.TEXTURE_MIN_FILTER, (int)Gl.LINEAR);
+                Gl.TexParameter(Gl.TEXTURE_2D_ARRAY, Gl.TEXTURE_MAG_FILTER, (int)Gl.LINEAR);
+                Gl.TexParameter(Gl.TEXTURE_2D_ARRAY, Gl.TEXTURE_WRAP_S, (int)Gl.REPEAT);
+                Gl.TexParameter(Gl.TEXTURE_2D_ARRAY, Gl.TEXTURE_WRAP_T, (int)Gl.CLAMP_TO_EDGE);
+                Gl.ActiveTexture(Gl.TEXTURE0);
                 a.ProfilesDirty = true;
             }
-            if (!a.ProfilesDirty) { return; }
-            a.ProfilesDirty = false;
-            Gl.BindBuffer(Gl.UNIFORM_BUFFER, _lightProfilesBuffer);
-            fixed (byte* bytes = a.ProfileBytes) { Gl.BufferSubData(Gl.UNIFORM_BUFFER, 0, tableBytes, bytes); }
-            fixed (Vector4* info = a.ProfileInfo) { Gl.BufferSubData(Gl.UNIFORM_BUFFER, tableBytes, infoBytes, info); }
-            Gl.BindBuffer(Gl.UNIFORM_BUFFER, 0);
+            Gl.ActiveTexture(Gl.TEXTURE0 + LIGHT_PROFILE_UNIT);
+            Gl.BindTexture(Gl.TEXTURE_2D_ARRAY, _lightProfileTexture);
+            if (a.ProfilesDirty)
+            {
+                a.ProfilesDirty = false;
+                fixed (ushort* values = a.ProfileValues)
+                {
+                    Gl.TexSubImage3D(Gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, LightProfile.FINE_HORIZONTAL, LightProfile.FINE_VERTICAL, LightProfiles.MAX_GPU_PROFILES,
+                        Gl.RED, Gl.UNSIGNED_SHORT, values);
+                }
+                Gl.BindBuffer(Gl.UNIFORM_BUFFER, _lightProfilesBuffer);
+                fixed (Vector4* info = a.ProfileInfo) { Gl.BufferSubData(Gl.UNIFORM_BUFFER, 0, infoBytes, info); }
+                Gl.BindBuffer(Gl.UNIFORM_BUFFER, 0);
+            }
+            Gl.ActiveTexture(Gl.TEXTURE0);
         }
 
         /// <summary>
@@ -1619,6 +1657,7 @@ namespace BimGo.Rendering
         /// </summary>
         public void Dispose()
         {
+            Meter.Dispose();
             _sceneProgram?.Dispose();
             _skyProgram?.Dispose();
             _groundProgram?.Dispose();
@@ -1639,6 +1678,7 @@ namespace BimGo.Rendering
             Timers.Dispose();
             Gl.DeleteBuffer(_farLightsBuffer); // X-C1
             Gl.DeleteBuffer(_lightProfilesBuffer); // X-D1
+            Gl.DeleteTexture(_lightProfileTexture);
             _shadows.Dispose();
             _effects.Dispose();
             _lightShadows.Dispose();

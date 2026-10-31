@@ -64,8 +64,20 @@ public static class ExportedSceneInput
         input.Warnings.Add($"Transport domain: {(domainZoneKeys == null ? "selected room union" : "union of the rooms solved in this part")} plus {set.Margin:0.##} ft XY, 1.5 ft below and 3 ft above or up to the level above; connections outside this domain are not modeled.");
         var instances = edits?.Instances ?? Array.Empty<CalculationInstance>();
         var instancesByElement = instances.ToLookup(d => d.Element);
-        var lightsByElement = (scene.Lighting?.Lights ?? Array.Empty<LightSource>()).Select((l,k) => (Light:l, Index:k)).ToLookup(p => p.Light.Element);
+        // The fixtures the viewer lights with (a linked model's copies of host fixtures dropped, by default)
+        bool[] keptLights = FixtureSources.Kept(scene, profiles?.FixtureSource, out int linkedCopies);
+        if (linkedCopies > 0) input.Warnings.Add($"{linkedCopies} linked-model light(s) on top of a host fixture of the same type left out (Lights: fixture lights from {FixtureSources.Clean(profiles?.FixtureSource)}).");
+        var allLightsByElement = (scene.Lighting?.Lights ?? Array.Empty<LightSource>()).Select((l,k) => (Light:l, Index:k)).ToLookup(p => p.Light.Element);
+        var lightsByElement = allLightsByElement.SelectMany(g => g).Where(p => keptLights[p.Index]).ToLookup(p => p.Light.Element);
         int proxies = 0; bool transparent = false;
+        var outputDifferences = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        var fileLumensByText = new Dictionary<string, float>(StringComparer.Ordinal);
+        float FileLumens(string text)
+        {
+            if (!fileLumensByText.TryGetValue(text, out float lumens))
+                fileLumensByText[text] = lumens = LightProfile.FromIes("calc", "calc", text, out _)?.Lumens ?? 0f;
+            return lumens;
+        }
         var unlit = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < scene.Elements.Length; i++)
         {
@@ -77,6 +89,7 @@ public static class ExportedSceneInput
         if (proxies > 0) input.Warnings.Add($"{proxies} included element instance(s) use exported proxy geometry.");
         if (transparent) input.Warnings.Add("This domain includes transparent faces, omitted from the opaque transport mesh.");
         // Like WWTools, a fixture family without a light source is not an emitter; it is reported, not a blocker.
+        if (outputDifferences.Count > 0) input.Warnings.Add($"{outputDifferences.Count} fixture type(s) have Revit lumens 2x or more off their .ies file: the calculation uses the file's output, the view Revit's ({string.Join(", ", outputDifferences.Take(6))}{(outputDifferences.Count > 6 ? ", …" : "")}). LIGHTS → Fixture output → .ies files makes the view match.");
         if (unlit.Count > 0) input.Warnings.Add($"{unlit.Count} lighting fixture type(s) have no exported light source and contribute no light: {string.Join(", ", unlit.Take(8))}{(unlit.Count > 8 ? ", …" : "")}. Re-export with lighting data if they should emit.");
         if (input.Emitters.Count == 0 && set.EmergencyOnly) throw new InvalidDataException("No selected emergency fixtures with nonzero output are in this calculation domain.");
         if (input.Emitters.Count == 0) throw new InvalidDataException("No exported light sources are in this calculation domain. Include lighting fixtures/links in the BimGo export.");
@@ -99,7 +112,7 @@ public static class ExportedSceneInput
             var fixture = set.Luminaires.FirstOrDefault(l => l.Key == identity);
             double output = set.EmergencyOnly ? (fixture?.Emergency == true ? fixture.EmergencyOutput : 0) : 1;
             var bounds = TransformBounds(element.Bounds, transform);
-            if (output > 0 && category == "lightfixtures" && bounds.Overlaps(domain) && !lightsByElement[index].Any())
+            if (output > 0 && category == "lightfixtures" && bounds.Overlaps(domain) && !allLightsByElement[index].Any())
                 unlit.Add(string.IsNullOrWhiteSpace(element.FamilyType) ? "Unnamed fixture" : element.FamilyType);
             foreach (var light in lightsByElement[index])
             {
@@ -117,6 +130,19 @@ public static class ExportedSceneInput
                 if (source.CalculationOrigin == null && fixture?.UsePreviewLensPosition != true)
                     input.Warnings.Add("An older export lacks source-origin metadata; its exported position is retained. Re-export from the updated add-in to use the family/light-source origin.");
                 string provenance = ies == null ? "Explicit analytic estimate from exported output/downward share" : "Full exported/imported IES candela; no preview normalization";
+                // The engine lights with the file's own candela; say where that differs from the output the view uses
+                if (ies != null)
+                {
+                    float fileLumens = FileLumens(ies);
+                    bool guessed = source.Estimated && MathF.Abs(source.Lumens - 1000f) < 0.5f;
+                    float viewLumens = LightProfiles.ResolveOutput(profiles?.Output, source.Lumens, guessed, fileLumens, out bool fromFile);
+                    if (fromFile && !guessed) provenance += $"; output from the .ies file ({fileLumens:0} lm; Revit {source.Lumens:0} lm), as in the view";
+                    else if (!fromFile && LightProfiles.LumenMismatch(viewLumens, fileLumens) > 0f)
+                    {
+                        provenance += $"; Revit's {source.Lumens:0} lm differs from the .ies file's {fileLumens:0} lm: the calculation uses the file's, the view Revit's";
+                        outputDifferences.Add(element.FamilyType ?? "Unnamed fixture");
+                    }
+                }
                 // Analytic spot is retained as parameters in provenance and resolved to full IES before solving.
                 if (ies == null && TrySpot(chosen, out int beam, out int field))
                     provenance = $"Explicit analytic spot estimate; beam={beam}; field={field}";
@@ -124,8 +150,10 @@ public static class ExportedSceneInput
                 input.Emitters.Add(new CalculationEmitter { Key = identity + "/source:" + light.Index, FixtureKey = identity, Type = element.FamilyType,
                     BodyMin = body ? World(bounds.Min) : null, BodyMax = body ? World(bounds.Max) : null,
                     AutoMount = source.CalculationOrigin != null && fixture?.UsePreviewLensPosition != true && (fixture?.HeightOffset ?? 0) == 0,
-                    Position = World(p), Nadir = Vector(Vector3.Normalize(Vector3.TransformNormal(source.Aim, transform))),
-                    Axis0 = Vector(Vector3.Normalize(Vector3.TransformNormal(source.Across, transform))),
+                    // No photometry at all: the estimated lobe's downward share is world-down, as the view lights it and WW Tools
+                    // treats it (spherical); the exported aim of such a fixture is only its family's Z (up when ceiling hosted)
+                    Position = World(p), Nadir = chosen == null && ies == null ? new double[] { 0, 0, -1 } : Vector(Vector3.Normalize(Vector3.TransformNormal(source.Aim, transform))),
+                    Axis0 = chosen == null && ies == null ? new double[] { 1, 0, 0 } : Vector(Vector3.Normalize(Vector3.TransformNormal(source.Across, transform))),
                     Ies = ies, Estimated = ies == null, Provenance = provenance + (source.Estimated ? "; source placement/output marked estimated by exporter" : ""),
                     Lumens = source.Lumens, Downward = chosen == LightProfiles.HEMISPHERICAL ? 1 : source.Downward, Multiplier = set.LightLossFactor * output });
             }

@@ -27,6 +27,15 @@ namespace BimGo.Rendering
         /// <summary>Time per stage (ms, smoothed).</summary>
         public float[] Ms { get; } = new float[COUNT];
 
+        /// <summary>Time per stage of the latest frame read back (ms, unsmoothed; the benchmark's samples).</summary>
+        public float[] Raw { get; } = new float[COUNT];
+
+        /// <summary>Counts frames whose answers were read back (the benchmark takes a sample when it moves).</summary>
+        public int ReadFrames { get; private set; }
+
+        /// <summary>Wait for each answer instead of skipping one that isn't back yet (the benchmark: every frame counted).</summary>
+        public bool WaitForAnswers { get; set; }
+
         /// <summary>The stages' sum (ms).</summary>
         public float TotalMs
         {
@@ -62,15 +71,20 @@ namespace BimGo.Rendering
             }
 
             _slot = (_slot + 1) % RING;
+            bool read = false;
             for (int s = 0; s < COUNT; s++)
             {
                 int i = _slot * COUNT + s;
+                Raw[s] = 0f;
                 if (!_used[i]) { continue; }
                 _used[i] = false;
-                if (Gl.GetQueryObject(_queries[i], Gl.QUERY_RESULT_AVAILABLE) == 0) { continue; }
+                if (!WaitForAnswers && Gl.GetQueryObject(_queries[i], Gl.QUERY_RESULT_AVAILABLE) == 0) { continue; }
                 float ms = Gl.GetQueryObject(_queries[i], Gl.QUERY_RESULT) / 1_000_000f;
                 Ms[s] += (ms - Ms[s]) * SMOOTH;
+                Raw[s] = ms;
+                read = true;
             }
+            if (read) { ReadFrames++; }
         }
 
         /// <summary>Ends the stage being timed (if any) and starts timing <paramref name="stage"/>.</summary>

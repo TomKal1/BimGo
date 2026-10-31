@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using BimGo.Audio;
 using BimGo.Physics;
 using BimGo.Platform;
@@ -41,12 +41,26 @@ namespace BimGo.Game
         private float[] _lightRadius = Array.Empty<float>();
         private float[] _lightLumens = Array.Empty<float>();
 
+        // Where each light emits: as exported, or (older exports) a pendant's no-lens light moved from under the ceiling to
+        // just below its shade (FixturePlacement.Corrected)
+        private Vector3[] _lightPosition = Array.Empty<Vector3>();
+
+        /// <summary>The illuminance (lx) at which a light's reach ends: 1/200 of full albedo at the 100 lx exposure (under one 8-bit step).</summary>
+        private const float REACH_LUX = 0.5f;
+
         /// <summary>
-        /// Round Y-C1 r2: how far a light reaches (m; its light fades to nothing there, and it only counts for the view
-        /// when that sphere touches it): 0.22 × √lumens, 3–12 m (was 0.16 × √lm, 2.5–9 m: lights came on too close to
-        /// the player). 1000 lm ≈ 7 m, 3000 lm = 12 m.
+        /// How far a light reaches (m; it only counts for the view when that sphere touches it, and its direct light fades
+        /// over the last part of it): where its strongest candela falls to <see cref="REACH_LUX"/> by the inverse square
+        /// law, 3–30 m. 1000 lm omnidirectional ≈ 13 m; a 1000 lm downlight (peak 3 × even) ≈ 22 m. Was 0.22 × √lumens,
+        /// 3–12 m whatever the beam, which dimmed lights well inside it and cut narrow beams short.
         /// </summary>
-        private static float LightReach(float lumens) => Math.Clamp(MathF.Sqrt(MathF.Max(lumens, 0f)) * 0.22f, 3f, 12f);
+        /// <param name="lumens">Its output.</param>
+        /// <param name="peak">Its strongest intensity over an even light's of the same output (a profile's scale).</param>
+        private static float LightReach(float lumens, float peak) =>
+            Math.Clamp(MathF.Sqrt(MathF.Max(lumens, 0f) * LIGHT_SCALE * 100f * MathF.Max(peak, 1f) / REACH_LUX), 3f, 30f);
+
+        /// <summary>The peak of the shader's downward-share lobe, mix(1, 4 cos, share), over an even light's.</summary>
+        private static float DownwardPeak(float downward) => 1f + 3f * Math.Clamp(downward, 0f, 1f);
 
         /// <summary>Round Y-C1: a light used last frame ranks this many times higher (≈ 22 % closer), so the choice is steady.</summary>
         private const float RANK_KEEP = 1.5f;
@@ -76,6 +90,9 @@ namespace BimGo.Game
 
         #endregion
 
+        /// <summary>Where light <paramref name="i"/> emits (see <see cref="_lightPosition"/>).</summary>
+        private Vector3 LightPosition(int i) => i < _lightPosition.Length ? _lightPosition[i] : Scene.Lighting.Lights[i].Position;
+
         /// <summary>True if the model has lighting fixtures or glowing surfaces.</summary>
         private bool HasArtificialLighting => !Scene.Lighting.IsEmpty;
 
@@ -95,15 +112,22 @@ namespace BimGo.Game
             _lightColour = new Vector3[lights.Length];
             _lightRadius = new float[lights.Length];
             _lightLumens = new float[lights.Length];
+            _lightPosition = new Vector3[lights.Length];
             _lightOfElement.Clear();
+            int movedPendants = 0;
             for (int i = 0; i < lights.Length; i++)
             {
                 LightSource light = lights[i];
                 _lightColour[i] = LightingData.KelvinToRgb(light.Kelvin) * (light.Lumens * LIGHT_SCALE);
-                _lightRadius[i] = LightReach(light.Lumens);
+                _lightRadius[i] = LightReach(light.Lumens, DownwardPeak(light.Downward));
                 _lightLumens[i] = light.Lumens;
                 _lightOfElement.TryAdd(light.Element, i);
+                ElementRecord fixture = light.Element >= 0 && light.Element < Scene.Elements.Length ? Scene.Elements[light.Element] : null;
+                Vector3? origin = fixture == null || fixture.IsLinked ? null : fixture.Pivot; // linked elements carry no family origin
+                _lightPosition[i] = FixturePlacement.Corrected(light.Position, fixture?.Bounds ?? default, origin, out bool moved);
+                if (moved) { movedPendants++; }
             }
+            if (movedPendants > 0) { Utilities.Log_Utils.Write($"Artificial lights: {movedPendants} fixture(s) hung from their origin without a lens lit from below their bottom instead of under the ceiling (an older export's placement)."); }
             if (lights.Length > 0 || Scene.Lighting.Emissive.Length > 0)
             {
                 Utilities.Log_Utils.Write($"Artificial lights: {lights.Length} fixtures, mode {_lightMode}, brightness {_lightIntensity:0.00}, bloom {_bloomIntensity:0.00}.");
@@ -239,18 +263,18 @@ namespace BimGo.Game
             for (int i = 0; i < lights.Length; i++)
             {
                 int e = lights[i].Element;
-                if (_userHidden[e] || ProfileHides(e) || !_groupVisible[SceneBatches.GroupOf(elements[e])]) { continue; }
+                if ((i < _lightKept.Length && !_lightKept[i]) || _userHidden[e] || ProfileHides(e) || !_groupVisible[SceneBatches.GroupOf(elements[e])]) { continue; }
 
                 if (!_hidden[e])
                 {
-                    Consider(i, lights[i].Position, i, LightCodeOf(i));
+                    Consider(i, LightPosition(i), i, LightCodeOf(i));
                     continue;
                 }
 
                 // Hidden in the static scene: moved (follow it) or removed (dark)
                 DynamicInstance moved = Dynamics.FindOriginal(e);
                 if (moved == null || !Dynamics.IsActive(moved)) { continue; }
-                Consider(i, Vector3.Transform(lights[i].Position, moved.Model), ((long)moved.Id << 32) | (uint)i, LightCodeOf(i, moved.Model));
+                Consider(i, Vector3.Transform(LightPosition(i), moved.Model), ((long)moved.Id << 32) | (uint)i, LightCodeOf(i, moved.Model));
             }
 
             foreach (DynamicInstance instance in Dynamics.Instances)
@@ -260,7 +284,8 @@ namespace BimGo.Game
                 // X-D1 r3: a fixture can hold several light sources (nested up / down halves): consecutive lights
                 for (int i = first; i < lights.Length && lights[i].Element == instance.Element; i++)
                 {
-                    Consider(i, Vector3.Transform(lights[i].Position, instance.Model), ((long)instance.Id << 32) | (uint)i, LightCodeOf(i, instance.Model));
+                    if (i < _lightKept.Length && !_lightKept[i]) { continue; }
+                    Consider(i, Vector3.Transform(LightPosition(i), instance.Model), ((long)instance.Id << 32) | (uint)i, LightCodeOf(i, instance.Model));
                 }
             }
         }

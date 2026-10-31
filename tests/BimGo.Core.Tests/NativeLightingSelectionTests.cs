@@ -79,8 +79,10 @@ public sealed partial class NativeLightingTests
     [TestMethod]
     public void SourceHeightRemainsExportedUnlessExplicitlyOverridden()
     {
-        var scene = Scene(); var set = Set();
-        Assert.IsFalse(new NativeLightingSet().CorrectRecessedSources);
+        var scene = Scene(); var set = Set(); set.CorrectRecessedSources = false;
+        Assert.IsTrue(new NativeLightingSet().CorrectRecessedSources, "auto mounting is the default, as in WW Tools");
+        var old = System.Text.Json.JsonSerializer.Deserialize<NativeLightingSet>("{\"correctRecessedSources\": false}", new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        Assert.IsTrue(old.CorrectRecessedSources, "a set saved with the old opt-in gets auto mounting too");
         double original = Input(scene, set).Emitters[0].Position[2];
         set.Luminaires = new[] { new NativeLuminaireSetting { Key = "fixture-100", HeightOffset = -.25 } };
         Assert.AreEqual(original - .25, Input(scene, set).Emitters[0].Position[2], 1e-5);

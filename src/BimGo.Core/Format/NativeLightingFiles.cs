@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace BimGo.Format;
 
@@ -31,7 +32,16 @@ public sealed class NativeLightingSet
     public int Quality { get; set; } = 1;
     public bool Interreflection { get; set; } = true;
     public bool AllowEstimatedPhotometry { get; set; }
-    public bool CorrectRecessedSources { get; set; }
+    /// <summary>
+    /// Off: light centres stay at the exported family / light-source origins. Stored inverted, as WW Tools stores its
+    /// AutoPlaceSources, so sets saved before automatic placement became the default (with the old opt-in
+    /// <c>correctRecessedSources</c>, now ignored) get it too and match WW Tools' results.
+    /// </summary>
+    public bool ManualSourcePlacement { get; set; }
+
+    /// <summary>Auto mounting (light centres placed from each fixture's geometry and host, as WW Tools does): on unless <see cref="ManualSourcePlacement"/>.</summary>
+    [JsonIgnore]
+    public bool CorrectRecessedSources { get => !ManualSourcePlacement; set => ManualSourcePlacement = !value; }
     public bool WalkingSurfaces { get; set; }
     public bool Automatic { get; set; } = true;
 

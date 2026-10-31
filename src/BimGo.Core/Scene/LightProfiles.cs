@@ -38,6 +38,21 @@ namespace BimGo.Scene
         /// <summary>C step (degrees).</summary>
         public const float C_STEP = 360f / HORIZONTAL;
 
+        /// <summary>The shader's finer table: gamma samples (0–180°, 2.5° steps).</summary>
+        public const int FINE_VERTICAL = 73;
+
+        /// <summary>The shader's finer table: C samples (0–360°, 7.5° steps, wrapping).</summary>
+        public const int FINE_HORIZONTAL = 48;
+
+        /// <summary>Values per fine table.</summary>
+        public const int FINE_SIZE = FINE_VERTICAL * FINE_HORIZONTAL;
+
+        /// <summary>Fine table gamma step (degrees).</summary>
+        public const float FINE_GAMMA_STEP = 180f / (FINE_VERTICAL - 1);
+
+        /// <summary>Fine table C step (degrees).</summary>
+        public const float FINE_C_STEP = 360f / FINE_HORIZONTAL;
+
         /// <summary>Largest .ies file read (bytes): real ones are a few KB, the biggest well under this.</summary>
         public const int MAX_IES_BYTES = 512 * 1024;
 
@@ -56,6 +71,22 @@ namespace BimGo.Scene
 
         /// <summary>4π / the table's integral over the sphere (peak 1): see the class notes.</summary>
         public float Scale { get; init; } = 1f;
+
+        /// <summary>
+        /// The shader's table (<see cref="FINE_SIZE"/> 16-bit values, peak 65535, row = gamma, column = C): the same
+        /// intensity sampled finer and without 8-bit steps, so narrow beams and dim tails keep their shape on screen.
+        /// </summary>
+        public ushort[] Fine { get; init; } = FilledFine();
+
+        /// <summary><see cref="Scale"/> for <see cref="Fine"/>.</summary>
+        public float FineScale { get; init; } = 1f;
+
+        private static ushort[] FilledFine()
+        {
+            var fine = new ushort[FINE_SIZE];
+            Array.Fill(fine, ushort.MaxValue);
+            return fine;
+        }
 
         /// <summary>The luminaire's output the file implies (its candela integrated, lm), or 0 for built-ins.</summary>
         public float Lumens { get; init; }
@@ -157,12 +188,16 @@ namespace BimGo.Scene
                 for (int i = 0; i < TABLE_SIZE; i++) { table[i] = (byte)Math.Clamp((int)MathF.Round(raw[i] / peak * 255f), 0, 255); }
             }
             float integral = Integrate(table);
+            ushort[] fine = FineTable(intensity);
+            float fineIntegral = Integrate((g, c) => SampleFine(fine, g, c));
             return new LightProfile
             {
                 Key = key,
                 Name = name,
                 Table = table,
                 Scale = integral > 1e-4f ? 4f * MathF.PI / integral : 1f,
+                Fine = fine,
+                FineScale = fineIntegral > 1e-4f ? 4f * MathF.PI / fineIntegral : 1f,
                 Lumens = lumens,
                 BeamAngle = BeamOf(table),
                 TiltAngles = tiltAngles,
@@ -181,10 +216,55 @@ namespace BimGo.Scene
             return FromFunction(key, name, data.Candela, data.TotalLumens(), data.TiltAngles, data.TiltFactors);
         }
 
+        /// <summary>The fine table of <paramref name="intensity"/> (peak 65535; an even light when it gives nothing).</summary>
+        private static ushort[] FineTable(Func<float, float, float> intensity)
+        {
+            var raw = new float[FINE_SIZE];
+            float peak = 0f;
+            for (int v = 0; v < FINE_VERTICAL; v++)
+            {
+                for (int h = 0; h < FINE_HORIZONTAL; h++)
+                {
+                    float value = MathF.Max(0f, intensity(v * FINE_GAMMA_STEP, h * FINE_C_STEP));
+                    if (!float.IsFinite(value)) { value = 0f; }
+                    raw[v * FINE_HORIZONTAL + h] = value;
+                    peak = MathF.Max(peak, value);
+                }
+            }
+            var fine = new ushort[FINE_SIZE];
+            if (peak <= 0f) { Array.Fill(fine, ushort.MaxValue); }
+            else
+            {
+                for (int i = 0; i < FINE_SIZE; i++) { fine[i] = (ushort)Math.Clamp((int)MathF.Round(raw[i] / peak * 65535f), 0, 65535); }
+            }
+            return fine;
+        }
+
+        /// <summary>The fine table's relative intensity (peak 1), bilinear as the shader's texture filtering reads it.</summary>
+        public static float SampleFine(ushort[] fine, float gammaDegrees, float cDegrees)
+        {
+            float gv = Math.Clamp(gammaDegrees, 0f, 180f) / FINE_GAMMA_STEP;
+            int v0 = Math.Min((int)gv, FINE_VERTICAL - 2);
+            float fv = gv - v0;
+            float c = cDegrees % 360f;
+            if (c < 0f) { c += 360f; }
+            float ch = c / FINE_C_STEP;
+            int h0 = (int)ch % FINE_HORIZONTAL;
+            int h1 = (h0 + 1) % FINE_HORIZONTAL;
+            float fh = ch - MathF.Floor(ch);
+            float a = fine[v0 * FINE_HORIZONTAL + h0], b = fine[v0 * FINE_HORIZONTAL + h1];
+            float d = fine[(v0 + 1) * FINE_HORIZONTAL + h0], e = fine[(v0 + 1) * FINE_HORIZONTAL + h1];
+            float top = a + (b - a) * fh, bottom = d + (e - d) * fh;
+            return (top + (bottom - top) * fv) / 65535f;
+        }
+
         /// <summary>
         /// The table's integral over the sphere (peak 1), finely sampled through the same bilinear lookup the shader uses.
         /// </summary>
-        public static float Integrate(byte[] table)
+        public static float Integrate(byte[] table) => Integrate((g, c) => SampleTable(table, g, c));
+
+        /// <summary>The integral over the sphere of a relative intensity (gamma, C in degrees).</summary>
+        private static float Integrate(Func<float, float, float> sample)
         {
             const int GAMMA = 360, C = 64;
             double sum = 0.0;
@@ -196,7 +276,7 @@ namespace BimGo.Scene
                 float gDeg = (float)(gamma * 180.0 / Math.PI);
                 for (int j = 0; j < C; j++)
                 {
-                    sum += SampleTable(table, gDeg, (float)((j + 0.5) * 360.0 / C)) * band;
+                    sum += sample(gDeg, (float)((j + 0.5) * 360.0 / C)) * band;
                 }
             }
             return (float)sum;
@@ -525,6 +605,62 @@ namespace BimGo.Scene
     /// </summary>
     public static class LightProfiles
     {
+        #region Output check
+
+        /// <summary>How far apart (either way) Revit's lumens and the photometric file's may be before the LIGHTS tab says so.</summary>
+        public const float LUMEN_MISMATCH = 2f;
+
+        /// <summary>
+        /// Revit's output for a fixture type (its Initial Intensity, which Revit uses: the .ies file only shapes the
+        /// light) over the output its own photometric file describes, when they are <see cref="LUMEN_MISMATCH"/> or more
+        /// apart; 0 when they agree or either is unknown (an estimated output, a file without one). A placeholder file
+        /// (another fixture's photometry) or a mistyped intensity is the usual cause.
+        /// </summary>
+        public static float LumenMismatch(float revitLumens, float fileLumens)
+        {
+            if (!(revitLumens > 0f) || !(fileLumens >= 10f) || !float.IsFinite(revitLumens) || !float.IsFinite(fileLumens)) { return 0f; }
+            float ratio = revitLumens / fileLumens;
+            return ratio >= LUMEN_MISMATCH || ratio <= 1f / LUMEN_MISMATCH ? ratio : 0f;
+        }
+
+        /// <summary>Fixture output: Revit's Initial Intensity (the default; what Revit itself renders with).</summary>
+        public const string OUTPUT_REVIT = "revit";
+
+        /// <summary>Fixture output: the .ies file's own where Revit's is <see cref="LUMEN_MISMATCH"/> or more off it.</summary>
+        public const string OUTPUT_FLAGGED = "flagged";
+
+        /// <summary>Fixture output: the .ies file's own wherever there is a file (as the calculation engine does).</summary>
+        public const string OUTPUT_FILE = "file";
+
+        /// <summary>The output choices in the order the LIGHTS tab shows them.</summary>
+        public static readonly string[] OUTPUT_MODES = { OUTPUT_REVIT, OUTPUT_FLAGGED, OUTPUT_FILE };
+
+        /// <summary>A stored output mode, cleaned (unknown or empty → <see cref="OUTPUT_REVIT"/>).</summary>
+        public static string CleanOutputMode(string mode) => Array.IndexOf(OUTPUT_MODES, mode) >= 0 ? mode : OUTPUT_REVIT;
+
+        /// <summary>
+        /// The lumens a light emits (the one rule the viewer, the calculation input and a WW Tools port share): Revit's
+        /// Initial Intensity, or its photometric file's own output when <paramref name="mode"/> says so
+        /// (<see cref="OUTPUT_FILE"/>: always; <see cref="OUTPUT_FLAGGED"/>: when the two are <see cref="LUMEN_MISMATCH"/>
+        /// or more apart) or when Revit's was only the exporter's guess. A file without an output (under 10 lm) never
+        /// replaces Revit's. File lumens are clamped to 50–50 000 lm like the exporter's.
+        /// </summary>
+        /// <param name="mode">An OUTPUT_ mode (cleaned here).</param>
+        /// <param name="revitLumens">Revit's output (lm).</param>
+        /// <param name="guessed">Revit gave none: <paramref name="revitLumens"/> is the exporter's stand-in.</param>
+        /// <param name="fileLumens">The photometric file's output (lm), or 0 when there is no file.</param>
+        /// <param name="fromFile">True when the file's output was used.</param>
+        public static float ResolveOutput(string mode, float revitLumens, bool guessed, float fileLumens, out bool fromFile)
+        {
+            fromFile = false;
+            if (!(fileLumens >= 10f) || !float.IsFinite(fileLumens)) { return revitLumens; }
+            mode = CleanOutputMode(mode);
+            fromFile = guessed || mode == OUTPUT_FILE || (mode == OUTPUT_FLAGGED && LumenMismatch(revitLumens, fileLumens) > 0f);
+            return fromFile ? Math.Clamp(fileLumens, 50f, 50000f) : revitLumens;
+        }
+
+        #endregion
+
         #region Keys
 
         /// <summary>Key prefix of a file's profile (its content hash follows).</summary>

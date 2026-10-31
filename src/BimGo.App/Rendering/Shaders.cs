@@ -577,7 +577,8 @@ vec4 screenReflection(vec3 world, vec3 n, vec3 dir, float rough, vec3 eye)
     vec2 edgeNow = min(now, 1.0 - now), edgeThen = min(then, 1.0 - then);
     float edge = smoothstep(0.0, 0.06, min(edgeNow.x, edgeNow.y)) * smoothstep(0.0, 0.06, min(edgeThen.x, edgeThen.y));
     float trust = facing * edge * (1.0 - smoothstep(SSR_TMAX * 0.4, SSR_TMAX, b)) * (1.0 - smoothstep(0.3, 0.6, rough));
-    vec3 colour = textureLod(uSsrColour, then, rough * uSsrMaxLod).rgb;
+    // The history was exposed when it was drawn; the reflection is exposed again with the surface that shows it
+    vec3 colour = textureLod(uSsrColour, then, rough * uSsrMaxLod).rgb / max(uExposure, 1e-3);
     return vec4(colour, trust);
 }
 ";
@@ -730,8 +731,9 @@ float ambientOcclusion(vec3 world, vec3 eye)
         /// Artificial lights, shared by the scene and ground fragment shaders (inserted after AO_GLSL). Up to 32 point
         /// lights picked on the CPU each frame (nearest to the player, in view), each with a cached omnidirectional
         /// shadow map (LightShadows: 6 layers per light in one depth array; the face is picked here from the major
-        /// axis, with the same face table as LightShadows.FaceForward / FaceUp). Light fades to zero at its radius
-        /// (windowed inverse square); its lobe mixes omnidirectional light with a downward cosine (downlights, panels).
+        /// axis, with the same face table as LightShadows.FaceForward / FaceUp). Light is the inverse square law in lux
+        /// (LIGHT_SCALE: 100 lx = full albedo), fading to zero only near its radius (where its peak falls to 0.5 lx); its
+        /// lobe mixes omnidirectional light with a downward cosine (downlights, panels), or follows its IES profile.
         /// A small share of each light also fills what it can see evenly (a stand-in for light bouncing off the floor
         /// and walls), darkened by AO, so ceilings and faces turned away aren't black; a third of that fill reaches
         /// shadowed spots (under tables), about 2 % of the light through a wall.
@@ -750,6 +752,8 @@ uniform sampler2DArrayShadow uLightShadowMap;
 uniform float uLightShadowTexel;
 uniform float uEmissive;
 uniform int uShoulder;
+// Auto exposure: the scene's light × this before the shoulder (1 = as lit; below 1 when the view would wash out)
+uniform float uExposure;
 // Round X-C1: all fixtures (photos, videos, stills; live when asked): the lights beyond the shadowed ones, unshadowed
 uniform int uFarCount;
 layout(std140) uniform FarLights
@@ -758,21 +762,14 @@ layout(std140) uniform FarLights
     vec4 uFarColor[480];
 };
 
-// Round X-D1: light profiles (IES files and built-ins): 24 tables of 32 gamma × 16 C bytes (4 to a uint, 16 to a
-// uvec4: 32 uvec4 per table), and per table x = the scale to an even light of the same output
+// Round X-D1: light profiles (IES files and built-ins): 24 tables, one layer each of an R16 texture array (48 C
+// columns 7.5° apart, wrapping, × 73 gamma rows 2.5° apart; peak 1, filtered by the hardware), and per table x = the
+// scale to an even light of the same output
 layout(std140) uniform LightProfiles
 {
-    uvec4 uProfileData[768];
     vec4 uProfileInfo[24];
 };
-
-float profileByte(int base, int index)
-{
-    uvec4 q = uProfileData[base + (index >> 4)];
-    int w = (index >> 2) & 3;
-    uint word = w == 0 ? q.x : (w == 1 ? q.y : (w == 2 ? q.z : q.w));
-    return float((word >> uint((index & 3) * 8)) & 255u);
-}
+uniform sampler2DArray uProfileTable;
 
 vec3 profileOctDecode(vec2 o)
 {
@@ -793,22 +790,35 @@ float profileLobe(float encoded, vec3 v)
     float turn = float(code & 127) * (6.2831853 / 128.0);
     vec3 c0 = cos(turn) * x0 + sin(turn) * y0;
     vec3 c90 = cross(c0, n);
-    float gv = acos(clamp(dot(v, n), -1.0, 1.0)) * (31.0 / 3.14159265);
-    float ch = atan(dot(v, c90), dot(v, c0)) * (16.0 / 6.2831853);
-    if (ch < 0.0) ch += 16.0;
-    int v0 = min(int(gv), 30);
-    float fv = clamp(gv - float(v0), 0.0, 1.0);
-    int h0 = int(floor(ch)) & 15;
-    int h1 = (h0 + 1) & 15;
-    float fh = fract(ch);
-    int base = slot * 32;
-    int r0 = v0 * 16, r1 = r0 + 16;
-    float top = mix(profileByte(base, r0 + h0), profileByte(base, r0 + h1), fh);
-    float bottom = mix(profileByte(base, r1 + h0), profileByte(base, r1 + h1), fh);
-    return mix(top, bottom, fv) * (1.0 / 255.0) * uProfileInfo[slot].x;
+    // Texel centres sit on the samples: gamma row g at (g + 0.5) / 73, C column c at (c + 0.5) / 48
+    float gv = acos(clamp(dot(v, n), -1.0, 1.0)) * (72.0 / 3.14159265);
+    float ch = atan(dot(v, c90), dot(v, c0)) * (48.0 / 6.2831853);
+    vec2 uv = vec2((ch + 0.5) * (1.0 / 48.0), (gv + 0.5) * (1.0 / 73.0));
+    return texture(uProfileTable, vec3(uv, float(slot))).r * uProfileInfo[slot].x;
 }
 
 const float LIGHT_BOUNCE = 0.06;
+// Inverse square softened within ~0.2 m of the source (a sconce on a wall), not beyond
+const float LIGHT_SOFT = 0.04;
+
+// Direct light: the inverse square law untouched to ~60 % of the reach (the radius is where it falls to 0.5 lx), then
+// a fade to zero at it: (1 − x⁴)², x = d² / r² (0.99 at half the reach, 0.89 at 0.7)
+float directWindow(float dist2, float r2)
+{
+    float x = dist2 / r2;
+    float w = 1.0 - x * x * x * x;
+    return w * w;
+}
+
+// The even fill (bounce stand-in) keeps a room-sized reach: half the light's, faded as before, (1 − x²)²
+float fillWindow(float dist2, float r2)
+{
+    float x = dist2 / (0.25 * r2);
+    if (x >= 1.0) return 0.0;
+    float w = 1.0 - x * x;
+    return w * w;
+}
+
 const float LIGHT_NEAR = 0.08;
 const float LIGHT_PAD = 1.03;
 const vec3 FACE_F[6] = vec3[6](vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0));
@@ -853,20 +863,18 @@ vec3 artificialLight(vec3 world, vec3 n, float ao)
         if (dist2 >= r2) continue;
         vec4 sh = uLightShadow[i];
         float visible = lightVisibility(world, n, lp.xyz, lp.w, sh.x, sh.z);
-        float window = 1.0 - (dist2 * dist2) / (r2 * r2);
-        window *= window * sh.y;
         vec4 lc = uLightColor[i];
         // Fill reaches shadowed spots a little (under tables), so they aren't black
-        sum += lc.rgb * (LIGHT_BOUNCE * window * ao * mix(0.35, 1.0, visible));
+        sum += lc.rgb * (LIGHT_BOUNCE * fillWindow(dist2, r2) * sh.y * ao * mix(0.35, 1.0, visible));
         if (visible <= 0.0) continue;
-        window *= visible;
+        float window = directWindow(dist2, r2) * sh.y * visible;
 
         vec3 l = d * inversesqrt(max(dist2, 1e-8));
         float ndl = dot(n, l);
         if (ndl <= 0.0) continue;
         // l points from the surface to the light: l.z > 0 when the surface is below it (X-D1: or the light's profile)
         float lobe = lc.w >= 0.0 ? mix(1.0, 4.0 * max(l.z, 0.0), lc.w) : profileLobe(lc.w, -l);
-        sum += lc.rgb * (lobe * window * ndl / (dist2 + 0.25));
+        sum += lc.rgb * (lobe * window * ndl / (dist2 + LIGHT_SOFT));
     }
     // Round X-C1: the unshadowed far lights (same falloff and lobe; their fill counts as seen)
     for (int i = 0; i < 480; i++)
@@ -877,15 +885,14 @@ vec3 artificialLight(vec3 world, vec3 n, float ao)
         float dist2 = dot(d, d);
         float r2 = lp.w * lp.w;
         if (dist2 >= r2) continue;
-        float window = 1.0 - (dist2 * dist2) / (r2 * r2);
-        window *= window;
+        float window = directWindow(dist2, r2);
         vec4 lc = uFarColor[i];
-        sum += lc.rgb * (LIGHT_BOUNCE * window * ao);
+        sum += lc.rgb * (LIGHT_BOUNCE * fillWindow(dist2, r2) * ao);
         vec3 l = d * inversesqrt(max(dist2, 1e-8));
         float ndl = dot(n, l);
         if (ndl <= 0.0) continue;
         float lobe = lc.w >= 0.0 ? mix(1.0, 4.0 * max(l.z, 0.0), lc.w) : profileLobe(lc.w, -l);
-        sum += lc.rgb * (lobe * window * ndl / (dist2 + 0.25));
+        sum += lc.rgb * (lobe * window * ndl / (dist2 + LIGHT_SOFT));
     }
     return sum;
 }
@@ -893,6 +900,7 @@ vec3 artificialLight(vec3 world, vec3 n, float ao)
 // Rolls values above 0.8 off smoothly towards 1 (pools of light and glows don't clip flat); below 0.8 unchanged
 vec3 shoulder(vec3 c)
 {
+    c *= uExposure;
     if (uShoulder == 0) return c;
     vec3 over = max(c - 0.8, 0.0);
     return min(c, 0.8) + 0.2 * (1.0 - exp(-over / 0.2));

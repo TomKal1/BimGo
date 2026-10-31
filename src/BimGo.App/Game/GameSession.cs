@@ -367,7 +367,8 @@ namespace BimGo.Game
             else if (!string.IsNullOrEmpty(_options.StartNotice)) { Toast(_options.StartNotice, 10f, important: true); }
 
             // Round Z-C: a kiosk shortcut's launch (files only)
-            if (_options.Kiosk && IsFileMode) { EnterKiosk(); }
+            if (Program.BenchOutput != null && IsFileMode) { StartBench(); } // the viewer benchmark (GameSession.Bench)
+            else if (_options.Kiosk && IsFileMode) { EnterKiosk(); }
             else if (!LaunchSettings.SafeStart && !Scene.Settings.WelcomeShown) { OpenWelcome(); } // Round Z-E: first walkthrough
         }
 
@@ -616,9 +617,11 @@ namespace BimGo.Game
                 UpdateGuns(dt);
 
                 Render();
+                if (Benchmarking) { BenchBeforeSwap(); }
                 _window.Swap();
                 _window.Input.EndFrame();
                 UpdateFps(dt);
+                if (Benchmarking) { StepBench(dt); }
                 WaitForFrameLimit(); // Round X-D0: the frame rate limit
             }
         }

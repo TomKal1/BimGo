@@ -60,6 +60,7 @@ namespace BimGo.Native
         // Artificial lights (glow target as a second colour attachment)
         public const uint RGBA16F = 0x881A, COLOR_ATTACHMENT1 = 0x8CE1;
         public const uint DEPTH_COMPONENT16 = 0x81A5, UNSIGNED_SHORT = 0x1403;
+        public const uint R16 = 0x822A; // the light profile tables
 
         // Material textures (mipmapped colour arrays, wrap, anisotropy via GL_EXT_texture_filter_anisotropic / GL 4.6)
         public const uint REPEAT = 0x2901, LINEAR_MIPMAP_LINEAR = 0x2703, TEXTURE_MAX_LEVEL = 0x813D;
@@ -100,7 +101,7 @@ namespace BimGo.Native
             "glActiveTexture", "glMultiDrawElements", "glBlendFuncSeparate", "glTexImage3D", "glTexSubImage3D", "glGenerateMipmap",
 
             // Buffers and vertex arrays
-            "glGenBuffers", "glDeleteBuffers", "glBindBuffer", "glBufferData", "glBufferSubData",
+            "glGenBuffers", "glDeleteBuffers", "glBindBuffer", "glBufferData", "glBufferSubData", "glGetBufferSubData",
             "glGenVertexArrays", "glDeleteVertexArrays", "glBindVertexArray", "glEnableVertexAttribArray",
             "glVertexAttribPointer", "glVertexAttribDivisor", "glDrawElementsInstanced", "glDrawArraysInstanced",
             "glGetUniformBlockIndex", "glUniformBlockBinding", "glBindBufferBase",
@@ -263,6 +264,7 @@ namespace BimGo.Native
         public static void BindBuffer(uint target, uint id) => _gl.BindBuffer((GLEnum)target, id);
         public static void BufferData(uint target, nint size, void* data, uint usage) => _gl.BufferData((GLEnum)target, (nuint)size, data, (GLEnum)usage);
         public static void BufferSubData(uint target, nint offset, nint size, void* data) => _gl.BufferSubData((GLEnum)target, offset, (nuint)size, data);
+        public static void GetBufferSubData(uint target, nint offset, nint size, void* data) => _gl.GetBufferSubData((GLEnum)target, offset, (nuint)size, data);
         public static void BindBufferBase(uint target, uint index, uint buffer) => _gl.BindBufferBase((GLEnum)target, index, buffer);
         public static uint GetUniformBlockIndex(uint program, string name) => _gl.GetUniformBlockIndex(program, name);
         public static void UniformBlockBinding(uint program, uint index, uint binding) => _gl.UniformBlockBinding(program, index, binding);

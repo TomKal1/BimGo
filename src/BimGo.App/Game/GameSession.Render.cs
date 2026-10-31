@@ -261,7 +261,9 @@ namespace BimGo.Game
 
             // ---- Reflection probes: a couple of faces per frame until baked, re-baked a moment after things change
             if (!photo) { timers.Stage(GpuTimers.REFLECTIONS); }
+            _renderer.Exposure = 1f; // probes keep the light as lit (exposed again where they show)
             if (!photo && !reviewMaterials) { UpdateReflectionProbes(); }
+            _renderer.Exposure = reviewMaterials ? 1f : _exposure;
 
             var p = new SceneDrawParams
             {
@@ -300,7 +302,9 @@ namespace BimGo.Game
                 }
                 if (planarPlanes > 0 || !_reflectionWarmup)
                 {
+                    _renderer.Exposure = 1f; // as the probes
                     _renderer.UpdatePlanarReflections(p, width, height, planarPlanes, planarScale, _groupVisible, Dynamics, _groundZ);
+                    _renderer.Exposure = reviewMaterials ? 1f : _exposure;
                 }
             }
             p.Planar = !clashView && !_clashShot && _renderer.PlanarCount > 0;
@@ -420,6 +424,7 @@ namespace BimGo.Game
 
             // Section box frame and handles (editor only)
             if (!photo && !(_reviewOpen && _screenshotRequested)) { DrawSectionGizmo(); }
+            if (!photo) { MeterExposure(_frameTime); } // auto exposure: the main view before the UI (timed with the rest)
             if (!photo) { timers.EndFrame(); } // Y-D1
         }
 

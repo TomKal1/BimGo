@@ -9,6 +9,29 @@ BimGo calculates illuminance itself with the bundled `Lighting.Engine`, a pinned
 engine (TomKal1/WWTools `main`). Rooms on a storey share one interreflection solve; light centres are placed by auto mounting;
 each fixture counts in one room. See `ai/261022d_LightingCalcs_B/7_wwtools_main_resync.md` and `src/Lighting.Engine/UPSTREAM-NOTICE.md`.
 
+## Fixture rules shared with WW Tools
+
+The viewer and the calculation input apply the same two per-model rules, kept in the light profiles document
+(`light-profiles.json` beside the model, or inside a `.bimgo`). Both are plain functions in BimGo.Core with tests, written so
+WW Tools can port them and its calculations match BimGo's:
+
+| Rule | Field | Function | Default |
+|---|---|---|---|
+| Which model's fixtures light | `fixtureSource`: `host` · `links` · `all` (absent = `auto`) | `Scene/FixtureSources.Kept` | `auto`: every host fixture; a linked fixture only where no host light of the same family type is within 5 cm |
+| Fixture output (lumens) | `output`: `flagged` · `file` (absent = `revit`) | `Scene/LightProfiles.ResolveOutput` | `revit`: the type's Initial Intensity |
+| Light centres | calc set `manualSourcePlacement` (absent = auto) | engine `LuminaireMounting.Place` | auto mounting on, as WW Tools' `AutoPlaceSources`; old sets' `correctRecessedSources` is ignored |
+| Aim of a fixture with no photometry | — | `ExportedSceneInput` | world-down for the estimated lobe (WW Tools: spherical); the family's own Z is meaningless there |
+
+**Fixture output** (`ResolveOutput(mode, revitLumens, guessed, fileLumens)`): Revit's Initial Intensity, or the photometric
+file's own output (its candela integrated over the sphere, clamped to 50–50 000 lm) when the mode is `file`, when it is
+`flagged` and the two are 2× or more apart either way (`LumenMismatch`), or when Revit gave no output (the exporter's 1000 lm
+stand-in). A file under 10 lm never replaces Revit's. The LIGHTS tab marks the types that are 2× or more apart with **!**.
+
+Today the engine lights each luminaire with its file's own candela (scaled only by light loss), so the calculation already
+uses the file's output: with `output` = `file` the view matches it everywhere, with `flagged` on the marked types. With the
+default `revit` the calculation input notes, per source and in a warning, where Revit's and the file's lumens are 2× or more
+apart. For WW Tools to match BimGo it reads the same document and applies the same two functions before building its luminaires.
+
 ## Calculated images
 
 **Independent calculated lighting images (Tom-Main, 2026-10-22).** LIGHTING → RESULTS and Model Review →
