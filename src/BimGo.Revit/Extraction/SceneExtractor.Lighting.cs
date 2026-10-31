@@ -90,6 +90,12 @@ namespace BimGo.Extraction
         private int _shapeLights; // Round Y-C1: lights with a spot / hemispherical distribution
         private int _iesLights, _lensOverrules, _nestedLights, _nestedByTransform, _nestedByDrawTransform, _drawDiffers;
         private readonly Dictionary<(Document Doc, long Type), bool> _ownLightOfType = new();
+
+        // The light source's placement inside each fixture family (null: unturned or unreadable), read once per family:
+        // a source rotated in the family editor (an uplight's hemisphere flipped up) aims the fixture through it
+        private readonly Dictionary<(Document Doc, long Family), Transform> _sourceOfFamily = new();
+        private double _fixtureTilt = double.NaN;
+        private int _sourceTurned;
         private readonly Dictionary<(Document Doc, long Family), NestedLight[]> _nestedOfFamily = new();
 
         /// <summary>
@@ -131,6 +137,7 @@ namespace BimGo.Extraction
             _fixtureIesLumens = 0f;
             _fixtureShape = null;
             _fixtureAim = _fixtureAcross = null;
+            _fixtureTilt = double.NaN;
             _fixtureTransform = null;
             _fixtureNested = Array.Empty<NestedLight>();
             _fixtureSharedLights = false;
@@ -338,7 +345,7 @@ namespace BimGo.Extraction
         /// </summary>
         private LightingData BuildLighting()
         {
-            Utilities.Log_Utils.Write($"Lighting: {_lights.Count} fixture lights ({_estimatedLights} estimated, {_iesLights} with a photometric file, {_shapeLights} spot / hemispherical, {_lensOverrules} without a light source aimed by their lens, {_nestedLights} from nested light sources ({_nestedLights - _nestedByTransform - _nestedByDrawTransform} by nested geometry, {_nestedByDrawTransform} by the drawn host, {_nestedByTransform} by the instance transform; {_drawDiffers} hosts drawn unlike their instance transform; placed {_mirrorChoices[3]} by their hand / facing flips, overruled by the drawn bounds: {_mirrorChoices[0]} as is, {_mirrorChoices[1]} across YZ, {_mirrorChoices[2]} across XZ; {_flippedHosts} hosts flipped), {_outsideLights} pulled inside their fixture), " +
+            Utilities.Log_Utils.Write($"Lighting: {_lights.Count} fixture lights ({_estimatedLights} estimated, {_iesLights} with a photometric file, {_shapeLights} spot / hemispherical, {_lensOverrules} without a light source aimed by their lens, {_sourceTurned} aimed through a light source turned in their family, {_nestedLights} from nested light sources ({_nestedLights - _nestedByTransform - _nestedByDrawTransform} by nested geometry, {_nestedByDrawTransform} by the drawn host, {_nestedByTransform} by the instance transform; {_drawDiffers} hosts drawn unlike their instance transform; placed {_mirrorChoices[3]} by their hand / facing flips, overruled by the drawn bounds: {_mirrorChoices[0]} as is, {_mirrorChoices[1]} across YZ, {_mirrorChoices[2]} across XZ; {_flippedHosts} hosts flipped), {_outsideLights} pulled inside their fixture), " +
                 $"{_emissiveRuns.Count} glowing vertex runs, {_selfIlluminatedMaterials} self-illuminated materials, {_guessedLenses} guessed lenses, {_iesFiles.Count} .ies files.");
             return _emissiveRuns.Count == 0 && _lights.Count == 0
                 ? LightingData.Empty
@@ -487,6 +494,7 @@ namespace BimGo.Extraction
                 _fixtureShape = found.Shape;
                 tilt = found.Tilt;
             }
+            _fixtureTilt = tilt;
 
             if (element is not FamilyInstance instance) { return; }
             // r4: the total transform (GetTransform leaves out facing / hand flips and mirroring)
@@ -542,7 +550,11 @@ namespace BimGo.Extraction
                 _ownLightOfType[key] = own;
             }
             _fixtureOwnLight = own;
-            if (own) { return; }
+            if (own)
+            {
+                AimThroughLightSource(instance);
+                return;
+            }
 
             // Shared nested lights: separate elements, extracted with their own light
             foreach (ElementId id in instance.GetSubComponentIds())
@@ -563,6 +575,62 @@ namespace BimGo.Extraction
                 _nestedOfFamily[familyKey] = nested;
             }
             _fixtureNested = nested;
+        }
+
+        /// <summary>
+        /// A fixture with a light source of its own: when that source is rotated in its family (Revit's light sources point
+        /// down by default; an uplight's is turned up), the fixture aims through it instead of along the family's −Z.
+        /// Families whose source is unturned keep the aim <see cref="ReadPhotometry"/> gave them.
+        /// </summary>
+        private void AimThroughLightSource(FamilyInstance instance)
+        {
+            if (_fixtureTransform == null || _libraryPass) { return; }
+            Family family = instance.Symbol?.Family;
+            if (family == null || family.IsInPlace) { return; }
+            var key = (_src.Doc, family.Id.Value);
+            if (!_sourceOfFamily.TryGetValue(key, out Transform source))
+            {
+                source = ReadLightSource(family, FamilyTypeOf(instance));
+                _sourceOfFamily[key] = source;
+            }
+            if (source == null) { return; }
+            (Vector3 Aim, Vector3 Across)? orient = Orient(_fixtureTransform.Multiply(source), _fixtureTilt);
+            if (orient == null) { return; }
+            _fixtureAim = orient.Value.Aim;
+            _fixtureAcross = orient.Value.Across;
+            _sourceTurned++;
+        }
+
+        /// <summary>
+        /// The light source's transform in a fixture family (LightFamily.GetLightSourceTransform: it follows the source
+        /// when it is moved or rotated in the family editor), or null when it isn't rotated (only its direction matters
+        /// here) or the family can't be opened. The family document is opened and closed without saving.
+        /// </summary>
+        private Transform ReadLightSource(Family family, string label)
+        {
+            Document familyDoc = null;
+            try
+            {
+                if (!family.IsEditable) { return null; }
+                familyDoc = _src.Doc.EditFamily(family);
+                Autodesk.Revit.DB.Lighting.LightFamily light = Autodesk.Revit.DB.Lighting.LightFamily.GetLightFamily(familyDoc);
+                Transform source = light?.GetLightSourceTransform();
+                if (source == null) { return null; }
+                bool turned = !source.BasisX.IsAlmostEqualTo(XYZ.BasisX) || !source.BasisY.IsAlmostEqualTo(XYZ.BasisY) || !source.BasisZ.IsAlmostEqualTo(XYZ.BasisZ);
+                if (!turned) { return null; }
+                Utilities.Log_Utils.Write($"{_src.Describe()}: “{label}” has its light source turned in the family (Z ({source.BasisZ.X:0.##}, {source.BasisZ.Y:0.##}, {source.BasisZ.Z:0.##})): its fixtures aim through it.");
+                return new Transform(source) { Origin = XYZ.Zero };
+            }
+            catch (Exception ex)
+            {
+                Utilities.Log_Utils.Write($"{_src.Describe()}: light source of “{label}” not read: {ex.Message}");
+                return null;
+            }
+            finally
+            {
+                try { familyDoc?.Close(false); }
+                catch (Exception ex) { Utilities.Log_Utils.Write($"Family document not closed: {ex.Message}"); }
+            }
         }
 
         /// <summary>

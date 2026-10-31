@@ -28,6 +28,9 @@ namespace BimGo
         /// </summary>
         public static string BenchOutput { get; private set; }
 
+        /// <summary><c>--bench-at x,y,z</c> (scene-local metres, the feet): the benchmark's views from there instead of the rooms.</summary>
+        public static System.Numerics.Vector3? BenchAt { get; private set; }
+
         [STAThread]
         private static int Main(string[] args)
         {
@@ -47,6 +50,7 @@ namespace BimGo
 
             OpenTarget initial = ParseArguments(args);
             BenchOutput = ValueOf(args, "--bench");
+            BenchAt = ParseVector(RawValueOf(args, "--bench-at"));
             Utilities.Log_Utils.Write($"BimGo {Version} starting{(initial?.Path != null ? ": " + initial.Path : initial?.SessionId != null ? ": session " + initial.SessionId : string.Empty)}{(initial?.Kiosk == true ? " (kiosk)" : string.Empty)}");
 
             using AppInstance instance = AppInstance.Claim();
@@ -160,7 +164,29 @@ namespace BimGo
 
         /// <summary>Switches followed by a value (the rest are flags: --kiosk, --safe, --register, --unregister, --quiet).</summary>
         private static bool TakesValue(string name) =>
-            string.Equals(name, "--session", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "--bench", StringComparison.OrdinalIgnoreCase);
+            string.Equals(name, "--session", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "--bench", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "--bench-at", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>The text after switch <paramref name="name"/>, or null.</summary>
+        private static string RawValueOf(string[] args, string name)
+        {
+            for (int i = 0; i < args.Length - 1; i++)
+            {
+                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase)) { return args[i + 1]; }
+            }
+            return null;
+        }
+
+        /// <summary>"x,y,z" (invariant numbers), or null.</summary>
+        private static System.Numerics.Vector3? ParseVector(string text)
+        {
+            string[] parts = text?.Split(',') ?? Array.Empty<string>();
+            var c = System.Globalization.CultureInfo.InvariantCulture;
+            if (parts.Length == 3 && float.TryParse(parts[0], System.Globalization.NumberStyles.Float, c, out float x)
+                && float.TryParse(parts[1], System.Globalization.NumberStyles.Float, c, out float y)
+                && float.TryParse(parts[2], System.Globalization.NumberStyles.Float, c, out float z)) { return new System.Numerics.Vector3(x, y, z); }
+            return null;
+        }
 
         /// <summary>The value after switch <paramref name="name"/>, or null.</summary>
         private static string ValueOf(string[] args, string name)

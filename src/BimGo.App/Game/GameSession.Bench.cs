@@ -68,13 +68,14 @@ namespace BimGo.Game
                     });
                 }
             }
+            if (Program.BenchAt != null) { _bench.Clear(); }
             if (_bench.Count == 0)
             {
-                // No rooms with lights: the start view, four ways
-                Vector3 start = _player.Feet;
+                // --bench-at, or no rooms with lights: that spot (else the start view), four ways
+                Vector3 start = Program.BenchAt ?? _player.Feet;
                 for (int k = 0; k < BENCH_YAWS; k++)
                 {
-                    _bench.Add(new BenchView { Name = $"start yaw {k * 360 / BENCH_YAWS}", Feet = start, Yaw = k * MathF.Tau / BENCH_YAWS, Warm = k == 0 ? BENCH_WARM_ROOM : BENCH_WARM_TURN });
+                    _bench.Add(new BenchView { Name = $"{(Program.BenchAt != null ? "at" : "start")} yaw {k * 360 / BENCH_YAWS}", Feet = start, Yaw = k * MathF.Tau / BENCH_YAWS, Warm = k == 0 ? BENCH_WARM_ROOM : BENCH_WARM_TURN });
                 }
             }
 
@@ -146,7 +147,7 @@ namespace BimGo.Game
         {
             if (_benchView < 0 || _benchView >= _bench.Count) { return; }
             BenchView view = _bench[_benchView];
-            if (view.Warm != BENCH_WARM_ROOM || _benchFrame + 1 != view.Warm) { return; }
+            if ((view.Warm != BENCH_WARM_ROOM && Program.BenchAt == null) || _benchFrame + 1 != view.Warm) { return; }
             int width = _window.Width, height = _window.Height;
             var pixels = new byte[width * height * 4];
             Gl.BindFramebuffer(Gl.READ_FRAMEBUFFER, 0);
