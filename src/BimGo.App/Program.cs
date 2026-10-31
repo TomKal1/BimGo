@@ -22,6 +22,12 @@ namespace BimGo
         /// <summary>The app version ("1.0.0", from the assembly).</summary>
         public static string Version { get; } = GetVersion();
 
+        /// <summary>
+        /// <c>--bench &lt;out.json&gt;</c> with a model file: open it, time fixed views uncapped, write the results and exit
+        /// (null = a normal run). See GameSession.Bench.
+        /// </summary>
+        public static string BenchOutput { get; private set; }
+
         [STAThread]
         private static int Main(string[] args)
         {
@@ -40,6 +46,7 @@ namespace BimGo
             if (LaunchSettings.SafeStart) { Utilities.Log_Utils.Write("Safe start: default settings (Basic profile) for this run; nothing is saved."); }
 
             OpenTarget initial = ParseArguments(args);
+            BenchOutput = ValueOf(args, "--bench");
             Utilities.Log_Utils.Write($"BimGo {Version} starting{(initial?.Path != null ? ": " + initial.Path : initial?.SessionId != null ? ": session " + initial.SessionId : string.Empty)}{(initial?.Kiosk == true ? " (kiosk)" : string.Empty)}");
 
             using AppInstance instance = AppInstance.Claim();
@@ -152,7 +159,18 @@ namespace BimGo
         }
 
         /// <summary>Switches followed by a value (the rest are flags: --kiosk, --safe, --register, --unregister, --quiet).</summary>
-        private static bool TakesValue(string name) => string.Equals(name, "--session", StringComparison.OrdinalIgnoreCase);
+        private static bool TakesValue(string name) =>
+            string.Equals(name, "--session", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "--bench", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>The value after switch <paramref name="name"/>, or null.</summary>
+        private static string ValueOf(string[] args, string name)
+        {
+            for (int i = 0; i < args.Length - 1; i++)
+            {
+                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase)) { return Path.GetFullPath(args[i + 1].Trim('"')); }
+            }
+            return null;
+        }
 
         private static string GetVersion()
         {
