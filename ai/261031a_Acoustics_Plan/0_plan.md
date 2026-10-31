@@ -129,7 +129,7 @@ rays would start inside a closed solid.
   masked or flagged.
 - **Not covered yet:**
   - structure-borne sound, vibration, duct and pipe breakout;
-  - transmission to neighbouring rooms;
+  - transmission to neighbouring rooms until AC-T;
   - the equipment's real directivity.
 - **Absorption data:** the α values are assumptions, and the report lists them, as the lighting input lists its
   reflectances.
@@ -156,13 +156,18 @@ rays would start inside a closed solid.
    - a statistical solve, with the direct term checked by line of sight;
    - the receiver grid, overlay, legend, probe, target, CSV.
    - This already answers "two pumps add, and the room absorbs".
-4. **AC-D, ray-traced reflected field (hybrid):**
+4. **AC-T, transmission to neighbouring rooms** (requested; detail in `2_transmission.md`). It comes after AC-C and
+   before AC-D:
+   - STC / Rw / octave TL per wall, door, window, floor / slab type, and CAC for ceilings;
+   - composite partitions;
+   - room adjacency from extraction;
+   - the neighbours' levels, with the dominant path.
+5. **AC-D, ray-traced reflected field (hybrid):**
    - a worker job with progress and cancel;
    - quality presets (rays, maximum order);
    - T per band from the traced decay, compared with Sabine / Eyring;
    - the MATERIALS tab.
-5. **AC-E, optional:**
-   - transmission to neighbouring rooms (wall-type TL / STC from parameters: Lp₂ = Lp₁ − TL + 10 log(S / A₂));
+6. **AC-E, optional:**
    - Maekawa barriers;
    - listening through `SoundSystem`;
    - an HTML report.
