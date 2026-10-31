@@ -605,6 +605,26 @@ namespace BimGo.Scene
     /// </summary>
     public static class LightProfiles
     {
+        #region Output check
+
+        /// <summary>How far apart (either way) Revit's lumens and the photometric file's may be before the LIGHTS tab says so.</summary>
+        public const float LUMEN_MISMATCH = 2f;
+
+        /// <summary>
+        /// Revit's output for a fixture type (its Initial Intensity, which Revit uses: the .ies file only shapes the
+        /// light) over the output its own photometric file describes, when they are <see cref="LUMEN_MISMATCH"/> or more
+        /// apart; 0 when they agree or either is unknown (an estimated output, a file without one). A placeholder file
+        /// (another fixture's photometry) or a mistyped intensity is the usual cause.
+        /// </summary>
+        public static float LumenMismatch(float revitLumens, float fileLumens)
+        {
+            if (!(revitLumens > 0f) || !(fileLumens >= 10f) || !float.IsFinite(revitLumens) || !float.IsFinite(fileLumens)) { return 0f; }
+            float ratio = revitLumens / fileLumens;
+            return ratio >= LUMEN_MISMATCH || ratio <= 1f / LUMEN_MISMATCH ? ratio : 0f;
+        }
+
+        #endregion
+
         #region Keys
 
         /// <summary>Key prefix of a file's profile (its content hash follows).</summary>

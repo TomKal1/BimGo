@@ -196,6 +196,17 @@ TILT=NONE
         }
 
         [TestMethod]
+        public void LumenMismatch_FlagsTwiceOrMoreEitherWay()
+        {
+            Assert.AreEqual(8913f / 2013f, LightProfiles.LumenMismatch(8913f, 2013f), 1e-4f, "Snowdon's Art Glass pendant");
+            Assert.AreEqual(0.25f, LightProfiles.LumenMismatch(500f, 2000f), 1e-6f, "dimmer counts too");
+            Assert.AreEqual(0f, LightProfiles.LumenMismatch(1380f, 1463f), "close enough");
+            Assert.AreEqual(0f, LightProfiles.LumenMismatch(1999f, 1000f), "just under 2×");
+            Assert.AreEqual(0f, LightProfiles.LumenMismatch(0f, 2000f), "estimated output");
+            Assert.AreEqual(0f, LightProfiles.LumenMismatch(2000f, 0f), "a file without an output");
+        }
+
+        [TestMethod]
         public void Profile_FineTableMatchesTheShapeAndKeepsEnergy()
         {
             LightProfile spot = LightProfile.FromIes(LightProfiles.KeyOf(SPOT), "spot.ies", SPOT, out string error);
