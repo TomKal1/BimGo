@@ -16,7 +16,7 @@ namespace BimGo.Extraction
     /// elements, materials whose name contains one of <see cref="LaunchSettings.EmissiveKeywords"/> glow too, and a
     /// raised fixture with neither gets its bottom, downward-facing faces as a guessed lens.</item>
     /// <item><b>Lights:</b> one per Lighting Fixtures element, at the centre of its glowing surface (just in front of
-    /// it), pointing the way that surface faces; output and colour temperature from the fixture's parameters when they
+    /// it), pointing the way that surface faces (no glowing surface: <see cref="FixturePlacement.WithoutLens"/>); output and colour temperature from the fixture's parameters when they
     /// can be read ("Initial Intensity", "Initial Color"…), else estimated.</item>
     /// </list>
     /// Everything here is best effort: a failure leaves the element unlit, never fails the extraction.
@@ -295,8 +295,8 @@ namespace BimGo.Extraction
             else
             {
                 if (!bounds.IsValid) { return; }
-                Vector3 size = bounds.Size;
-                position = new Vector3(bounds.Center.X, bounds.Center.Y, bounds.Max.Z - 0.15f * size.Z);
+                // Hung from its origin (a pendant, its box up its cord): just below its bottom; else (a lamp) near its top
+                position = FixturePlacement.WithoutLens(bounds, _fixtureTransform == null ? null : ToScenePoint(_fixtureTransform.Origin));
                 downward = 0.2f;
                 estimated = true;
             }

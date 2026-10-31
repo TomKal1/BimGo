@@ -41,6 +41,10 @@ namespace BimGo.Game
         private float[] _lightRadius = Array.Empty<float>();
         private float[] _lightLumens = Array.Empty<float>();
 
+        // Where each light emits: as exported, or (older exports) a pendant's no-lens light moved from under the ceiling to
+        // just below its shade (FixturePlacement.Corrected)
+        private Vector3[] _lightPosition = Array.Empty<Vector3>();
+
         /// <summary>The illuminance (lx) at which a light's reach ends: 1/200 of full albedo at the 100 lx exposure (under one 8-bit step).</summary>
         private const float REACH_LUX = 0.5f;
 
@@ -86,6 +90,9 @@ namespace BimGo.Game
 
         #endregion
 
+        /// <summary>Where light <paramref name="i"/> emits (see <see cref="_lightPosition"/>).</summary>
+        private Vector3 LightPosition(int i) => i < _lightPosition.Length ? _lightPosition[i] : Scene.Lighting.Lights[i].Position;
+
         /// <summary>True if the model has lighting fixtures or glowing surfaces.</summary>
         private bool HasArtificialLighting => !Scene.Lighting.IsEmpty;
 
@@ -105,7 +112,9 @@ namespace BimGo.Game
             _lightColour = new Vector3[lights.Length];
             _lightRadius = new float[lights.Length];
             _lightLumens = new float[lights.Length];
+            _lightPosition = new Vector3[lights.Length];
             _lightOfElement.Clear();
+            int movedPendants = 0;
             for (int i = 0; i < lights.Length; i++)
             {
                 LightSource light = lights[i];
@@ -113,7 +122,12 @@ namespace BimGo.Game
                 _lightRadius[i] = LightReach(light.Lumens, DownwardPeak(light.Downward));
                 _lightLumens[i] = light.Lumens;
                 _lightOfElement.TryAdd(light.Element, i);
+                ElementRecord fixture = light.Element >= 0 && light.Element < Scene.Elements.Length ? Scene.Elements[light.Element] : null;
+                Vector3? origin = fixture == null || fixture.IsLinked ? null : fixture.Pivot; // linked elements carry no family origin
+                _lightPosition[i] = FixturePlacement.Corrected(light.Position, fixture?.Bounds ?? default, origin, out bool moved);
+                if (moved) { movedPendants++; }
             }
+            if (movedPendants > 0) { Utilities.Log_Utils.Write($"Artificial lights: {movedPendants} fixture(s) hung from their origin without a lens lit from below their bottom instead of under the ceiling (an older export's placement)."); }
             if (lights.Length > 0 || Scene.Lighting.Emissive.Length > 0)
             {
                 Utilities.Log_Utils.Write($"Artificial lights: {lights.Length} fixtures, mode {_lightMode}, brightness {_lightIntensity:0.00}, bloom {_bloomIntensity:0.00}.");
@@ -253,14 +267,14 @@ namespace BimGo.Game
 
                 if (!_hidden[e])
                 {
-                    Consider(i, lights[i].Position, i, LightCodeOf(i));
+                    Consider(i, LightPosition(i), i, LightCodeOf(i));
                     continue;
                 }
 
                 // Hidden in the static scene: moved (follow it) or removed (dark)
                 DynamicInstance moved = Dynamics.FindOriginal(e);
                 if (moved == null || !Dynamics.IsActive(moved)) { continue; }
-                Consider(i, Vector3.Transform(lights[i].Position, moved.Model), ((long)moved.Id << 32) | (uint)i, LightCodeOf(i, moved.Model));
+                Consider(i, Vector3.Transform(LightPosition(i), moved.Model), ((long)moved.Id << 32) | (uint)i, LightCodeOf(i, moved.Model));
             }
 
             foreach (DynamicInstance instance in Dynamics.Instances)
@@ -271,7 +285,7 @@ namespace BimGo.Game
                 for (int i = first; i < lights.Length && lights[i].Element == instance.Element; i++)
                 {
                     if (i < _lightKept.Length && !_lightKept[i]) { continue; }
-                    Consider(i, Vector3.Transform(lights[i].Position, instance.Model), ((long)instance.Id << 32) | (uint)i, LightCodeOf(i, instance.Model));
+                    Consider(i, Vector3.Transform(LightPosition(i), instance.Model), ((long)instance.Id << 32) | (uint)i, LightCodeOf(i, instance.Model));
                 }
             }
         }

@@ -143,7 +143,7 @@ namespace BimGo.Game
             {
                 int e = lights[i].Element;
                 if (_userHidden[e] || ProfileHides(e) || !_groupVisible[SceneBatches.GroupOf(elements[e])]) { continue; }
-                Vector3 at = lights[i].Position;
+                Vector3 at = LightPosition(i);
                 int id = 0;
                 if (_hidden[e])
                 {
