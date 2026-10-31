@@ -119,6 +119,7 @@ namespace BimGo.Rendering
 
         // Glowing surfaces: a per-vertex RGBA8 stream (attribute 3), only when the model has any
         private uint _emissiveVbo;
+        private uint _depthTierVbo; // coplanar faces' depth tie-break (attribute 7)
 
         // Realistic mode: per-vertex material index (attribute 4) and surface coordinates (attribute 5), the material
         // table and texture arrays; only when the snapshot was extracted with materials
@@ -502,6 +503,7 @@ namespace BimGo.Rendering
             // Glowing surfaces: a second vertex stream on both VAOs (left disabled when there are none: reads as no glow)
             UploadEmissive(scene);
             UploadMaterials(scene);
+            UploadDepthTiers(scene);
             if (HasMaterials) { RefreshReflectivePlanes(); } // Round X-C1: glass / mirror planes
             _dynamicRanges = new ElementRange[scene.Elements.Length];
             _hasDynamicRange = new bool[scene.Elements.Length];
@@ -554,6 +556,58 @@ namespace BimGo.Rendering
             Gl.BindVertexArray(0);
             Gl.BindBuffer(Gl.ARRAY_BUFFER, 0);
             Utilities.Log_Utils.Write($"Glowing surfaces: {glowing:N0} vertices in {runs.Length:N0} runs.");
+        }
+
+        /// <summary>
+        /// Overlapping coplanar faces (two finish floors with one top, a finish over a slab): each element's tier from
+        /// <see cref="CoplanarTiers"/> per vertex, attribute 7 of both VAOs. Left disabled when nothing overlaps (reads 0).
+        /// </summary>
+        private void UploadDepthTiers(SceneData scene)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            byte[] tiers = CoplanarTiers.Find(scene.Vertices, scene.Indices, scene.Elements);
+            if (tiers == null) { return; }
+
+            float[] perVertex = new float[scene.Vertices.Length];
+            uint[] indices = scene.Indices;
+            int raised = 0;
+            for (int e = 0; e < tiers.Length; e++)
+            {
+                if (tiers[e] == 0) { continue; }
+                raised++;
+                ElementRecord record = scene.Elements[e];
+                Fill(record.OpaqueStart, record.OpaqueCount, tiers[e]);
+                Fill(record.TransparentStart, record.TransparentCount, tiers[e]);
+            }
+            if (raised == 0) { return; }
+
+            _depthTierVbo = Gl.GenBuffer();
+            Gl.BindBuffer(Gl.ARRAY_BUFFER, _depthTierVbo);
+            fixed (float* data = perVertex)
+            {
+                Gl.BufferData(Gl.ARRAY_BUFFER, (nint)perVertex.Length * sizeof(float), data, Gl.STATIC_DRAW);
+            }
+            foreach (uint vao in new[] { _vao, _dynamicVao })
+            {
+                Gl.BindVertexArray(vao);
+                Gl.BindBuffer(Gl.ARRAY_BUFFER, _depthTierVbo);
+                Gl.EnableVertexAttribArray(7);
+                Gl.VertexAttribPointer(7, 1, Gl.FLOAT, false, sizeof(float), 0);
+            }
+            Gl.BindVertexArray(0);
+            Gl.BindBuffer(Gl.ARRAY_BUFFER, 0);
+            Utilities.Log_Utils.Write($"Coplanar faces: {raised:N0} elements drawn a step forward ({clock.ElapsedMilliseconds} ms).");
+
+            void Fill(int start, int count, float tier)
+            {
+                if (count <= 0 || start < 0) { return; }
+                int end = Math.Min(indices.Length, start + count);
+                for (int i = start; i < end; i++)
+                {
+                    uint v = indices[i];
+                    if (v < (uint)perVertex.Length) { perVertex[v] = tier; }
+                }
+            }
         }
 
         /// <summary>
@@ -1593,6 +1647,7 @@ namespace BimGo.Rendering
             Gl.DeleteBuffer(_materialVbo);
             Gl.DeleteBuffer(_uvVbo);
             Gl.DeleteBuffer(_emissiveVbo);
+            Gl.DeleteBuffer(_depthTierVbo);
             Gl.DeleteBuffer(_vbo);
             Gl.DeleteBuffer(_ibo);
             Gl.DeleteBuffer(_dynamicIbo);
