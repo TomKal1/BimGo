@@ -19,6 +19,8 @@ WW Tools can port them and its calculations match BimGo's:
 |---|---|---|---|
 | Which model's fixtures light | `fixtureSource`: `host` · `links` · `all` (absent = `auto`) | `Scene/FixtureSources.Kept` | `auto`: every host fixture; a linked fixture only where no host light of the same family type is within 5 cm |
 | Fixture output (lumens) | `output`: `flagged` · `file` (absent = `revit`) | `Scene/LightProfiles.ResolveOutput` | `revit`: the type's Initial Intensity |
+| Light centres | calc set `manualSourcePlacement` (absent = auto) | engine `LuminaireMounting.Place` | auto mounting on, as WW Tools' `AutoPlaceSources`; old sets' `correctRecessedSources` is ignored |
+| Aim of a fixture with no photometry | — | `ExportedSceneInput` | world-down for the estimated lobe (WW Tools: spherical); the family's own Z is meaningless there |
 
 **Fixture output** (`ResolveOutput(mode, revitLumens, guessed, fileLumens)`): Revit's Initial Intensity, or the photometric
 file's own output (its candela integrated over the sphere, clamped to 50–50 000 lm) when the mode is `file`, when it is

@@ -150,8 +150,10 @@ public static class ExportedSceneInput
                 input.Emitters.Add(new CalculationEmitter { Key = identity + "/source:" + light.Index, FixtureKey = identity, Type = element.FamilyType,
                     BodyMin = body ? World(bounds.Min) : null, BodyMax = body ? World(bounds.Max) : null,
                     AutoMount = source.CalculationOrigin != null && fixture?.UsePreviewLensPosition != true && (fixture?.HeightOffset ?? 0) == 0,
-                    Position = World(p), Nadir = Vector(Vector3.Normalize(Vector3.TransformNormal(source.Aim, transform))),
-                    Axis0 = Vector(Vector3.Normalize(Vector3.TransformNormal(source.Across, transform))),
+                    // No photometry at all: the estimated lobe's downward share is world-down, as the view lights it and WW Tools
+                    // treats it (spherical); the exported aim of such a fixture is only its family's Z (up when ceiling hosted)
+                    Position = World(p), Nadir = chosen == null && ies == null ? new double[] { 0, 0, -1 } : Vector(Vector3.Normalize(Vector3.TransformNormal(source.Aim, transform))),
+                    Axis0 = chosen == null && ies == null ? new double[] { 1, 0, 0 } : Vector(Vector3.Normalize(Vector3.TransformNormal(source.Across, transform))),
                     Ies = ies, Estimated = ies == null, Provenance = provenance + (source.Estimated ? "; source placement/output marked estimated by exporter" : ""),
                     Lumens = source.Lumens, Downward = chosen == LightProfiles.HEMISPHERICAL ? 1 : source.Downward, Multiplier = set.LightLossFactor * output });
             }
