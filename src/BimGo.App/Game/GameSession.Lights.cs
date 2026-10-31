@@ -41,12 +41,22 @@ namespace BimGo.Game
         private float[] _lightRadius = Array.Empty<float>();
         private float[] _lightLumens = Array.Empty<float>();
 
+        /// <summary>The illuminance (lx) at which a light's reach ends: 1/200 of full albedo at the 100 lx exposure (under one 8-bit step).</summary>
+        private const float REACH_LUX = 0.5f;
+
         /// <summary>
-        /// Round Y-C1 r2: how far a light reaches (m; its light fades to nothing there, and it only counts for the view
-        /// when that sphere touches it): 0.22 × √lumens, 3–12 m (was 0.16 × √lm, 2.5–9 m: lights came on too close to
-        /// the player). 1000 lm ≈ 7 m, 3000 lm = 12 m.
+        /// How far a light reaches (m; it only counts for the view when that sphere touches it, and its direct light fades
+        /// over the last part of it): where its strongest candela falls to <see cref="REACH_LUX"/> by the inverse square
+        /// law, 3–30 m. 1000 lm omnidirectional ≈ 13 m; a 1000 lm downlight (peak 3 × even) ≈ 22 m. Was 0.22 × √lumens,
+        /// 3–12 m whatever the beam, which dimmed lights well inside it and cut narrow beams short.
         /// </summary>
-        private static float LightReach(float lumens) => Math.Clamp(MathF.Sqrt(MathF.Max(lumens, 0f)) * 0.22f, 3f, 12f);
+        /// <param name="lumens">Its output.</param>
+        /// <param name="peak">Its strongest intensity over an even light's of the same output (a profile's scale).</param>
+        private static float LightReach(float lumens, float peak) =>
+            Math.Clamp(MathF.Sqrt(MathF.Max(lumens, 0f) * LIGHT_SCALE * 100f * MathF.Max(peak, 1f) / REACH_LUX), 3f, 30f);
+
+        /// <summary>The peak of the shader's downward-share lobe, mix(1, 4 cos, share), over an even light's.</summary>
+        private static float DownwardPeak(float downward) => 1f + 3f * Math.Clamp(downward, 0f, 1f);
 
         /// <summary>Round Y-C1: a light used last frame ranks this many times higher (≈ 22 % closer), so the choice is steady.</summary>
         private const float RANK_KEEP = 1.5f;
@@ -100,7 +110,7 @@ namespace BimGo.Game
             {
                 LightSource light = lights[i];
                 _lightColour[i] = LightingData.KelvinToRgb(light.Kelvin) * (light.Lumens * LIGHT_SCALE);
-                _lightRadius[i] = LightReach(light.Lumens);
+                _lightRadius[i] = LightReach(light.Lumens, DownwardPeak(light.Downward));
                 _lightLumens[i] = light.Lumens;
                 _lightOfElement.TryAdd(light.Element, i);
             }

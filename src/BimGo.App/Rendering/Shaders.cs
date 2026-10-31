@@ -730,8 +730,9 @@ float ambientOcclusion(vec3 world, vec3 eye)
         /// Artificial lights, shared by the scene and ground fragment shaders (inserted after AO_GLSL). Up to 32 point
         /// lights picked on the CPU each frame (nearest to the player, in view), each with a cached omnidirectional
         /// shadow map (LightShadows: 6 layers per light in one depth array; the face is picked here from the major
-        /// axis, with the same face table as LightShadows.FaceForward / FaceUp). Light fades to zero at its radius
-        /// (windowed inverse square); its lobe mixes omnidirectional light with a downward cosine (downlights, panels).
+        /// axis, with the same face table as LightShadows.FaceForward / FaceUp). Light is the inverse square law in lux
+        /// (LIGHT_SCALE: 100 lx = full albedo), fading to zero only near its radius (where its peak falls to 0.5 lx); its
+        /// lobe mixes omnidirectional light with a downward cosine (downlights, panels), or follows its IES profile.
         /// A small share of each light also fills what it can see evenly (a stand-in for light bouncing off the floor
         /// and walls), darkened by AO, so ceilings and faces turned away aren't black; a third of that fill reaches
         /// shadowed spots (under tables), about 2 % of the light through a wall.
@@ -794,6 +795,27 @@ float profileLobe(float encoded, vec3 v)
 }
 
 const float LIGHT_BOUNCE = 0.06;
+// Inverse square softened within ~0.2 m of the source (a sconce on a wall), not beyond
+const float LIGHT_SOFT = 0.04;
+
+// Direct light: the inverse square law untouched to ~60 % of the reach (the radius is where it falls to 0.5 lx), then
+// a fade to zero at it: (1 − x⁴)², x = d² / r² (0.99 at half the reach, 0.89 at 0.7)
+float directWindow(float dist2, float r2)
+{
+    float x = dist2 / r2;
+    float w = 1.0 - x * x * x * x;
+    return w * w;
+}
+
+// The even fill (bounce stand-in) keeps a room-sized reach: half the light's, faded as before, (1 − x²)²
+float fillWindow(float dist2, float r2)
+{
+    float x = dist2 / (0.25 * r2);
+    if (x >= 1.0) return 0.0;
+    float w = 1.0 - x * x;
+    return w * w;
+}
+
 const float LIGHT_NEAR = 0.08;
 const float LIGHT_PAD = 1.03;
 const vec3 FACE_F[6] = vec3[6](vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, -1.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0));
@@ -838,20 +860,18 @@ vec3 artificialLight(vec3 world, vec3 n, float ao)
         if (dist2 >= r2) continue;
         vec4 sh = uLightShadow[i];
         float visible = lightVisibility(world, n, lp.xyz, lp.w, sh.x, sh.z);
-        float window = 1.0 - (dist2 * dist2) / (r2 * r2);
-        window *= window * sh.y;
         vec4 lc = uLightColor[i];
         // Fill reaches shadowed spots a little (under tables), so they aren't black
-        sum += lc.rgb * (LIGHT_BOUNCE * window * ao * mix(0.35, 1.0, visible));
+        sum += lc.rgb * (LIGHT_BOUNCE * fillWindow(dist2, r2) * sh.y * ao * mix(0.35, 1.0, visible));
         if (visible <= 0.0) continue;
-        window *= visible;
+        float window = directWindow(dist2, r2) * sh.y * visible;
 
         vec3 l = d * inversesqrt(max(dist2, 1e-8));
         float ndl = dot(n, l);
         if (ndl <= 0.0) continue;
         // l points from the surface to the light: l.z > 0 when the surface is below it (X-D1: or the light's profile)
         float lobe = lc.w >= 0.0 ? mix(1.0, 4.0 * max(l.z, 0.0), lc.w) : profileLobe(lc.w, -l);
-        sum += lc.rgb * (lobe * window * ndl / (dist2 + 0.25));
+        sum += lc.rgb * (lobe * window * ndl / (dist2 + LIGHT_SOFT));
     }
     // Round X-C1: the unshadowed far lights (same falloff and lobe; their fill counts as seen)
     for (int i = 0; i < 480; i++)
@@ -862,15 +882,14 @@ vec3 artificialLight(vec3 world, vec3 n, float ao)
         float dist2 = dot(d, d);
         float r2 = lp.w * lp.w;
         if (dist2 >= r2) continue;
-        float window = 1.0 - (dist2 * dist2) / (r2 * r2);
-        window *= window;
+        float window = directWindow(dist2, r2);
         vec4 lc = uFarColor[i];
-        sum += lc.rgb * (LIGHT_BOUNCE * window * ao);
+        sum += lc.rgb * (LIGHT_BOUNCE * fillWindow(dist2, r2) * ao);
         vec3 l = d * inversesqrt(max(dist2, 1e-8));
         float ndl = dot(n, l);
         if (ndl <= 0.0) continue;
         float lobe = lc.w >= 0.0 ? mix(1.0, 4.0 * max(l.z, 0.0), lc.w) : profileLobe(lc.w, -l);
-        sum += lc.rgb * (lobe * window * ndl / (dist2 + 0.25));
+        sum += lc.rgb * (lobe * window * ndl / (dist2 + LIGHT_SOFT));
     }
     return sum;
 }

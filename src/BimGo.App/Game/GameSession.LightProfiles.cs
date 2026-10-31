@@ -237,7 +237,7 @@ namespace BimGo.Game
                 if (i < _lightColour.Length)
                 {
                     _lightColour[i] = LightingData.KelvinToRgb(light.Kelvin) * (lumens * LIGHT_SCALE);
-                    _lightRadius[i] = LightReach(lumens);
+                    _lightRadius[i] = LightReach(lumens, slot >= 0 ? profile.FineScale : DownwardPeak(light.Downward));
                     _lightLumens[i] = lumens; // Y-C1: ranks the live lights
                 }
             }
