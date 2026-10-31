@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Text.Json;
 using BimGo.Rendering;
 using BimGo.Scene;
+using Gl = BimGo.Native.Gl;
 
 // The class belongs to the Game namespace
 namespace BimGo.Game
@@ -13,7 +14,8 @@ namespace BimGo.Game
     /// VSync and the UI hidden. Each view warms up (shadow maps, probes, occlusion answers) before its frames are sampled:
     /// the GPU stages' unsmoothed times and the CPU frame time. Results (median, mean, p95 per view and over all views)
     /// go to the JSON file, then the app exits without saving anything. The settings are the user's own, so a before /
-    /// after pair must run on the same machine and settings.
+    /// after pair must run on the same machine and settings. Each room's first view is also saved as a PNG beside the
+    /// JSON (its last warm-up frame), to compare how a change looks as well as what it costs.
     /// </summary>
     internal sealed partial class GameSession
     {
@@ -98,6 +100,22 @@ namespace BimGo.Game
             }
             BenchView view = _bench[_benchView];
             _player.TeleportTo(view.Feet, view.Yaw, 0f);
+        }
+
+        /// <summary>Before the frame is presented: a room's first view saves its last warm-up frame (not a timed one).</summary>
+        private unsafe void BenchBeforeSwap()
+        {
+            if (_benchView < 0 || _benchView >= _bench.Count) { return; }
+            BenchView view = _bench[_benchView];
+            if (view.Warm != BENCH_WARM_ROOM || _benchFrame + 1 != view.Warm) { return; }
+            int width = _window.Width, height = _window.Height;
+            var pixels = new byte[width * height * 4];
+            Gl.BindFramebuffer(Gl.READ_FRAMEBUFFER, 0);
+            Gl.ReadBuffer(Gl.BACK);
+            Gl.PixelStore(Gl.PACK_ALIGNMENT, 1);
+            fixed (byte* p = pixels) { Gl.ReadPixels(0, 0, width, height, Gl.BGRA, Gl.UNSIGNED_BYTE, p); }
+            string stem = Path.Combine(Path.GetDirectoryName(Program.BenchOutput)!, Path.GetFileNameWithoutExtension(Program.BenchOutput));
+            SavePng($"{stem} view{_benchView:00}.png", pixels, width, height);
         }
 
         /// <summary>One presented frame: warm up, then sample (GPU times only on frames whose answers came back).</summary>

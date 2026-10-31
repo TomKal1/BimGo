@@ -617,6 +617,7 @@ namespace BimGo.Game
                 UpdateGuns(dt);
 
                 Render();
+                if (Benchmarking) { BenchBeforeSwap(); }
                 _window.Swap();
                 _window.Input.EndFrame();
                 UpdateFps(dt);
