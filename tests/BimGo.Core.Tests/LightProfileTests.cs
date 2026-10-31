@@ -196,6 +196,24 @@ TILT=NONE
         }
 
         [TestMethod]
+        public void Profile_FineTableMatchesTheShapeAndKeepsEnergy()
+        {
+            LightProfile spot = LightProfile.FromIes(LightProfiles.KeyOf(SPOT), "spot.ies", SPOT, out string error);
+            Assert.IsNotNull(spot, error);
+            Assert.AreEqual(LightProfile.FINE_SIZE, spot.Fine.Length);
+            Assert.AreEqual(ushort.MaxValue, spot.Fine.Max(), "peak 1 at 16 bits");
+            Assert.AreEqual(1f, LightProfile.SampleFine(spot.Fine, 0f, 0f), 1e-4f, "peak straight out");
+            Assert.AreEqual(0f, LightProfile.SampleFine(spot.Fine, 150f, 0f), 1e-4f);
+            // The shader's table follows the coarse one across the beam (the coarse table's 8-bit steps and 5.8° rows aside)
+            for (float g = 0f; g <= 90f; g += 5f)
+            {
+                Assert.AreEqual(spot.Sample(g, 0f), LightProfile.SampleFine(spot.Fine, g, 0f), 0.08f, $"gamma {g}");
+            }
+            // Energy: both scales (4π / each table's integral) agree on how concentrated the beam is
+            Assert.AreEqual(spot.Scale, spot.FineScale, spot.Scale * 0.1f);
+        }
+
+        [TestMethod]
         public void BuiltIns_AreDistinctAndShaped()
         {
             LightProfile[] all = LightProfiles.BuiltIns;

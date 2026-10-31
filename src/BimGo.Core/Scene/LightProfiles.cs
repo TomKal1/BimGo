@@ -38,6 +38,21 @@ namespace BimGo.Scene
         /// <summary>C step (degrees).</summary>
         public const float C_STEP = 360f / HORIZONTAL;
 
+        /// <summary>The shader's finer table: gamma samples (0–180°, 2.5° steps).</summary>
+        public const int FINE_VERTICAL = 73;
+
+        /// <summary>The shader's finer table: C samples (0–360°, 7.5° steps, wrapping).</summary>
+        public const int FINE_HORIZONTAL = 48;
+
+        /// <summary>Values per fine table.</summary>
+        public const int FINE_SIZE = FINE_VERTICAL * FINE_HORIZONTAL;
+
+        /// <summary>Fine table gamma step (degrees).</summary>
+        public const float FINE_GAMMA_STEP = 180f / (FINE_VERTICAL - 1);
+
+        /// <summary>Fine table C step (degrees).</summary>
+        public const float FINE_C_STEP = 360f / FINE_HORIZONTAL;
+
         /// <summary>Largest .ies file read (bytes): real ones are a few KB, the biggest well under this.</summary>
         public const int MAX_IES_BYTES = 512 * 1024;
 
@@ -56,6 +71,22 @@ namespace BimGo.Scene
 
         /// <summary>4π / the table's integral over the sphere (peak 1): see the class notes.</summary>
         public float Scale { get; init; } = 1f;
+
+        /// <summary>
+        /// The shader's table (<see cref="FINE_SIZE"/> 16-bit values, peak 65535, row = gamma, column = C): the same
+        /// intensity sampled finer and without 8-bit steps, so narrow beams and dim tails keep their shape on screen.
+        /// </summary>
+        public ushort[] Fine { get; init; } = FilledFine();
+
+        /// <summary><see cref="Scale"/> for <see cref="Fine"/>.</summary>
+        public float FineScale { get; init; } = 1f;
+
+        private static ushort[] FilledFine()
+        {
+            var fine = new ushort[FINE_SIZE];
+            Array.Fill(fine, ushort.MaxValue);
+            return fine;
+        }
 
         /// <summary>The luminaire's output the file implies (its candela integrated, lm), or 0 for built-ins.</summary>
         public float Lumens { get; init; }
@@ -157,12 +188,16 @@ namespace BimGo.Scene
                 for (int i = 0; i < TABLE_SIZE; i++) { table[i] = (byte)Math.Clamp((int)MathF.Round(raw[i] / peak * 255f), 0, 255); }
             }
             float integral = Integrate(table);
+            ushort[] fine = FineTable(intensity);
+            float fineIntegral = Integrate((g, c) => SampleFine(fine, g, c));
             return new LightProfile
             {
                 Key = key,
                 Name = name,
                 Table = table,
                 Scale = integral > 1e-4f ? 4f * MathF.PI / integral : 1f,
+                Fine = fine,
+                FineScale = fineIntegral > 1e-4f ? 4f * MathF.PI / fineIntegral : 1f,
                 Lumens = lumens,
                 BeamAngle = BeamOf(table),
                 TiltAngles = tiltAngles,
@@ -181,10 +216,55 @@ namespace BimGo.Scene
             return FromFunction(key, name, data.Candela, data.TotalLumens(), data.TiltAngles, data.TiltFactors);
         }
 
+        /// <summary>The fine table of <paramref name="intensity"/> (peak 65535; an even light when it gives nothing).</summary>
+        private static ushort[] FineTable(Func<float, float, float> intensity)
+        {
+            var raw = new float[FINE_SIZE];
+            float peak = 0f;
+            for (int v = 0; v < FINE_VERTICAL; v++)
+            {
+                for (int h = 0; h < FINE_HORIZONTAL; h++)
+                {
+                    float value = MathF.Max(0f, intensity(v * FINE_GAMMA_STEP, h * FINE_C_STEP));
+                    if (!float.IsFinite(value)) { value = 0f; }
+                    raw[v * FINE_HORIZONTAL + h] = value;
+                    peak = MathF.Max(peak, value);
+                }
+            }
+            var fine = new ushort[FINE_SIZE];
+            if (peak <= 0f) { Array.Fill(fine, ushort.MaxValue); }
+            else
+            {
+                for (int i = 0; i < FINE_SIZE; i++) { fine[i] = (ushort)Math.Clamp((int)MathF.Round(raw[i] / peak * 65535f), 0, 65535); }
+            }
+            return fine;
+        }
+
+        /// <summary>The fine table's relative intensity (peak 1), bilinear as the shader's texture filtering reads it.</summary>
+        public static float SampleFine(ushort[] fine, float gammaDegrees, float cDegrees)
+        {
+            float gv = Math.Clamp(gammaDegrees, 0f, 180f) / FINE_GAMMA_STEP;
+            int v0 = Math.Min((int)gv, FINE_VERTICAL - 2);
+            float fv = gv - v0;
+            float c = cDegrees % 360f;
+            if (c < 0f) { c += 360f; }
+            float ch = c / FINE_C_STEP;
+            int h0 = (int)ch % FINE_HORIZONTAL;
+            int h1 = (h0 + 1) % FINE_HORIZONTAL;
+            float fh = ch - MathF.Floor(ch);
+            float a = fine[v0 * FINE_HORIZONTAL + h0], b = fine[v0 * FINE_HORIZONTAL + h1];
+            float d = fine[(v0 + 1) * FINE_HORIZONTAL + h0], e = fine[(v0 + 1) * FINE_HORIZONTAL + h1];
+            float top = a + (b - a) * fh, bottom = d + (e - d) * fh;
+            return (top + (bottom - top) * fv) / 65535f;
+        }
+
         /// <summary>
         /// The table's integral over the sphere (peak 1), finely sampled through the same bilinear lookup the shader uses.
         /// </summary>
-        public static float Integrate(byte[] table)
+        public static float Integrate(byte[] table) => Integrate((g, c) => SampleTable(table, g, c));
+
+        /// <summary>The integral over the sphere of a relative intensity (gamma, C in degrees).</summary>
+        private static float Integrate(Func<float, float, float> sample)
         {
             const int GAMMA = 360, C = 64;
             double sum = 0.0;
@@ -196,7 +276,7 @@ namespace BimGo.Scene
                 float gDeg = (float)(gamma * 180.0 / Math.PI);
                 for (int j = 0; j < C; j++)
                 {
-                    sum += SampleTable(table, gDeg, (float)((j + 0.5) * 360.0 / C)) * band;
+                    sum += sample(gDeg, (float)((j + 0.5) * 360.0 / C)) * band;
                 }
             }
             return (float)sum;

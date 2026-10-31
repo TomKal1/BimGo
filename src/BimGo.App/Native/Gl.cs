@@ -60,6 +60,7 @@ namespace BimGo.Native
         // Artificial lights (glow target as a second colour attachment)
         public const uint RGBA16F = 0x881A, COLOR_ATTACHMENT1 = 0x8CE1;
         public const uint DEPTH_COMPONENT16 = 0x81A5, UNSIGNED_SHORT = 0x1403;
+        public const uint R16 = 0x822A; // the light profile tables
 
         // Material textures (mipmapped colour arrays, wrap, anisotropy via GL_EXT_texture_filter_anisotropic / GL 4.6)
         public const uint REPEAT = 0x2901, LINEAR_MIPMAP_LINEAR = 0x2703, TEXTURE_MAX_LEVEL = 0x813D;

@@ -758,21 +758,14 @@ layout(std140) uniform FarLights
     vec4 uFarColor[480];
 };
 
-// Round X-D1: light profiles (IES files and built-ins): 24 tables of 32 gamma × 16 C bytes (4 to a uint, 16 to a
-// uvec4: 32 uvec4 per table), and per table x = the scale to an even light of the same output
+// Round X-D1: light profiles (IES files and built-ins): 24 tables, one layer each of an R16 texture array (48 C
+// columns 7.5° apart, wrapping, × 73 gamma rows 2.5° apart; peak 1, filtered by the hardware), and per table x = the
+// scale to an even light of the same output
 layout(std140) uniform LightProfiles
 {
-    uvec4 uProfileData[768];
     vec4 uProfileInfo[24];
 };
-
-float profileByte(int base, int index)
-{
-    uvec4 q = uProfileData[base + (index >> 4)];
-    int w = (index >> 2) & 3;
-    uint word = w == 0 ? q.x : (w == 1 ? q.y : (w == 2 ? q.z : q.w));
-    return float((word >> uint((index & 3) * 8)) & 255u);
-}
+uniform sampler2DArray uProfileTable;
 
 vec3 profileOctDecode(vec2 o)
 {
@@ -793,19 +786,11 @@ float profileLobe(float encoded, vec3 v)
     float turn = float(code & 127) * (6.2831853 / 128.0);
     vec3 c0 = cos(turn) * x0 + sin(turn) * y0;
     vec3 c90 = cross(c0, n);
-    float gv = acos(clamp(dot(v, n), -1.0, 1.0)) * (31.0 / 3.14159265);
-    float ch = atan(dot(v, c90), dot(v, c0)) * (16.0 / 6.2831853);
-    if (ch < 0.0) ch += 16.0;
-    int v0 = min(int(gv), 30);
-    float fv = clamp(gv - float(v0), 0.0, 1.0);
-    int h0 = int(floor(ch)) & 15;
-    int h1 = (h0 + 1) & 15;
-    float fh = fract(ch);
-    int base = slot * 32;
-    int r0 = v0 * 16, r1 = r0 + 16;
-    float top = mix(profileByte(base, r0 + h0), profileByte(base, r0 + h1), fh);
-    float bottom = mix(profileByte(base, r1 + h0), profileByte(base, r1 + h1), fh);
-    return mix(top, bottom, fv) * (1.0 / 255.0) * uProfileInfo[slot].x;
+    // Texel centres sit on the samples: gamma row g at (g + 0.5) / 73, C column c at (c + 0.5) / 48
+    float gv = acos(clamp(dot(v, n), -1.0, 1.0)) * (72.0 / 3.14159265);
+    float ch = atan(dot(v, c90), dot(v, c0)) * (48.0 / 6.2831853);
+    vec2 uv = vec2((ch + 0.5) * (1.0 / 48.0), (gv + 0.5) * (1.0 / 73.0));
+    return texture(uProfileTable, vec3(uv, float(slot))).r * uProfileInfo[slot].x;
 }
 
 const float LIGHT_BOUNCE = 0.06;

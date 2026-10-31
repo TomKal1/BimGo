@@ -76,16 +76,16 @@ namespace BimGo.Rendering
             Count--;
         }
 
-        /// <summary>Round X-D1: bytes per profile table in the shader block (32 uvec4).</summary>
-        public const int PROFILE_BYTES = LightProfile.TABLE_SIZE;
+        /// <summary>Values per profile table (one layer of the shader's profile texture).</summary>
+        public const int PROFILE_VALUES = LightProfile.FINE_SIZE;
 
         /// <summary>
-        /// Round X-D1: the light profile tables (slot s at s × <see cref="PROFILE_BYTES"/>; the shader block reads them as
-        /// little-endian uints) and each slot's scale (x). Set when the per-type choices change, not per frame.
+        /// The light profile tables, 16-bit (slot s at s × <see cref="PROFILE_VALUES"/>: a layer of the renderer's R16
+        /// texture array, filtered by the hardware). Set when the per-type choices change, not per frame.
         /// </summary>
-        public readonly byte[] ProfileBytes = new byte[LightProfiles.MAX_GPU_PROFILES * PROFILE_BYTES];
+        public readonly ushort[] ProfileValues = new ushort[LightProfiles.MAX_GPU_PROFILES * PROFILE_VALUES];
 
-        /// <summary>Round X-D1: per slot, x = <see cref="LightProfile.Scale"/>.</summary>
+        /// <summary>Round X-D1: per slot, x = <see cref="LightProfile.FineScale"/>.</summary>
         public readonly Vector4[] ProfileInfo = new Vector4[LightProfiles.MAX_GPU_PROFILES];
 
         /// <summary>Round X-D1: the tables changed since the renderer last uploaded them.</summary>
@@ -95,8 +95,8 @@ namespace BimGo.Rendering
         public void SetProfile(int slot, LightProfile profile)
         {
             if (slot < 0 || slot >= LightProfiles.MAX_GPU_PROFILES || profile == null) { return; }
-            Buffer.BlockCopy(profile.Table, 0, ProfileBytes, slot * PROFILE_BYTES, PROFILE_BYTES);
-            ProfileInfo[slot] = new Vector4(profile.Scale, profile.BeamAngle, 0f, 0f);
+            Array.Copy(profile.Fine, 0, ProfileValues, slot * PROFILE_VALUES, PROFILE_VALUES);
+            ProfileInfo[slot] = new Vector4(profile.FineScale, profile.BeamAngle, 0f, 0f);
             ProfilesDirty = true;
         }
 
