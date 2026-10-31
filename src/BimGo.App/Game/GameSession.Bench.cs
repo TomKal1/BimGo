@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Numerics;
 using System.Text.Json;
+using BimGo.Format;
 using BimGo.Rendering;
 using BimGo.Scene;
 using Gl = BimGo.Native.Gl;
@@ -10,8 +11,8 @@ namespace BimGo.Game
 {
     /// <summary>
     /// The viewer benchmark (<c>BimGo.exe --bench out.json model.bimgo</c>): the rooms with the most fixture lights, four
-    /// directions each from the room's centre at eye height (flying, so nothing moves), timed with no frame rate limit or
-    /// VSync and the UI hidden. Each view warms up (shadow maps, probes, occlusion answers) before its frames are sampled:
+    /// directions each from the point of the room's outline farthest from its walls, at eye height (flying, so nothing
+    /// moves), at night (the fixtures carry the picture), timed with no frame rate limit or VSync and the UI hidden. Each view warms up (shadow maps, probes, occlusion answers) before its frames are sampled:
     /// the GPU stages' unsmoothed times and the CPU frame time. Results (median, mean, p95 per view and over all views)
     /// go to the JSON file, then the app exits without saving anything. The settings are the user's own, so a before /
     /// after pair must run on the same machine and settings. Each room's first view is also saved as a PNG beside the
@@ -53,7 +54,8 @@ namespace BimGo.Game
                 .ToList();
             foreach (var (room, count) in rooms)
             {
-                var feet = new Vector3((room.Min.X + room.Max.X) * 0.5f, (room.Min.Y + room.Max.Y) * 0.5f, room.BottomZ + 0.05f);
+                Vector2 plan = BenchSpot(room);
+                var feet = new Vector3(plan.X, plan.Y, room.BottomZ + 0.05f);
                 for (int k = 0; k < BENCH_YAWS; k++)
                 {
                     _bench.Add(new BenchView
@@ -75,6 +77,7 @@ namespace BimGo.Game
                 }
             }
 
+            ApplySunTime(new SunTime { Month = 6, Day = 21, Minutes = 23 * 60 });
             _frameLimit = 0;
             _vsync = false;
             Native.Wgl.SetSwapInterval(false);
@@ -87,6 +90,41 @@ namespace BimGo.Game
             _benchClock = Stopwatch.StartNew();
             Utilities.Log_Utils.Write($"Benchmark: {_bench.Count} views → {Program.BenchOutput}");
             NextBenchView();
+        }
+
+        /// <summary>
+        /// The point inside the room's outline (even-odd over its loops) farthest from any of its edges, on a 40 × 40 grid
+        /// over its bounds; the bounds' centre when the room has no outline. A box centre can sit in a wall (an L-shaped
+        /// corridor), which times and pictures the inside of the wall.
+        /// </summary>
+        private static Vector2 BenchSpot(RoomInfo room)
+        {
+            Vector2 best = (room.Min + room.Max) * 0.5f;
+            if (room.Loops == null || room.Loops.Length == 0) { return best; }
+            float bestClear = -1f;
+            const int N = 40;
+            for (int i = 0; i < N; i++)
+            {
+                for (int j = 0; j < N; j++)
+                {
+                    var q = new Vector2(room.Min.X + (room.Max.X - room.Min.X) * (i + 0.5f) / N, room.Min.Y + (room.Max.Y - room.Min.Y) * (j + 0.5f) / N);
+                    bool inside = false;
+                    float clear = float.MaxValue;
+                    foreach (Vector2[] loop in room.Loops)
+                    {
+                        for (int k = 0, m = loop.Length - 1; k < loop.Length; m = k++)
+                        {
+                            Vector2 a = loop[m], c = loop[k];
+                            if ((a.Y > q.Y) != (c.Y > q.Y) && q.X < (c.X - a.X) * (q.Y - a.Y) / (c.Y - a.Y) + a.X) { inside = !inside; }
+                            Vector2 ac = c - a;
+                            float t = ac.LengthSquared() > 1e-12f ? Math.Clamp(Vector2.Dot(q - a, ac) / ac.LengthSquared(), 0f, 1f) : 0f;
+                            clear = MathF.Min(clear, Vector2.Distance(q, a + ac * t));
+                        }
+                    }
+                    if (inside && clear > bestClear) { bestClear = clear; best = q; }
+                }
+            }
+            return best;
         }
 
         private void NextBenchView()
