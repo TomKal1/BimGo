@@ -119,11 +119,8 @@ The calculation needs, for every pair of rooms, the pieces that separate them: e
   centroid, normal and the host wall.
 - **Unknown neighbours:** faces with nothing on the other side are kept as exterior or unknown.
 
-**Fallback: older files.** For `.bimgo` files without the part, the pieces are derived from the exported triangles:
-- For each boundary triangle of a room, step through its element along the normal.
-- Test `RoomInfo.Contains` plus the Z range for the room on the other side.
-- This is less exact: doors are found as elements whose triangles touch both rooms, and openings are not subtracted.
-  The result says it used the fallback.
+Exports without `room-adjacency.json` are not supported: the calculation asks for a re-export. Files are still
+test exports, so there is no fallback for older ones (decided 2026-10-31).
 
 ## Entering STC
 
@@ -165,7 +162,7 @@ only needs the source room's levels at the partitions.
 
 1. **AC-T1, extraction (BimGo.Revit):**
    - room faces and their bounding elements, the room across, doors / windows, openings subtracted;
-   - `room-adjacency.json`; the triangle fallback in Core.
+   - `room-adjacency.json`.
    - **To verify on Windows:** the calculator APIs above on linked rooms, curtain walls, room separation lines (no
      element: treated as open), and phases.
 2. **AC-T2, Core maths and data:**
